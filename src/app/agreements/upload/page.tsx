@@ -248,11 +248,16 @@ export default function UploadAgreementPage() {
     e.preventDefault();
     setIsDragOver(false);
     const file = e.dataTransfer.files[0];
-    if (file && file.type === "application/pdf") {
+    const validTypes = [
+      "application/pdf",
+      "image/png", "image/jpeg", "image/webp",
+      "image/gif", "image/bmp", "image/tiff",
+    ];
+    if (file && (validTypes.includes(file.type) || file.name.match(/\.(pdf|png|jpe?g|webp|gif|bmp|tiff?)$/i))) {
       setSelectedFile(file);
       setError(null);
     } else {
-      setError("Please upload a PDF file.");
+      setError("Please upload a PDF or image file (PDF, PNG, JPG, WEBP, TIFF).");
     }
   }
 
@@ -277,8 +282,16 @@ export default function UploadAgreementPage() {
 
     try {
       const data = await uploadAndExtract(selectedFile);
-      setResult(data);
-      setStep(3);
+      if (data.error && data.status === "partial" && Object.keys(data.extraction || {}).length === 0) {
+        setError(data.error);
+        setStep(1);
+      } else {
+        setResult(data);
+        setStep(3);
+        if (data.error) {
+          setError(data.error);
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Extraction failed. Please try again.");
       setStep(1);
@@ -393,7 +406,7 @@ export default function UploadAgreementPage() {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".pdf"
+                accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tiff,.tif"
                 className="hidden"
                 onChange={handleFileSelect}
               />
@@ -416,17 +429,17 @@ export default function UploadAgreementPage() {
                     <CloudUpload className="h-7 w-7 text-neutral-400" />
                   </div>
                   <p className="text-sm font-medium text-black mb-1">
-                    Drag and drop your PDF here
+                    Drag and drop your document here
                   </p>
                   <p className="text-xs text-muted-foreground mb-3">
                     or click to browse files
                   </p>
-                  <Badge variant="outline" className="text-xs font-normal">PDF up to 50MB</Badge>
+                  <Badge variant="outline" className="text-xs font-normal">PDF or image up to 50MB</Badge>
                 </div>
               ) : (
                 <div className="flex items-center gap-3 p-4 rounded-xl border bg-neutral-50">
-                  <div className="h-10 w-10 rounded-lg bg-red-100 flex items-center justify-center">
-                    <FileText className="h-5 w-5 text-red-600" />
+                  <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${selectedFile?.type?.startsWith("image/") ? "bg-blue-100" : "bg-red-100"}`}>
+                    <FileText className={`h-5 w-5 ${selectedFile?.type?.startsWith("image/") ? "text-blue-600" : "text-red-600"}`} />
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate">{selectedFile.name}</p>
@@ -476,6 +489,9 @@ export default function UploadAgreementPage() {
               <p className="text-xs text-emerald-700">
                 Classified as <strong>{result.document_type.replace(/_/g, " ").toUpperCase()}</strong>
                 {stats && <> &middot; {stats.total} fields extracted &middot; {stats.highConf} high confidence</>}
+                {(result as Record<string, unknown>)?.extraction_method === "vision" && (
+                  <Badge variant="outline" className="ml-2 text-[10px]">Vision AI</Badge>
+                )}
               </p>
             </div>
             <Badge variant="outline" className="text-xs">{result.filename}</Badge>

@@ -13,6 +13,8 @@ from io import BytesIO
 from typing import Optional, List
 from datetime import datetime, date, timedelta
 from dateutil.relativedelta import relativedelta
+from PIL import Image
+from pdf2image import convert_from_bytes
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,6 +24,11 @@ import google.generativeai as genai
 from supabase import create_client, Client
 
 load_dotenv()
+
+# Supported file types
+SUPPORTED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff", ".tif"}
+SUPPORTED_PDF_EXTENSIONS = {".pdf"}
+SUPPORTED_EXTENSIONS = SUPPORTED_PDF_EXTENSIONS | SUPPORTED_IMAGE_EXTENSIONS
 
 app = FastAPI(title="GroSpace AI Service", version="1.0.0")
 
@@ -207,6 +214,37 @@ def extract_text_from_pdf(pdf_bytes: bytes) -> str:
     return text
 
 
+def get_file_type(filename: str) -> str:
+    """Determine file type from filename extension. Returns 'pdf', 'image', or 'unknown'."""
+    if not filename:
+        return "unknown"
+    ext = os.path.splitext(filename.lower())[1]
+    if ext in SUPPORTED_PDF_EXTENSIONS:
+        return "pdf"
+    if ext in SUPPORTED_IMAGE_EXTENSIONS:
+        return "image"
+    return "unknown"
+
+
+def pdf_bytes_to_images(pdf_bytes: bytes, max_pages: int = 20, dpi: int = 200) -> list:
+    """Convert PDF bytes to a list of PIL Images. Caps at max_pages to limit memory."""
+    try:
+        images = convert_from_bytes(pdf_bytes, dpi=dpi, last_page=max_pages, fmt="jpeg")
+        return images
+    except Exception:
+        return []
+
+
+def load_image_bytes(file_bytes: bytes) -> list:
+    """Load image file bytes as a list containing one PIL Image."""
+    try:
+        img = Image.open(BytesIO(file_bytes))
+        img = img.convert("RGB")
+        return [img]
+    except Exception:
+        return []
+
+
 async def download_file(file_url: str) -> bytes:
     """Download a file from Supabase storage."""
     async with httpx.AsyncClient() as client:
@@ -308,6 +346,200 @@ async def detect_risk_flags(text: str, extraction: dict) -> list:
     if isinstance(result, list):
         return result
     return result.get("flags", result.get("risk_flags", []))
+
+
+# ============================================
+# VISION-BASED FUNCTIONS (scanned PDFs, images, handwritten docs)
+# ============================================
+
+async def classify_document_vision(images: list) -> str:
+    """Classify a document from its page images using Gemini vision."""
+    try:
+        prompt = (
+            "Look at these document page images. "
+            "Classify this document as one of: lease_loi, license_certificate, franchise_agreement. "
+            "Return only the classification label, nothing else."
+        )
+        content = [prompt] + images[:3]
+        response = model.generate_content(content)
+        label = response.text.strip().lower()
+        valid = {"lease_loi", "license_certificate", "franchise_agreement"}
+        return label if label in valid else "lease_loi"
+    except Exception:
+        return "lease_loi"
+
+
+async def extract_structured_data_vision(images: list, doc_type: str) -> dict:
+    """Extract structured data from document page images using Gemini vision."""
+    schema = LEASE_EXTRACTION_SCHEMA if doc_type == "lease_loi" else LICENSE_EXTRACTION_SCHEMA
+
+    prompt = (
+        "You are a lease abstraction specialist for Indian commercial real estate. "
+        "Look at these document page images carefully. "
+        "Extract the following fields from this lease/LOI document. "
+        "Return valid JSON matching the schema below. "
+        "For each field, also return a confidence score: 'high', 'medium', 'low', or 'not_found'. "
+        "If a field's value is calculated from a formula (e.g., '60 days from handover'), "
+        "return the formula as a string rather than guessing a date. "
+        "If the document is handwritten, do your best to read the handwriting.\n\n"
+        f"Schema:\n{json.dumps(schema, indent=2)}"
+    )
+
+    try:
+        content = [prompt] + images
+        response = model.generate_content(
+            content,
+            generation_config=genai.GenerationConfig(
+                response_mime_type="application/json",
+                temperature=0,
+            ),
+        )
+        result = json.loads(response.text)
+        if isinstance(result, list) and len(result) > 0:
+            result = result[0]
+        return result if isinstance(result, dict) else {}
+    except Exception:
+        return {}
+
+
+async def detect_risk_flags_vision(images: list, extraction: dict) -> list:
+    """Detect risk flags from document images using Gemini vision."""
+    try:
+        prompt = (
+            "You are a commercial lease risk analyst specializing in Indian F&B and retail leases. "
+            "Look at these document page images and the extracted data below. "
+            "Analyze this lease for the following risk conditions and return flags for any that apply:\n\n"
+            "1. No lessor lock-in: Lessor can terminate but lessee is locked\n"
+            "2. High escalation: Escalation percentage > 15% per cycle\n"
+            "3. No rent-free fit-out: No rent-free period mentioned\n"
+            "4. Excessive security deposit: Deposit equivalent > 6 months rent\n"
+            "5. Predatory late interest: Late payment interest > 18% p.a.\n"
+            "6. Unilateral relocation: Lessor can relocate lessee without consent\n"
+            "7. No renewal option: No renewal right for lessee\n"
+            "8. Uncapped revenue share: Revenue share with no cap/maximum\n\n"
+            "For each flag found, return a JSON object with a top-level key 'flags' containing an array of objects with: "
+            "flag_id (1-8), severity ('high' or 'medium'), explanation (one-line summary), "
+            "clause_text (relevant text from document)\n\n"
+            f"Extracted lease data:\n{json.dumps(extraction, indent=2)}"
+        )
+        content = [prompt] + images[:10]
+        response = model.generate_content(
+            content,
+            generation_config=genai.GenerationConfig(
+                response_mime_type="application/json",
+                temperature=0,
+            ),
+        )
+        result = json.loads(response.text)
+        if isinstance(result, list):
+            return result
+        return result.get("flags", result.get("risk_flags", []))
+    except Exception:
+        return []
+
+
+# ============================================
+# UNIVERSAL DOCUMENT PROCESSOR
+# ============================================
+
+async def process_document(file_bytes: bytes, filename: str) -> dict:
+    """
+    Universal document processor. Handles PDFs (text-based, scanned, mixed)
+    and image files. Never raises — always returns a result dict.
+
+    Fallback chain:
+    1. For PDFs: try text extraction first (fast, cheap)
+    2. If text < 100 chars OR image file: use vision extraction
+    3. If vision fails: return minimal result with low confidence
+    """
+    extraction_method = "unknown"
+    text = ""
+    images = []
+    doc_type = "lease_loi"
+    extraction = {}
+    confidence = {}
+    risk_flags = []
+    error_message = None
+
+    try:
+        file_type = get_file_type(filename)
+
+        # --- Step 1: Get content (text and/or images) ---
+        if file_type == "pdf":
+            try:
+                text = extract_text_from_pdf(file_bytes)
+            except Exception:
+                text = ""
+
+            if len(text.strip()) >= 100:
+                extraction_method = "text"
+            else:
+                images = pdf_bytes_to_images(file_bytes)
+                if images:
+                    extraction_method = "vision"
+                else:
+                    extraction_method = "text" if text.strip() else "failed"
+
+        elif file_type == "image":
+            images = load_image_bytes(file_bytes)
+            extraction_method = "vision" if images else "failed"
+
+        else:
+            # Unknown file type — try PDF parsing first, then image
+            try:
+                text = extract_text_from_pdf(file_bytes)
+                if len(text.strip()) >= 100:
+                    extraction_method = "text"
+                else:
+                    images = pdf_bytes_to_images(file_bytes)
+                    extraction_method = "vision" if images else "failed"
+            except Exception:
+                images = load_image_bytes(file_bytes)
+                extraction_method = "vision" if images else "failed"
+
+        # --- Step 2: Classify ---
+        if extraction_method == "text":
+            doc_type = await classify_document(text)
+        elif extraction_method == "vision":
+            doc_type = await classify_document_vision(images)
+
+        # --- Step 3: Extract structured data ---
+        if extraction_method == "text":
+            extraction = await extract_structured_data(text, doc_type)
+        elif extraction_method == "vision":
+            extraction = await extract_structured_data_vision(images, doc_type)
+
+        # --- Step 4: Calculate confidence ---
+        confidence = calculate_confidence(extraction)
+
+        # --- Step 5: Detect risk flags ---
+        if doc_type == "lease_loi":
+            try:
+                if extraction_method == "text":
+                    risk_flags = await detect_risk_flags(text, extraction)
+                elif extraction_method == "vision":
+                    risk_flags = await detect_risk_flags_vision(images, extraction)
+            except Exception:
+                risk_flags = []
+
+        if extraction_method == "failed":
+            error_message = "Could not extract content from this file. The file may be empty, corrupt, or in an unsupported format."
+
+    except Exception as e:
+        error_message = f"Processing error: {str(e)}"
+        extraction_method = "failed"
+
+    return {
+        "status": "success" if extraction_method != "failed" else "partial",
+        "document_type": doc_type,
+        "extraction": extraction,
+        "confidence": confidence,
+        "risk_flags": risk_flags,
+        "filename": filename,
+        "text_length": len(text),
+        "extraction_method": extraction_method,
+        "error": error_message,
+    }
 
 
 # ============================================
@@ -788,46 +1020,39 @@ async def health_check():
 
 @app.post("/api/upload-and-extract")
 async def upload_and_extract(file: UploadFile = File(...)):
-    """Upload a PDF directly and extract structured data. No DB required."""
-    if not file.filename or not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF files are supported")
-
+    """Upload a document (PDF or image) and extract structured data."""
     try:
-        pdf_bytes = await file.read()
+        filename = file.filename or "unknown"
+        file_bytes = await file.read()
 
-        # Extract text from PDF
-        text = extract_text_from_pdf(pdf_bytes)
-        if len(text.strip()) < 100:
-            raise HTTPException(status_code=400, detail="Could not extract text from PDF. It may be a scanned document.")
+        if not file_bytes or len(file_bytes) == 0:
+            return {
+                "status": "partial",
+                "document_type": "lease_loi",
+                "extraction": {},
+                "confidence": {},
+                "risk_flags": [],
+                "filename": filename,
+                "text_length": 0,
+                "extraction_method": "failed",
+                "error": "Uploaded file is empty.",
+            }
 
-        # Classify document type
-        doc_type = await classify_document(text)
+        result = await process_document(file_bytes, filename)
+        return result
 
-        # Extract structured data
-        extraction = await extract_structured_data(text, doc_type)
-
-        # Calculate confidence scores
-        confidence = calculate_confidence(extraction)
-
-        # Detect risk flags (for leases)
-        risk_flags = []
-        if doc_type == "lease_loi":
-            risk_flags = await detect_risk_flags(text, extraction)
-
-        return {
-            "status": "success",
-            "document_type": doc_type,
-            "extraction": extraction,
-            "confidence": confidence,
-            "risk_flags": risk_flags,
-            "filename": file.filename,
-            "text_length": len(text),
-        }
-
-    except HTTPException:
-        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return {
+            "status": "partial",
+            "document_type": "lease_loi",
+            "extraction": {},
+            "confidence": {},
+            "risk_flags": [],
+            "filename": file.filename or "unknown",
+            "text_length": 0,
+            "extraction_method": "failed",
+            "error": f"Unexpected error: {str(e)}",
+        }
 
 
 @app.post("/api/classify")
@@ -842,61 +1067,47 @@ async def classify_endpoint(req: ClassifyRequest):
 
 @app.post("/api/extract")
 async def extract_endpoint(req: ExtractRequest):
-    """Process an uploaded document: download, extract text, classify, extract data, detect risks."""
+    """Process an uploaded document from Supabase URL. Handles PDFs, scanned docs, and images."""
     try:
-        # 1. Download PDF from storage
-        pdf_bytes = await download_file(req.file_url)
+        file_bytes = await download_file(req.file_url)
+        filename = req.file_url.split("/")[-1].split("?")[0] or "document.pdf"
 
-        # 2. Extract text
-        text = extract_text_from_pdf(pdf_bytes)
-        is_scanned = len(text.strip()) < 100
+        result = await process_document(file_bytes, filename)
 
-        if is_scanned:
-            # For scanned PDFs, we'd use vision model. For now, return error.
-            return {
-                "status": "failed",
-                "error": "Scanned PDF detected. Vision extraction not yet implemented.",
-                "agreement_id": req.agreement_id,
-            }
-
-        # 3. Classify document type
-        doc_type = await classify_document(text)
-
-        # 4. Extract structured data
-        extraction = await extract_structured_data(text, doc_type)
-
-        # 5. Calculate confidence scores
-        confidence = calculate_confidence(extraction)
-
-        # 6. Detect risk flags (for leases)
-        risk_flags = []
-        if doc_type == "lease_loi":
-            risk_flags = await detect_risk_flags(text, extraction)
-
-        # 7. Update agreement record in Supabase
+        # Update agreement record in Supabase
         supabase.table("agreements").update({
-            "extracted_data": extraction,
-            "extraction_confidence": confidence,
-            "risk_flags": risk_flags,
+            "extracted_data": result["extraction"],
+            "extraction_confidence": result["confidence"],
+            "risk_flags": result["risk_flags"],
             "extraction_status": "review",
-            "type": doc_type,
+            "type": result["document_type"],
         }).eq("id", req.agreement_id).execute()
 
         return {
             "status": "review",
             "agreement_id": req.agreement_id,
-            "document_type": doc_type,
-            "extraction": extraction,
-            "confidence": confidence,
-            "risk_flags": risk_flags,
+            "document_type": result["document_type"],
+            "extraction": result["extraction"],
+            "confidence": result["confidence"],
+            "risk_flags": result["risk_flags"],
+            "extraction_method": result["extraction_method"],
         }
 
     except Exception as e:
-        # Update status to failed
-        supabase.table("agreements").update({
-            "extraction_status": "failed",
-        }).eq("id", req.agreement_id).execute()
-        raise HTTPException(status_code=500, detail=str(e))
+        try:
+            supabase.table("agreements").update({
+                "extraction_status": "failed",
+            }).eq("id", req.agreement_id).execute()
+        except Exception:
+            pass
+        return {
+            "status": "failed",
+            "agreement_id": req.agreement_id,
+            "error": str(e),
+            "extraction": {},
+            "confidence": {},
+            "risk_flags": [],
+        }
 
 
 @app.post("/api/qa")
@@ -905,13 +1116,39 @@ async def qa_endpoint(req: QARequest):
     try:
         # Get document text if not provided
         document_text = req.document_text
+        doc_url = None
         if not document_text:
             result = supabase.table("agreements").select("extracted_data, document_url").eq("id", req.agreement_id).single().execute()
             if result.data and result.data.get("document_url"):
-                pdf_bytes = await download_file(result.data["document_url"])
+                doc_url = result.data["document_url"]
+                pdf_bytes = await download_file(doc_url)
                 document_text = extract_text_from_pdf(pdf_bytes)
 
-        if not document_text:
+        # If text extraction failed (scanned doc), try vision-based QA
+        if not document_text or len(document_text.strip()) < 100:
+            if doc_url:
+                try:
+                    pdf_bytes = await download_file(doc_url)
+                    images = pdf_bytes_to_images(pdf_bytes)
+                    if images:
+                        qa_prompt = (
+                            "You are an AI assistant helping users understand their commercial lease documents. "
+                            "Look at these document page images carefully.\n\n"
+                            "Rules:\n"
+                            "- Only answer based on the document provided. Do not make assumptions.\n"
+                            "- If the answer is not in the document, say so clearly.\n"
+                            "- Keep answers concise but complete.\n\n"
+                            f"User question: {req.question}"
+                        )
+                        content = [qa_prompt] + images[:15]
+                        response = model.generate_content(
+                            content,
+                            generation_config=genai.GenerationConfig(temperature=0.1, max_output_tokens=1000),
+                        )
+                        return {"answer": response.text, "agreement_id": req.agreement_id}
+                except Exception:
+                    pass
+
             raise HTTPException(status_code=404, detail="Document text not available")
 
         # Get extraction summary
