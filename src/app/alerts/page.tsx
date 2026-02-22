@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { listAlerts } from "@/lib/api";
+import { listAlerts, acknowledgeAlert, snoozeAlert } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -270,12 +270,32 @@ export default function AlertsPage() {
 
   // ---------- Actions ----------
 
-  function handleAcknowledge(alertId: string) {
+  async function handleAcknowledge(alertId: string) {
     setAlertStates((prev) => ({ ...prev, [alertId]: "acknowledged" }));
+    try {
+      await acknowledgeAlert(alertId);
+    } catch {
+      // Revert on failure
+      setAlertStates((prev) => {
+        const next = { ...prev };
+        delete next[alertId];
+        return next;
+      });
+    }
   }
 
-  function handleSnooze(alertId: string) {
+  async function handleSnooze(alertId: string, days: number = 7) {
     setAlertStates((prev) => ({ ...prev, [alertId]: "snoozed" }));
+    try {
+      await snoozeAlert(alertId, days);
+    } catch {
+      // Revert on failure
+      setAlertStates((prev) => {
+        const next = { ...prev };
+        delete next[alertId];
+        return next;
+      });
+    }
   }
 
   function clearFilters() {
@@ -575,17 +595,17 @@ export default function AlertsPage() {
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
                                   <DropdownMenuItem
-                                    onClick={() => handleSnooze(alert.id)}
+                                    onClick={() => handleSnooze(alert.id, 7)}
                                   >
                                     Snooze 7 days
                                   </DropdownMenuItem>
                                   <DropdownMenuItem
-                                    onClick={() => handleSnooze(alert.id)}
+                                    onClick={() => handleSnooze(alert.id, 14)}
                                   >
                                     Snooze 14 days
                                   </DropdownMenuItem>
                                   <DropdownMenuItem
-                                    onClick={() => handleSnooze(alert.id)}
+                                    onClick={() => handleSnooze(alert.id, 30)}
                                   >
                                     Snooze 30 days
                                   </DropdownMenuItem>

@@ -7,6 +7,7 @@ import {
   Store,
   FileText,
   Bell,
+  Wallet,
   BarChart3,
   Settings,
   Building2,
@@ -36,6 +37,7 @@ const navItems = [
     ],
   },
   { label: "Alerts", href: "/alerts", icon: Bell },
+  { label: "Payments", href: "/payments", icon: Wallet },
   { label: "Reports", href: "/reports", icon: BarChart3 },
   { label: "Settings", href: "/settings", icon: Settings },
 ];
