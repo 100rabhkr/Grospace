@@ -24,7 +24,6 @@ import {
   Search,
   CheckCircle2,
   Clock,
-  UserPlus,
   CalendarDays,
   X,
   ChevronDown,
@@ -615,15 +614,6 @@ export default function AlertsPage() {
                               </DropdownMenu>
                             )}
 
-                            {/* Assign */}
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-7 text-xs"
-                            >
-                              <UserPlus className="h-3.5 w-3.5 mr-1" />
-                              Assign
-                            </Button>
                           </div>
                         </div>
                       </div>

@@ -775,7 +775,7 @@ export default function AgreementDetailPage() {
 
         {/* Document Tab */}
         <TabsContent value="document">
-          <Card className="min-h-[500px] flex flex-col">
+          <Card>
             <div className="flex items-center justify-between px-4 py-3 border-b">
               <div className="flex items-center gap-2">
                 <FileText className="h-4 w-4 text-red-600" />
@@ -783,31 +783,75 @@ export default function AgreementDetailPage() {
                   {agreement.document_filename}
                 </span>
               </div>
-              <div className="flex items-center gap-2">
-                <Badge variant="outline" className="text-xs">
-                  PDF
-                </Badge>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="text-xs h-7"
-                >
-                  Download
-                </Button>
-              </div>
+              <Badge variant="outline" className="text-xs">
+                {agreement.document_filename?.endsWith(".pdf") ? "PDF" : "Document"}
+              </Badge>
             </div>
-            <CardContent className="flex-1 flex items-center justify-center bg-neutral-50">
-              <div className="text-center space-y-3">
-                <FileText className="h-20 w-20 text-neutral-300 mx-auto" />
-                <div>
-                  <p className="text-base font-medium text-neutral-500">
-                    PDF Viewer
-                  </p>
+            <CardContent className="py-8">
+              {/* Key Terms Summary */}
+              <div className="max-w-3xl mx-auto space-y-6">
+                <div className="text-center mb-6">
+                  <h3 className="text-base font-semibold mb-1">Document Summary</h3>
                   <p className="text-sm text-muted-foreground">
-                    The original agreement document will be rendered here
+                    Key terms extracted from {agreement.document_filename}
                   </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {agreement.document_filename}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {agreement.lessor_name && (
+                    <div className="p-3 rounded-lg border bg-neutral-50">
+                      <p className="text-xs text-muted-foreground uppercase tracking-wide mb-0.5">Lessor</p>
+                      <p className="text-sm font-medium">{agreement.lessor_name}</p>
+                    </div>
+                  )}
+                  {agreement.lessee_name && (
+                    <div className="p-3 rounded-lg border bg-neutral-50">
+                      <p className="text-xs text-muted-foreground uppercase tracking-wide mb-0.5">Lessee</p>
+                      <p className="text-sm font-medium">{agreement.lessee_name}</p>
+                    </div>
+                  )}
+                  {agreement.lease_commencement_date && (
+                    <div className="p-3 rounded-lg border bg-neutral-50">
+                      <p className="text-xs text-muted-foreground uppercase tracking-wide mb-0.5">Lease Start</p>
+                      <p className="text-sm font-medium">{formatDate(agreement.lease_commencement_date)}</p>
+                    </div>
+                  )}
+                  {agreement.lease_expiry_date && (
+                    <div className="p-3 rounded-lg border bg-neutral-50">
+                      <p className="text-xs text-muted-foreground uppercase tracking-wide mb-0.5">Lease Expiry</p>
+                      <p className="text-sm font-medium">{formatDate(agreement.lease_expiry_date)}</p>
+                    </div>
+                  )}
+                  {agreement.monthly_rent != null && (
+                    <div className="p-3 rounded-lg border bg-neutral-50">
+                      <p className="text-xs text-muted-foreground uppercase tracking-wide mb-0.5">Monthly Rent</p>
+                      <p className="text-sm font-medium">{formatCurrency(agreement.monthly_rent)}</p>
+                    </div>
+                  )}
+                  {agreement.security_deposit != null && (
+                    <div className="p-3 rounded-lg border bg-neutral-50">
+                      <p className="text-xs text-muted-foreground uppercase tracking-wide mb-0.5">Security Deposit</p>
+                      <p className="text-sm font-medium">{formatCurrency(agreement.security_deposit)}</p>
+                    </div>
+                  )}
+                  {agreement.cam_monthly != null && (
+                    <div className="p-3 rounded-lg border bg-neutral-50">
+                      <p className="text-xs text-muted-foreground uppercase tracking-wide mb-0.5">CAM Monthly</p>
+                      <p className="text-sm font-medium">{formatCurrency(agreement.cam_monthly)}</p>
+                    </div>
+                  )}
+                  {agreement.total_monthly_outflow != null && (
+                    <div className="p-3 rounded-lg border bg-neutral-50">
+                      <p className="text-xs text-muted-foreground uppercase tracking-wide mb-0.5">Total Monthly Outflow</p>
+                      <p className="text-sm font-medium">{formatCurrency(agreement.total_monthly_outflow)}</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="text-center pt-4 border-t">
+                  <p className="text-xs text-muted-foreground">
+                    Use the <span className="font-medium">Extracted Data</span> tab for full field-level details,
+                    or the <span className="font-medium">Q&A</span> tab to ask questions about this document.
                   </p>
                 </div>
               </div>

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Bell, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -80,12 +81,11 @@ export function TopBar() {
                             {alert.message}
                           </p>
                           <div className="flex gap-2 mt-2">
-                            <Button variant="outline" size="sm" className="h-7 text-xs">
-                              Acknowledge
-                            </Button>
-                            <Button variant="ghost" size="sm" className="h-7 text-xs">
-                              Snooze
-                            </Button>
+                            <Link href="/alerts">
+                              <Button variant="outline" size="sm" className="h-7 text-xs">
+                                View in Alerts
+                              </Button>
+                            </Link>
                           </div>
                         </div>
                       </div>

@@ -668,12 +668,6 @@ export default function UploadAgreementPage() {
             </Button>
             <div className="flex items-center gap-3">
               <Button
-                variant="ghost"
-                onClick={() => alert("Draft saved")}
-              >
-                Save as Draft
-              </Button>
-              <Button
                 disabled={isConfirming}
                 onClick={async () => {
                   if (!result) return;

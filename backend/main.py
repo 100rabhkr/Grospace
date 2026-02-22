@@ -1175,60 +1175,80 @@ async def extract_endpoint(req: ExtractRequest):
 async def qa_endpoint(req: QARequest):
     """Answer questions about a specific agreement document."""
     try:
-        # Get document text if not provided
+        # Fetch agreement data from DB
+        result = supabase.table("agreements").select("extracted_data, document_url").eq("id", req.agreement_id).single().execute()
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Agreement not found")
+
+        extracted_data = result.data.get("extracted_data", {})
+        doc_url = result.data.get("document_url")
+
+        # Try to get document text
         document_text = req.document_text
-        doc_url = None
-        if not document_text:
-            result = supabase.table("agreements").select("extracted_data, document_url").eq("id", req.agreement_id).single().execute()
-            if result.data and result.data.get("document_url"):
-                doc_url = result.data["document_url"]
+        if not document_text and doc_url:
+            try:
                 pdf_bytes = await download_file(doc_url)
                 document_text = extract_text_from_pdf(pdf_bytes)
+            except Exception:
+                document_text = None
 
         # If text extraction failed (scanned doc), try vision-based QA
-        if not document_text or len(document_text.strip()) < 100:
-            if doc_url:
-                try:
-                    pdf_bytes = await download_file(doc_url)
-                    images = pdf_bytes_to_images(pdf_bytes)
-                    if images:
-                        qa_prompt = (
-                            "You are an AI assistant helping users understand their commercial lease documents. "
-                            "Look at these document page images carefully.\n\n"
-                            "Rules:\n"
-                            "- Only answer based on the document provided. Do not make assumptions.\n"
-                            "- If the answer is not in the document, say so clearly.\n"
-                            "- Keep answers concise but complete.\n\n"
-                            f"User question: {req.question}"
-                        )
-                        content = [qa_prompt] + images[:15]
-                        response = model.generate_content(
-                            content,
-                            generation_config=genai.GenerationConfig(temperature=0.1, max_output_tokens=1000),
-                        )
-                        return {"answer": response.text, "agreement_id": req.agreement_id}
-                except Exception:
-                    pass
+        if (not document_text or len(document_text.strip()) < 100) and doc_url:
+            try:
+                pdf_bytes = await download_file(doc_url)
+                images = pdf_bytes_to_images(pdf_bytes)
+                if images:
+                    qa_prompt = (
+                        "You are an AI assistant helping users understand their commercial lease documents. "
+                        "Look at these document page images carefully.\n\n"
+                        "Rules:\n"
+                        "- Only answer based on the document provided. Do not make assumptions.\n"
+                        "- If the answer is not in the document, say so clearly.\n"
+                        "- Keep answers concise but complete.\n\n"
+                        f"User question: {req.question}"
+                    )
+                    content = [qa_prompt] + images[:15]
+                    response = model.generate_content(
+                        content,
+                        generation_config=genai.GenerationConfig(temperature=0.1, max_output_tokens=1000),
+                    )
+                    return {"answer": response.text, "agreement_id": req.agreement_id}
+            except Exception:
+                pass
 
-            raise HTTPException(status_code=404, detail="Document text not available")
+        # Build context from whatever we have
+        extraction_summary = json.dumps(extracted_data, indent=2) if extracted_data else ""
 
-        # Get extraction summary
-        result = supabase.table("agreements").select("extracted_data").eq("id", req.agreement_id).single().execute()
-        extraction_summary = json.dumps(result.data.get("extracted_data", {}), indent=2) if result.data else ""
-
-        prompt = (
-            "You are an AI assistant helping users understand their commercial lease documents. "
-            "You have access to the full text of a specific lease/agreement document.\n\n"
-            "Rules:\n"
-            "- Only answer based on the document provided. Do not make assumptions.\n"
-            "- Quote relevant clause text when answering.\n"
-            "- If the answer is not in the document, say so clearly.\n"
-            "- Keep answers concise but complete.\n"
-            "- Use simple language, avoid unnecessary legal jargon.\n\n"
-            f"Document text:\n{document_text[:12000]}\n\n"
-            f"Extracted data summary:\n{extraction_summary[:4000]}\n\n"
-            f"User question: {req.question}"
-        )
+        if document_text and len(document_text.strip()) >= 100:
+            # Full document text available
+            prompt = (
+                "You are an AI assistant helping users understand their commercial lease documents. "
+                "You have access to the full text of a specific lease/agreement document.\n\n"
+                "Rules:\n"
+                "- Only answer based on the document provided. Do not make assumptions.\n"
+                "- Quote relevant clause text when answering.\n"
+                "- If the answer is not in the document, say so clearly.\n"
+                "- Keep answers concise but complete.\n"
+                "- Use simple language, avoid unnecessary legal jargon.\n\n"
+                f"Document text:\n{document_text[:12000]}\n\n"
+                f"Extracted data summary:\n{extraction_summary[:4000]}\n\n"
+                f"User question: {req.question}"
+            )
+        elif extraction_summary and extraction_summary != "{}":
+            # No raw text but we have extracted structured data
+            prompt = (
+                "You are an AI assistant helping users understand their commercial lease documents. "
+                "You have access to the AI-extracted structured data from this agreement.\n\n"
+                "Rules:\n"
+                "- Only answer based on the extracted data provided. Do not make assumptions.\n"
+                "- If the specific information is not in the extracted data, say so clearly.\n"
+                "- Keep answers concise but complete.\n"
+                "- Use simple language, avoid unnecessary legal jargon.\n\n"
+                f"Extracted agreement data:\n{extraction_summary[:12000]}\n\n"
+                f"User question: {req.question}"
+            )
+        else:
+            raise HTTPException(status_code=404, detail="No document data available for this agreement")
 
         response = model.generate_content(
             prompt,
