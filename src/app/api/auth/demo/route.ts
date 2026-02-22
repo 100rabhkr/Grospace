@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const DEMO_EMAIL = "demo@grospace.com";
-const DEMO_PASSWORD = "demo2025";
+const DEMO_EMAIL = "admin@grospace.com";
+const DEMO_PASSWORD = "admin2025";
 
 export async function POST(request: NextRequest) {
   try {

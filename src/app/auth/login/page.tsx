@@ -72,13 +72,31 @@ export default function LoginPage() {
     }
   }
 
-  function handleDemoLogin() {
-    setEmail("demo@grospace.com");
-    setPassword("demo2025");
-    // Submit after state updates via a microtask
-    setTimeout(() => {
-      (document.getElementById("login-form") as HTMLFormElement)?.requestSubmit();
-    }, 0);
+  async function handleDemoLogin() {
+    const demoEmail = "admin@grospace.com";
+    const demoPassword = "admin2025";
+    setEmail(demoEmail);
+    setPassword(demoPassword);
+    setLoading(true);
+    setError("");
+
+    try {
+      const demoRes = await fetch("/api/auth/demo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: demoEmail, password: demoPassword }),
+      });
+      if (demoRes.ok) {
+        router.push("/");
+        router.refresh();
+        return;
+      }
+    } catch {
+      // Demo endpoint failed
+    }
+
+    setError("Demo login failed");
+    setLoading(false);
   }
 
   return (
