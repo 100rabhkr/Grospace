@@ -3,15 +3,33 @@
  * Communicates with the FastAPI backend (Railway) for AI operations
  */
 
+import { createClient } from "@/lib/supabase/client";
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+async function getAuthToken(): Promise<string | null> {
+  try {
+    const supabase = createClient();
+    const { data: { session } } = await supabase.auth.getSession();
+    return session?.access_token || null;
+  } catch {
+    return null;
+  }
+}
+
 async function apiFetch(endpoint: string, options: RequestInit = {}) {
+  const token = await getAuthToken();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(options.headers as Record<string, string>),
+  };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
   const response = await fetch(`${API_URL}${endpoint}`, {
     ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
+    headers,
   });
 
   if (!response.ok) {
@@ -56,11 +74,18 @@ export async function analyzeRiskFlags(agreementId: string, extractedData: Recor
 
 /** Upload a PDF file directly and get AI extraction results */
 export async function uploadAndExtract(file: File) {
+  const token = await getAuthToken();
   const formData = new FormData();
   formData.append("file", file);
 
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
   const response = await fetch(`${API_URL}/api/upload-and-extract`, {
     method: "POST",
+    headers,
     body: formData,
   });
 
@@ -133,11 +158,18 @@ export async function getOrganization(id: string) {
 
 /** Create organization */
 export async function createOrganization(name: string) {
+  const token = await getAuthToken();
   const formData = new FormData();
   formData.append("name", name);
 
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
   const response = await fetch(`${API_URL}/api/organizations`, {
     method: "POST",
+    headers,
     body: formData,
   });
 
@@ -147,4 +179,92 @@ export async function createOrganization(name: string) {
   }
 
   return response.json();
+}
+
+// ============================================
+// PAYMENT TRACKING
+// ============================================
+
+/** List payment records with optional filters */
+export async function listPayments(params?: {
+  outlet_id?: string;
+  status?: string;
+  period_year?: number;
+  period_month?: number;
+}) {
+  const searchParams = new URLSearchParams();
+  if (params?.outlet_id) searchParams.set("outlet_id", params.outlet_id);
+  if (params?.status) searchParams.set("status", params.status);
+  if (params?.period_year) searchParams.set("period_year", String(params.period_year));
+  if (params?.period_month) searchParams.set("period_month", String(params.period_month));
+  const qs = searchParams.toString();
+  return apiFetch(`/api/payments${qs ? `?${qs}` : ""}`);
+}
+
+/** Update a payment record (mark paid, overdue, etc.) */
+export async function updatePayment(paymentId: string, data: {
+  status: string;
+  paid_amount?: number;
+  notes?: string;
+}) {
+  return apiFetch(`/api/payments/${paymentId}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+/** Generate payment records from active obligations */
+export async function generatePayments(monthsAhead: number = 3) {
+  return apiFetch("/api/payments/generate", {
+    method: "POST",
+    body: JSON.stringify({ months_ahead: monthsAhead }),
+  });
+}
+
+/** List obligations */
+export async function listObligations(params?: {
+  outlet_id?: string;
+  active_only?: boolean;
+}) {
+  const searchParams = new URLSearchParams();
+  if (params?.outlet_id) searchParams.set("outlet_id", params.outlet_id);
+  if (params?.active_only !== undefined) searchParams.set("active_only", String(params.active_only));
+  const qs = searchParams.toString();
+  return apiFetch(`/api/obligations${qs ? `?${qs}` : ""}`);
+}
+
+// ============================================
+// ALERT ACTIONS
+// ============================================
+
+/** Acknowledge an alert */
+export async function acknowledgeAlert(alertId: string) {
+  return apiFetch(`/api/alerts/${alertId}/acknowledge`, {
+    method: "PATCH",
+  });
+}
+
+/** Snooze an alert for N days */
+export async function snoozeAlert(alertId: string, days: number = 7) {
+  return apiFetch(`/api/alerts/${alertId}/snooze`, {
+    method: "PATCH",
+    body: JSON.stringify({ days }),
+  });
+}
+
+/** Assign an alert to a user */
+export async function assignAlert(alertId: string, userId: string) {
+  return apiFetch(`/api/alerts/${alertId}/assign`, {
+    method: "PATCH",
+    body: JSON.stringify({ user_id: userId }),
+  });
+}
+
+// ============================================
+// REPORTS
+// ============================================
+
+/** Get outlet report data (joined outlets + agreements + payments) */
+export async function getReportData() {
+  return apiFetch("/api/reports");
 }

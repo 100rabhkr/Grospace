@@ -16,7 +16,7 @@ from dateutil.relativedelta import relativedelta
 from PIL import Image
 from pdf2image import convert_from_bytes
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, Header, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -198,6 +198,67 @@ class ConfirmActivateRequest(BaseModel):
     confidence: dict = {}
     filename: str
     org_id: Optional[str] = None  # If None, use/create demo org
+
+
+class PaymentUpdateRequest(BaseModel):
+    status: str  # paid, partially_paid, overdue, upcoming, due
+    paid_amount: Optional[float] = None
+    notes: Optional[str] = None
+
+
+class GeneratePaymentsRequest(BaseModel):
+    months_ahead: int = 3
+
+
+class SnoozeRequest(BaseModel):
+    days: int = 7
+
+
+class AssignRequest(BaseModel):
+    user_id: str
+
+
+# ============================================
+# AUTH MIDDLEWARE
+# ============================================
+
+class CurrentUser(BaseModel):
+    user_id: str
+    email: str
+    role: str = "org_member"
+    org_id: Optional[str] = None
+
+
+async def get_current_user(authorization: Optional[str] = Header(None)) -> Optional[CurrentUser]:
+    """Extract and validate user from Supabase JWT. Returns None if unauthenticated."""
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+
+    token = authorization.split(" ", 1)[1]
+    try:
+        user_response = supabase.auth.get_user(token)
+        user = user_response.user
+        if not user:
+            return None
+
+        profile = supabase.table("profiles").select("role, org_id").eq("id", user.id).single().execute()
+        return CurrentUser(
+            user_id=user.id,
+            email=user.email or "",
+            role=profile.data.get("role", "org_member") if profile.data else "org_member",
+            org_id=profile.data.get("org_id") if profile.data else None,
+        )
+    except Exception:
+        return None
+
+
+def get_org_filter(user: Optional[CurrentUser]) -> Optional[str]:
+    """Get org_id filter. Platform admins see all, org users see their org only."""
+    if not user:
+        return None  # No auth — show all (backward compat for demo)
+    if user.role == "platform_admin":
+        return None  # Platform admins see everything
+    return user.org_id
 
 
 # ============================================
@@ -1714,6 +1775,309 @@ async def seed_demo_data():
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================
+# PAYMENT TRACKING ENDPOINTS
+# ============================================
+
+@app.get("/api/payments")
+async def list_payments(
+    outlet_id: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    period_year: Optional[int] = Query(None),
+    period_month: Optional[int] = Query(None),
+    user: Optional[CurrentUser] = Depends(get_current_user),
+):
+    """List payment records with optional filters."""
+    query = supabase.table("payment_records").select(
+        "*, obligations(type, frequency, amount), outlets(name, city)"
+    )
+
+    org_id = get_org_filter(user)
+    if org_id:
+        query = query.eq("org_id", org_id)
+    if outlet_id:
+        query = query.eq("outlet_id", outlet_id)
+    if status:
+        query = query.eq("status", status)
+    if period_year:
+        query = query.eq("period_year", period_year)
+    if period_month:
+        query = query.eq("period_month", period_month)
+
+    result = query.order("due_date", desc=True).execute()
+    return {"payments": result.data}
+
+
+@app.patch("/api/payments/{payment_id}")
+async def update_payment(
+    payment_id: str,
+    req: PaymentUpdateRequest,
+    user: Optional[CurrentUser] = Depends(get_current_user),
+):
+    """Update a payment record (mark paid, overdue, etc.)."""
+    valid_statuses = {"paid", "partially_paid", "overdue", "upcoming", "due"}
+    if req.status not in valid_statuses:
+        raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {', '.join(valid_statuses)}")
+
+    update_data: dict = {"status": req.status}
+    if req.status == "paid":
+        update_data["paid_at"] = datetime.utcnow().isoformat()
+    if req.paid_amount is not None:
+        update_data["paid_amount"] = req.paid_amount
+    if req.notes is not None:
+        update_data["notes"] = req.notes
+    if user:
+        update_data["marked_by"] = user.user_id
+
+    result = supabase.table("payment_records").update(update_data).eq("id", payment_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Payment record not found")
+
+    return {"payment": result.data[0]}
+
+
+@app.get("/api/obligations")
+async def list_obligations(
+    outlet_id: Optional[str] = Query(None),
+    active_only: bool = Query(True),
+    user: Optional[CurrentUser] = Depends(get_current_user),
+):
+    """List obligations with optional filters."""
+    query = supabase.table("obligations").select(
+        "*, outlets(name, city), agreements(type, document_filename, brand_name)"
+    )
+
+    org_id = get_org_filter(user)
+    if org_id:
+        query = query.eq("org_id", org_id)
+    if outlet_id:
+        query = query.eq("outlet_id", outlet_id)
+    if active_only:
+        query = query.eq("is_active", True)
+
+    result = query.order("type").execute()
+    return {"obligations": result.data}
+
+
+@app.post("/api/payments/generate")
+async def generate_payment_records(
+    req: GeneratePaymentsRequest,
+    user: Optional[CurrentUser] = Depends(get_current_user),
+):
+    """Generate payment records from active recurring obligations for upcoming months."""
+    query = supabase.table("obligations").select("*").eq("is_active", True).neq("frequency", "one_time")
+
+    org_id = get_org_filter(user)
+    if org_id:
+        query = query.eq("org_id", org_id)
+
+    obligations = query.execute()
+    today = date.today()
+    created_count = 0
+
+    for obl in obligations.data:
+        due_day = obl.get("due_day_of_month") or 1
+        start_date = obl.get("start_date")
+        end_date = obl.get("end_date")
+
+        for m_offset in range(req.months_ahead):
+            target = today + relativedelta(months=m_offset)
+            period_month = target.month
+            period_year = target.year
+
+            # Skip if before obligation start
+            if start_date and f"{period_year}-{period_month:02d}" < start_date[:7]:
+                continue
+            # Skip if after obligation end
+            if end_date and f"{period_year}-{period_month:02d}" > end_date[:7]:
+                continue
+
+            # Check if record already exists
+            existing = supabase.table("payment_records").select("id").eq(
+                "obligation_id", obl["id"]
+            ).eq("period_month", period_month).eq("period_year", period_year).execute()
+
+            if existing.data:
+                continue
+
+            actual_day = min(due_day, 28)
+            due_date_val = date(period_year, period_month, actual_day)
+
+            if due_date_val < today:
+                p_status = "overdue"
+            elif due_date_val <= today + timedelta(days=7):
+                p_status = "due"
+            else:
+                p_status = "upcoming"
+
+            payment_data = {
+                "org_id": obl["org_id"],
+                "obligation_id": obl["id"],
+                "outlet_id": obl["outlet_id"],
+                "period_month": period_month,
+                "period_year": period_year,
+                "due_date": due_date_val.isoformat(),
+                "due_amount": obl.get("amount"),
+                "status": p_status,
+            }
+            clean = {k: v for k, v in payment_data.items() if v is not None}
+            supabase.table("payment_records").insert(clean).execute()
+            created_count += 1
+
+    return {"created": created_count, "message": f"Generated {created_count} payment records."}
+
+
+# ============================================
+# ALERT ACTION ENDPOINTS
+# ============================================
+
+@app.patch("/api/alerts/{alert_id}/acknowledge")
+async def acknowledge_alert(
+    alert_id: str,
+    user: Optional[CurrentUser] = Depends(get_current_user),
+):
+    """Mark an alert as acknowledged."""
+    update_data: dict = {
+        "status": "acknowledged",
+        "acknowledged_at": datetime.utcnow().isoformat(),
+    }
+    if user:
+        update_data["acknowledged_by"] = user.user_id
+
+    result = supabase.table("alerts").update(update_data).eq("id", alert_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Alert not found")
+
+    return {"alert": result.data[0]}
+
+
+@app.patch("/api/alerts/{alert_id}/snooze")
+async def snooze_alert(
+    alert_id: str,
+    req: SnoozeRequest,
+    user: Optional[CurrentUser] = Depends(get_current_user),
+):
+    """Snooze an alert for a specified number of days."""
+    snoozed_until = (date.today() + timedelta(days=req.days)).isoformat()
+    update_data: dict = {
+        "status": "snoozed",
+        "snoozed_until": snoozed_until,
+    }
+
+    result = supabase.table("alerts").update(update_data).eq("id", alert_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Alert not found")
+
+    return {"alert": result.data[0]}
+
+
+@app.patch("/api/alerts/{alert_id}/assign")
+async def assign_alert(
+    alert_id: str,
+    req: AssignRequest,
+    user: Optional[CurrentUser] = Depends(get_current_user),
+):
+    """Assign an alert to a user."""
+    update_data: dict = {"assigned_to": req.user_id}
+
+    result = supabase.table("alerts").update(update_data).eq("id", alert_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Alert not found")
+
+    return {"alert": result.data[0]}
+
+
+# ============================================
+# REPORTS ENDPOINT
+# ============================================
+
+@app.get("/api/reports")
+async def get_reports(user: Optional[CurrentUser] = Depends(get_current_user)):
+    """Joined outlet report: outlets + agreements + payments for the report table."""
+    org_id = get_org_filter(user)
+
+    # Fetch outlets
+    outlets_q = supabase.table("outlets").select("*")
+    if org_id:
+        outlets_q = outlets_q.eq("org_id", org_id)
+    outlets_result = outlets_q.order("created_at", desc=True).execute()
+
+    # Fetch agreements
+    agreements_q = supabase.table("agreements").select("*")
+    if org_id:
+        agreements_q = agreements_q.eq("org_id", org_id)
+    agreements_result = agreements_q.execute()
+
+    # Fetch overdue payments
+    payments_q = supabase.table("payment_records").select("outlet_id, due_amount, status").eq("status", "overdue")
+    if org_id:
+        payments_q = payments_q.eq("org_id", org_id)
+    payments_result = payments_q.execute()
+
+    # Build overdue lookup by outlet_id
+    overdue_by_outlet: dict = {}
+    for p in payments_result.data:
+        oid = p.get("outlet_id")
+        overdue_by_outlet[oid] = overdue_by_outlet.get(oid, 0) + (p.get("due_amount") or 0)
+
+    # Build report rows
+    report = []
+    for outlet in outlets_result.data:
+        outlet_id = outlet["id"]
+        outlet_agreements = [
+            a for a in agreements_result.data
+            if a.get("outlet_id") == outlet_id and a.get("type") == "lease_loi"
+        ]
+        primary = next(
+            (a for a in outlet_agreements if a.get("status") in ("active", "expiring")),
+            outlet_agreements[0] if outlet_agreements else None,
+        )
+
+        monthly_rent = (primary.get("monthly_rent") or 0) if primary else 0
+        cam_monthly = (primary.get("cam_monthly") or 0) if primary else 0
+        total_outflow = (primary.get("total_monthly_outflow") or 0) if primary else 0
+        rent_per_sqft = (primary.get("rent_per_sqft") or 0) if primary else 0
+        lease_expiry = (primary.get("lease_expiry_date") or "") if primary else ""
+        risk_flags = (primary.get("risk_flags") or []) if primary else []
+
+        revenue = outlet.get("monthly_net_revenue")
+        rent_to_revenue = None
+        if revenue and revenue > 0 and total_outflow > 0:
+            rent_to_revenue = round((total_outflow / revenue) * 100, 1)
+
+        days_to_expiry = None
+        if lease_expiry:
+            try:
+                exp = date.fromisoformat(lease_expiry)
+                days_to_expiry = (exp - date.today()).days
+            except (ValueError, TypeError):
+                pass
+
+        report.append({
+            "outlet_id": outlet_id,
+            "outlet_name": outlet.get("name", ""),
+            "brand": outlet.get("brand_name", ""),
+            "city": outlet.get("city", ""),
+            "state": outlet.get("state", ""),
+            "property_type": outlet.get("property_type", ""),
+            "franchise_model": outlet.get("franchise_model", ""),
+            "outlet_status": outlet.get("status", ""),
+            "super_area": outlet.get("super_area_sqft") or 0,
+            "monthly_rent": monthly_rent,
+            "rent_per_sqft": rent_per_sqft,
+            "monthly_cam": cam_monthly,
+            "total_outflow": total_outflow,
+            "lease_expiry": lease_expiry,
+            "days_to_expiry": days_to_expiry,
+            "revenue": revenue,
+            "rent_to_revenue": rent_to_revenue,
+            "risk_flags_count": len(risk_flags),
+            "overdue_amount": overdue_by_outlet.get(outlet_id, 0),
+        })
+
+    return {"report": report}
 
 
 if __name__ == "__main__":
