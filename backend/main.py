@@ -24,13 +24,10 @@ load_dotenv()
 
 app = FastAPI(title="GroSpace AI Service", version="1.0.0")
 
-# CORS
+# CORS - allow Vercel and localhost
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        os.getenv("FRONTEND_URL", "http://localhost:3000"),
-        "https://*.vercel.app",
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -301,6 +298,50 @@ async def detect_risk_flags(text: str, extraction: dict) -> list:
 @app.get("/api/health")
 async def health_check():
     return {"status": "healthy", "service": "grospace-ai", "timestamp": datetime.utcnow().isoformat()}
+
+
+@app.post("/api/upload-and-extract")
+async def upload_and_extract(file: UploadFile = File(...)):
+    """Upload a PDF directly and extract structured data. No DB required."""
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are supported")
+
+    try:
+        pdf_bytes = await file.read()
+
+        # Extract text from PDF
+        text = extract_text_from_pdf(pdf_bytes)
+        if len(text.strip()) < 100:
+            raise HTTPException(status_code=400, detail="Could not extract text from PDF. It may be a scanned document.")
+
+        # Classify document type
+        doc_type = await classify_document(text)
+
+        # Extract structured data
+        extraction = await extract_structured_data(text, doc_type)
+
+        # Calculate confidence scores
+        confidence = calculate_confidence(extraction)
+
+        # Detect risk flags (for leases)
+        risk_flags = []
+        if doc_type == "lease_loi":
+            risk_flags = await detect_risk_flags(text, extraction)
+
+        return {
+            "status": "success",
+            "document_type": doc_type,
+            "extraction": extraction,
+            "confidence": confidence,
+            "risk_flags": risk_flags,
+            "filename": file.filename,
+            "text_length": len(text),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/classify")

@@ -54,6 +54,24 @@ export async function analyzeRiskFlags(agreementId: string, extractedData: Recor
   });
 }
 
+/** Upload a PDF file directly and get AI extraction results */
+export async function uploadAndExtract(file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch(`${API_URL}/api/upload-and-extract`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: "Upload failed" }));
+    throw new Error(error.detail || `API error: ${response.status}`);
+  }
+
+  return response.json();
+}
+
 /** Check backend health */
 export async function checkHealth() {
   return apiFetch("/api/health");
