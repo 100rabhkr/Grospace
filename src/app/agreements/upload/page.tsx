@@ -27,6 +27,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { uploadAndExtract, confirmAndActivate } from "@/lib/api";
+import { EditableField } from "@/components/editable-field";
 
 type Confidence = "high" | "medium" | "low" | "not_found";
 
@@ -629,17 +630,26 @@ export default function UploadAgreementPage() {
                                 {formatFieldLabel(fieldKey)}
                               </p>
                             </div>
-                            <p className={`text-sm font-medium leading-snug ${
-                              displayVal === "Not found" ? "text-neutral-400 italic" : "text-black"
-                            }`}>
-                              {displayVal.includes("\n") ? (
-                                displayVal.split("\n").map((line, i) => (
-                                  <span key={i} className="block">{line}</span>
-                                ))
-                              ) : (
-                                displayVal
-                              )}
-                            </p>
+                            <EditableField
+                              value={displayVal}
+                              isNotFound={displayVal === "Not found"}
+                              onChange={(newVal) => {
+                                setResult((prev) => {
+                                  if (!prev) return prev;
+                                  const updated = { ...prev, extraction: { ...prev.extraction } };
+                                  const section = { ...(updated.extraction[sectionKey] as Record<string, unknown>) };
+                                  const existing = section[fieldKey];
+                                  // Preserve confidence wrapper
+                                  if (typeof existing === "object" && existing !== null && "value" in (existing as Record<string, unknown>)) {
+                                    section[fieldKey] = { ...(existing as Record<string, unknown>), value: newVal };
+                                  } else {
+                                    section[fieldKey] = newVal;
+                                  }
+                                  updated.extraction[sectionKey] = section;
+                                  return updated;
+                                });
+                              }}
+                            />
                           </div>
                         );
                       })}

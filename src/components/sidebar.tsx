@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
+import { useUser } from "@/lib/hooks/use-user";
 
 const navItems = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
@@ -42,8 +43,15 @@ const navItems = [
   { label: "Settings", href: "/settings", icon: Settings },
 ];
 
+const roleLabels: Record<string, string> = {
+  platform_admin: "Platform Admin",
+  org_admin: "Org Admin",
+  org_member: "Member",
+};
+
 export function Sidebar() {
   const pathname = usePathname();
+  const { user, loading: userLoading } = useUser();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
     Outlets: true,
     Agreements: true,
@@ -151,11 +159,21 @@ export function Sidebar() {
       <div className="p-3 border-t border-neutral-100">
         <div className="flex items-center gap-2.5 px-2 py-1.5">
           <div className="w-7 h-7 rounded-full bg-black flex items-center justify-center">
-            <span className="text-white text-[10px] font-semibold">SS</span>
+            {userLoading ? (
+              <span className="text-white text-[10px] font-semibold">...</span>
+            ) : (
+              <span className="text-white text-[10px] font-semibold">
+                {user?.initials || "??"}
+              </span>
+            )}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-medium truncate">Srabhjot Singh</p>
-            <p className="text-[10px] text-neutral-400 truncate">Platform Admin</p>
+            <p className="text-xs font-medium truncate">
+              {userLoading ? "Loading..." : user?.fullName || "User"}
+            </p>
+            <p className="text-[10px] text-neutral-400 truncate">
+              {userLoading ? "" : roleLabels[user?.role || ""] || "Member"}
+            </p>
           </div>
           <button
             onClick={() => {
