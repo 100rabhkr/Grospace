@@ -76,3 +76,70 @@ export async function uploadAndExtract(file: File) {
 export async function checkHealth() {
   return apiFetch("/api/health");
 }
+
+/** Confirm extraction and activate agreement - creates outlet, obligations, alerts */
+export async function confirmAndActivate(data: {
+  extraction: Record<string, unknown>;
+  document_type: string;
+  risk_flags: unknown[];
+  confidence: Record<string, string>;
+  filename: string;
+}) {
+  return apiFetch("/api/confirm-and-activate", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+/** List all agreements from the database */
+export async function listAgreements() {
+  return apiFetch("/api/agreements");
+}
+
+/** Get a single agreement with obligations and alerts */
+export async function getAgreement(id: string) {
+  return apiFetch(`/api/agreements/${id}`);
+}
+
+/** List all outlets */
+export async function listOutlets() {
+  return apiFetch("/api/outlets");
+}
+
+/** Get a single outlet with full details */
+export async function getOutlet(id: string) {
+  return apiFetch(`/api/outlets/${id}`);
+}
+
+/** List all alerts */
+export async function listAlerts() {
+  return apiFetch("/api/alerts");
+}
+
+/** Get dashboard stats */
+export async function getDashboardStats() {
+  return apiFetch("/api/dashboard");
+}
+
+/** List organizations */
+export async function listOrganizations() {
+  return apiFetch("/api/organizations");
+}
+
+/** Create organization */
+export async function createOrganization(name: string) {
+  const formData = new FormData();
+  formData.append("name", name);
+
+  const response = await fetch(`${API_URL}/api/organizations`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: "Failed to create organization" }));
+    throw new Error(error.detail || `API error: ${response.status}`);
+  }
+
+  return response.json();
+}

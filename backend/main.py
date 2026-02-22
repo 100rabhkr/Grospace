@@ -10,8 +10,9 @@ import uuid
 import httpx
 import fitz  # PyMuPDF
 from io import BytesIO
-from typing import Optional
-from datetime import datetime
+from typing import Optional, List
+from datetime import datetime, date, timedelta
+from dateutil.relativedelta import relativedelta
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -182,6 +183,16 @@ class RiskFlagRequest(BaseModel):
     document_text: Optional[str] = None
 
 
+class ConfirmActivateRequest(BaseModel):
+    """Request to confirm extraction and create outlet + agreement + obligations + alerts."""
+    extraction: dict
+    document_type: str
+    risk_flags: list = []
+    confidence: dict = {}
+    filename: str
+    org_id: Optional[str] = None  # If None, use/create demo org
+
+
 # ============================================
 # HELPER FUNCTIONS
 # ============================================
@@ -289,6 +300,473 @@ async def detect_risk_flags(text: str, extraction: dict) -> list:
 
     result = json.loads(response.text)
     return result.get("flags", result.get("risk_flags", []))
+
+
+# ============================================
+# CONFIRM & ACTIVATE HELPERS
+# ============================================
+
+def get_val(field_data):
+    """Extract the raw value from a Gemini field (handles {value, confidence} objects)."""
+    if field_data is None:
+        return None
+    if isinstance(field_data, dict) and "value" in field_data:
+        v = field_data["value"]
+        if v in (None, "", "not_found", "N/A", "null"):
+            return None
+        return v
+    if field_data in ("not_found", "N/A", "", "null"):
+        return None
+    return field_data
+
+
+def get_num(field_data):
+    """Extract a numeric value from a field."""
+    v = get_val(field_data)
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (ValueError, TypeError):
+        return None
+
+
+def get_date(field_data) -> Optional[str]:
+    """Try to parse a date string from a field. Returns ISO date string or None."""
+    v = get_val(field_data)
+    if v is None:
+        return None
+    if isinstance(v, str):
+        # Try common date formats
+        for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%Y/%m/%d", "%d %b %Y", "%d %B %Y"):
+            try:
+                return datetime.strptime(v.strip(), fmt).date().isoformat()
+            except (ValueError, AttributeError):
+                continue
+    return None
+
+
+def get_section(extraction: dict, section_name: str) -> dict:
+    """Get a section from extraction data, handling nested value objects."""
+    section = extraction.get(section_name, {})
+    if isinstance(section, dict) and "value" in section:
+        section = section["value"] if isinstance(section["value"], dict) else {}
+    return section if isinstance(section, dict) else {}
+
+
+def get_or_create_demo_org() -> str:
+    """Get or create the demo organization, returns org_id."""
+    result = supabase.table("organizations").select("id").eq("name", "GroSpace Demo").limit(1).execute()
+    if result.data and len(result.data) > 0:
+        return result.data[0]["id"]
+
+    # Create demo org
+    new_org = supabase.table("organizations").insert({
+        "name": "GroSpace Demo",
+    }).execute()
+    return new_org.data[0]["id"]
+
+
+def create_outlet_from_extraction(extraction: dict, org_id: str) -> str:
+    """Create an outlet from extracted premises data. Returns outlet_id."""
+    premises = get_section(extraction, "premises")
+    parties = get_section(extraction, "parties")
+    franchise = get_section(extraction, "franchise")
+
+    # Determine property type
+    prop_type = get_val(premises.get("property_type"))
+    valid_types = {"mall", "high_street", "cloud_kitchen", "metro", "transit", "cyber_park", "hospital", "college"}
+    if prop_type and prop_type.lower() in valid_types:
+        prop_type = prop_type.lower()
+    else:
+        prop_type = None
+
+    # Franchise model
+    fm = get_val(franchise.get("franchise_model"))
+    valid_fm = {"FOFO", "FOCO", "COCO", "direct_lease"}
+    if fm and fm.upper() in valid_fm:
+        fm = fm.upper()
+    else:
+        fm = None
+
+    outlet_data = {
+        "org_id": org_id,
+        "name": get_val(premises.get("property_name")) or get_val(parties.get("brand_name")) or "New Outlet",
+        "brand_name": get_val(parties.get("brand_name")),
+        "address": get_val(premises.get("full_address")),
+        "city": get_val(premises.get("city")),
+        "state": get_val(premises.get("state")),
+        "pincode": get_val(premises.get("pincode")),
+        "property_type": prop_type,
+        "floor": get_val(premises.get("floor")),
+        "unit_number": get_val(premises.get("unit_number")),
+        "super_area_sqft": get_num(premises.get("super_area_sqft")),
+        "covered_area_sqft": get_num(premises.get("covered_area_sqft")),
+        "carpet_area_sqft": get_num(premises.get("carpet_area_sqft")),
+        "franchise_model": fm,
+        "status": "fit_out",
+    }
+
+    # Remove None values
+    outlet_data = {k: v for k, v in outlet_data.items() if v is not None}
+    result = supabase.table("outlets").insert(outlet_data).execute()
+    return result.data[0]["id"]
+
+
+def create_agreement_record(extraction: dict, doc_type: str, risk_flags: list, confidence: dict,
+                            filename: str, org_id: str, outlet_id: str) -> str:
+    """Create an agreement record. Returns agreement_id."""
+    parties = get_section(extraction, "parties")
+    lease_term = get_section(extraction, "lease_term")
+    rent = get_section(extraction, "rent")
+    charges = get_section(extraction, "charges")
+    deposits = get_section(extraction, "deposits")
+    legal = get_section(extraction, "legal")
+
+    # Calculate monthly rent from rent_schedule or rent fields
+    monthly_rent = None
+    rent_per_sqft = None
+    rent_schedule = get_val(rent.get("rent_schedule"))
+    if isinstance(rent_schedule, list) and len(rent_schedule) > 0:
+        first_year = rent_schedule[0]
+        if isinstance(first_year, dict):
+            monthly_rent = get_num(first_year.get("mglr_monthly")) or get_num(first_year.get("monthly_rent")) or get_num(first_year.get("rent"))
+            rent_per_sqft = get_num(first_year.get("mglr_per_sqft")) or get_num(first_year.get("rent_per_sqft"))
+
+    cam_monthly = get_num(charges.get("cam_monthly"))
+    security_deposit = get_num(deposits.get("security_deposit_amount"))
+
+    # Total monthly outflow
+    total = (monthly_rent or 0) + (cam_monthly or 0)
+
+    # Rent model
+    rm = get_val(rent.get("rent_model"))
+    valid_rm = {"fixed", "revenue_share", "hybrid_mglr", "percentage_only"}
+    if rm and rm.lower() in valid_rm:
+        rm = rm.lower()
+    else:
+        rm = None
+
+    agreement_data = {
+        "org_id": org_id,
+        "outlet_id": outlet_id,
+        "type": doc_type,
+        "status": "active",
+        "document_filename": filename,
+        "extracted_data": extraction,
+        "extraction_status": "confirmed",
+        "extraction_confidence": confidence,
+        "risk_flags": risk_flags,
+        "lessor_name": get_val(parties.get("lessor_name")),
+        "lessee_name": get_val(parties.get("lessee_name")),
+        "brand_name": get_val(parties.get("brand_name")),
+        "lease_commencement_date": get_date(lease_term.get("lease_commencement_date")),
+        "rent_commencement_date": get_date(lease_term.get("rent_commencement_date")),
+        "lease_expiry_date": get_date(lease_term.get("lease_expiry_date")),
+        "rent_model": rm,
+        "monthly_rent": monthly_rent,
+        "rent_per_sqft": rent_per_sqft,
+        "cam_monthly": cam_monthly,
+        "total_monthly_outflow": total if total > 0 else None,
+        "security_deposit": security_deposit,
+        "late_payment_interest_pct": get_num(legal.get("late_payment_interest_pct")),
+        "confirmed_at": datetime.utcnow().isoformat(),
+    }
+
+    # Compute lock_in_end_date from lock_in_months + commencement
+    commencement = get_date(lease_term.get("lease_commencement_date"))
+    lock_in_months = get_num(lease_term.get("lock_in_months"))
+    if commencement and lock_in_months:
+        try:
+            comm_date = date.fromisoformat(commencement)
+            lock_in_end = comm_date + relativedelta(months=int(lock_in_months))
+            agreement_data["lock_in_end_date"] = lock_in_end.isoformat()
+        except (ValueError, TypeError):
+            pass
+
+    # Remove None values
+    agreement_data = {k: v for k, v in agreement_data.items() if v is not None}
+    result = supabase.table("agreements").insert(agreement_data).execute()
+    return result.data[0]["id"]
+
+
+def generate_obligations(extraction: dict, agreement_id: str, outlet_id: str, org_id: str) -> list:
+    """Auto-generate obligations from extracted data per PRD Section 4.4."""
+    obligations = []
+    lease_term = get_section(extraction, "lease_term")
+    rent = get_section(extraction, "rent")
+    charges = get_section(extraction, "charges")
+    deposits = get_section(extraction, "deposits")
+    premises = get_section(extraction, "premises")
+
+    rent_comm = get_date(lease_term.get("rent_commencement_date"))
+    lease_comm = get_date(lease_term.get("lease_commencement_date"))
+    lease_expiry = get_date(lease_term.get("lease_expiry_date"))
+    start_date = rent_comm or lease_comm
+    end_date = lease_expiry
+
+    # Escalation info
+    esc_pct = get_num(rent.get("escalation_percentage"))
+    esc_freq = get_num(rent.get("escalation_frequency_years"))
+    next_esc = None
+    if start_date and esc_freq:
+        try:
+            sd = date.fromisoformat(start_date)
+            next_esc = (sd + relativedelta(years=int(esc_freq))).isoformat()
+        except (ValueError, TypeError):
+            pass
+
+    payment_day = int(get_num(rent.get("mglr_payment_day")) or 7)
+
+    # 1. Rent obligation (monthly)
+    rent_schedule = get_val(rent.get("rent_schedule"))
+    monthly_rent = None
+    if isinstance(rent_schedule, list) and len(rent_schedule) > 0:
+        first = rent_schedule[0]
+        if isinstance(first, dict):
+            monthly_rent = get_num(first.get("mglr_monthly")) or get_num(first.get("monthly_rent")) or get_num(first.get("rent"))
+
+    if monthly_rent:
+        obligations.append({
+            "org_id": org_id,
+            "agreement_id": agreement_id,
+            "outlet_id": outlet_id,
+            "type": "rent",
+            "frequency": "monthly",
+            "amount": monthly_rent,
+            "due_day_of_month": payment_day,
+            "start_date": start_date,
+            "end_date": end_date,
+            "escalation_pct": esc_pct,
+            "escalation_frequency_years": int(esc_freq) if esc_freq else None,
+            "next_escalation_date": next_esc,
+            "is_active": True,
+        })
+
+    # 2. CAM obligation (monthly)
+    cam_monthly = get_num(charges.get("cam_monthly"))
+    if cam_monthly:
+        cam_esc = get_num(charges.get("cam_escalation_pct"))
+        obligations.append({
+            "org_id": org_id,
+            "agreement_id": agreement_id,
+            "outlet_id": outlet_id,
+            "type": "cam",
+            "frequency": "monthly",
+            "amount": cam_monthly,
+            "due_day_of_month": payment_day,
+            "start_date": lease_comm or start_date,
+            "end_date": end_date,
+            "escalation_pct": cam_esc,
+            "is_active": True,
+        })
+
+    # 3. HVAC obligation (monthly) - calculated from rate * area
+    hvac_rate = get_num(charges.get("hvac_rate_per_sqft"))
+    if hvac_rate:
+        area_basis = get_val(charges.get("hvac_area_basis")) or "covered_area"
+        area = get_num(premises.get("covered_area_sqft")) or get_num(premises.get("super_area_sqft"))
+        if area:
+            hvac_monthly = hvac_rate * area
+            obligations.append({
+                "org_id": org_id,
+                "agreement_id": agreement_id,
+                "outlet_id": outlet_id,
+                "type": "hvac",
+                "frequency": "monthly",
+                "amount": hvac_monthly,
+                "amount_formula": f"{hvac_rate}/sqft x {area} sqft ({area_basis})",
+                "due_day_of_month": payment_day,
+                "start_date": lease_comm or start_date,
+                "end_date": end_date,
+                "is_active": True,
+            })
+
+    # 4. Electricity obligation (monthly - variable)
+    elec_load = get_num(charges.get("electricity_load_kw"))
+    if elec_load:
+        obligations.append({
+            "org_id": org_id,
+            "agreement_id": agreement_id,
+            "outlet_id": outlet_id,
+            "type": "electricity",
+            "frequency": "monthly",
+            "amount": None,
+            "amount_formula": f"Actual metered ({elec_load} KW load)",
+            "due_day_of_month": payment_day,
+            "start_date": lease_comm or start_date,
+            "end_date": end_date,
+            "is_active": True,
+        })
+
+    # 5. Security deposit (one-time)
+    sec_dep = get_num(deposits.get("security_deposit_amount"))
+    if sec_dep:
+        obligations.append({
+            "org_id": org_id,
+            "agreement_id": agreement_id,
+            "outlet_id": outlet_id,
+            "type": "security_deposit",
+            "frequency": "one_time",
+            "amount": sec_dep,
+            "start_date": lease_comm or start_date,
+            "is_active": True,
+        })
+
+    # 6. CAM deposit (one-time)
+    cam_dep = get_num(deposits.get("cam_deposit_amount"))
+    if cam_dep:
+        obligations.append({
+            "org_id": org_id,
+            "agreement_id": agreement_id,
+            "outlet_id": outlet_id,
+            "type": "cam_deposit",
+            "frequency": "one_time",
+            "amount": cam_dep,
+            "start_date": lease_comm or start_date,
+            "is_active": True,
+        })
+
+    # 7. Utility deposit (one-time)
+    util_dep_per_kw = get_num(deposits.get("utility_deposit_per_kw"))
+    if util_dep_per_kw and elec_load:
+        obligations.append({
+            "org_id": org_id,
+            "agreement_id": agreement_id,
+            "outlet_id": outlet_id,
+            "type": "utility_deposit",
+            "frequency": "one_time",
+            "amount": util_dep_per_kw * elec_load,
+            "amount_formula": f"{util_dep_per_kw}/KW x {elec_load} KW",
+            "start_date": lease_comm or start_date,
+            "is_active": True,
+        })
+
+    # Insert obligations, skipping None values
+    created = []
+    for obl in obligations:
+        clean = {k: v for k, v in obl.items() if v is not None}
+        result = supabase.table("obligations").insert(clean).execute()
+        created.append(result.data[0])
+    return created
+
+
+def generate_alerts(extraction: dict, agreement_id: str, outlet_id: str, org_id: str) -> list:
+    """Auto-generate alerts from extracted dates per PRD Section 4.6."""
+    alerts = []
+    lease_term = get_section(extraction, "lease_term")
+    rent = get_section(extraction, "rent")
+
+    lease_expiry = get_date(lease_term.get("lease_expiry_date"))
+    lease_comm = get_date(lease_term.get("lease_commencement_date"))
+    rent_comm = get_date(lease_term.get("rent_commencement_date"))
+    lock_in_months = get_num(lease_term.get("lock_in_months"))
+    esc_pct = get_num(rent.get("escalation_percentage"))
+    esc_freq = get_num(rent.get("escalation_frequency_years"))
+
+    # 1. Lease Expiry alerts at 180, 90, 30, 7 days before
+    if lease_expiry:
+        exp_date = date.fromisoformat(lease_expiry)
+        for lead in [180, 90, 30, 7]:
+            trigger = exp_date - timedelta(days=lead)
+            if trigger >= date.today():
+                alerts.append({
+                    "org_id": org_id,
+                    "outlet_id": outlet_id,
+                    "agreement_id": agreement_id,
+                    "type": "lease_expiry",
+                    "severity": "high" if lead <= 30 else "medium",
+                    "title": f"Lease expiry in {lead} days",
+                    "message": f"Lease expires on {lease_expiry}. {lead} days remaining.",
+                    "trigger_date": trigger.isoformat(),
+                    "lead_days": lead,
+                    "reference_date": lease_expiry,
+                    "status": "pending",
+                })
+
+    # 2. Lock-in Expiry alerts at 90, 30 days before
+    if lock_in_months and lease_comm:
+        try:
+            comm = date.fromisoformat(lease_comm)
+            lock_end = comm + relativedelta(months=int(lock_in_months))
+            for lead in [90, 30]:
+                trigger = lock_end - timedelta(days=lead)
+                if trigger >= date.today():
+                    alerts.append({
+                        "org_id": org_id,
+                        "outlet_id": outlet_id,
+                        "agreement_id": agreement_id,
+                        "type": "lock_in_expiry",
+                        "severity": "medium",
+                        "title": f"Lock-in expires in {lead} days",
+                        "message": f"Lock-in period ends on {lock_end.isoformat()}.",
+                        "trigger_date": trigger.isoformat(),
+                        "lead_days": lead,
+                        "reference_date": lock_end.isoformat(),
+                        "status": "pending",
+                    })
+        except (ValueError, TypeError):
+            pass
+
+    # 3. Escalation alerts at 90, 30, 7 days before
+    if esc_pct and esc_freq and (rent_comm or lease_comm):
+        try:
+            base = date.fromisoformat(rent_comm or lease_comm)
+            esc_date = base + relativedelta(years=int(esc_freq))
+            # Generate for next upcoming escalation
+            while esc_date < date.today():
+                esc_date += relativedelta(years=int(esc_freq))
+            for lead in [90, 30, 7]:
+                trigger = esc_date - timedelta(days=lead)
+                if trigger >= date.today():
+                    alerts.append({
+                        "org_id": org_id,
+                        "outlet_id": outlet_id,
+                        "agreement_id": agreement_id,
+                        "type": "escalation",
+                        "severity": "medium",
+                        "title": f"Rent escalation in {lead} days",
+                        "message": f"Rent escalation of {esc_pct}% due on {esc_date.isoformat()}.",
+                        "trigger_date": trigger.isoformat(),
+                        "lead_days": lead,
+                        "reference_date": esc_date.isoformat(),
+                        "status": "pending",
+                    })
+        except (ValueError, TypeError):
+            pass
+
+    # 4. Monthly rent due alerts (7 days before, for next 6 months)
+    payment_day = int(get_num(rent.get("mglr_payment_day")) or 7)
+    start = rent_comm or lease_comm
+    if start:
+        try:
+            today = date.today()
+            for m in range(6):
+                due = date(today.year, today.month, min(payment_day, 28)) + relativedelta(months=m)
+                trigger = due - timedelta(days=7)
+                if trigger >= today:
+                    alerts.append({
+                        "org_id": org_id,
+                        "outlet_id": outlet_id,
+                        "agreement_id": agreement_id,
+                        "type": "rent_due",
+                        "severity": "medium",
+                        "title": f"Rent due on {due.strftime('%d %b %Y')}",
+                        "message": f"Monthly rent payment due on {due.isoformat()}.",
+                        "trigger_date": trigger.isoformat(),
+                        "lead_days": 7,
+                        "reference_date": due.isoformat(),
+                        "status": "pending",
+                    })
+        except (ValueError, TypeError):
+            pass
+
+    # Insert alerts
+    created = []
+    for alert in alerts:
+        result = supabase.table("alerts").insert(alert).execute()
+        created.append(result.data[0])
+    return created
 
 
 # ============================================
@@ -485,6 +963,189 @@ async def risk_flags_endpoint(req: RiskFlagRequest):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/confirm-and-activate")
+async def confirm_and_activate(req: ConfirmActivateRequest):
+    """
+    Confirm extraction and create outlet + agreement + obligations + alerts.
+    This is the core "Confirm & Activate" flow from PRD Journey 2 steps 7-12.
+    """
+    try:
+        # 1. Get or create organization
+        org_id = req.org_id
+        if not org_id:
+            org_id = get_or_create_demo_org()
+
+        # 2. Create outlet from extracted premises data
+        outlet_id = create_outlet_from_extraction(req.extraction, org_id)
+
+        # 3. Create agreement record
+        agreement_id = create_agreement_record(
+            extraction=req.extraction,
+            doc_type=req.document_type,
+            risk_flags=req.risk_flags,
+            confidence=req.confidence,
+            filename=req.filename,
+            org_id=org_id,
+            outlet_id=outlet_id,
+        )
+
+        # 4. Auto-generate obligations
+        obligations = generate_obligations(req.extraction, agreement_id, outlet_id, org_id)
+
+        # 5. Schedule alerts
+        alerts = generate_alerts(req.extraction, agreement_id, outlet_id, org_id)
+
+        # 6. Log activity
+        supabase.table("activity_log").insert({
+            "org_id": org_id,
+            "entity_type": "agreement",
+            "entity_id": agreement_id,
+            "action": "confirm_and_activate",
+            "details": {
+                "outlet_id": outlet_id,
+                "document_type": req.document_type,
+                "filename": req.filename,
+                "obligations_created": len(obligations),
+                "alerts_created": len(alerts),
+                "risk_flags_count": len(req.risk_flags),
+            }
+        }).execute()
+
+        return {
+            "status": "activated",
+            "agreement_id": agreement_id,
+            "outlet_id": outlet_id,
+            "obligations_created": len(obligations),
+            "alerts_created": len(alerts),
+            "message": f"Agreement activated. {len(obligations)} obligations and {len(alerts)} alerts created.",
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/organizations")
+async def list_organizations():
+    """List all organizations."""
+    result = supabase.table("organizations").select("*").order("created_at", desc=True).execute()
+    return {"organizations": result.data}
+
+
+@app.post("/api/organizations")
+async def create_organization(name: str = Form(...)):
+    """Create a new organization."""
+    result = supabase.table("organizations").insert({"name": name}).execute()
+    return {"organization": result.data[0]}
+
+
+@app.get("/api/agreements")
+async def list_agreements():
+    """List all agreements with outlet info."""
+    result = supabase.table("agreements").select("*, outlets(name, city, address, property_type, status)").order("created_at", desc=True).execute()
+    return {"agreements": result.data}
+
+
+@app.get("/api/agreements/{agreement_id}")
+async def get_agreement(agreement_id: str):
+    """Get a single agreement with full details."""
+    result = supabase.table("agreements").select("*, outlets(*)").eq("id", agreement_id).single().execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Agreement not found")
+
+    # Also get obligations
+    obligations = supabase.table("obligations").select("*").eq("agreement_id", agreement_id).execute()
+
+    # Also get alerts
+    alerts = supabase.table("alerts").select("*").eq("agreement_id", agreement_id).order("trigger_date").execute()
+
+    return {
+        "agreement": result.data,
+        "obligations": obligations.data,
+        "alerts": alerts.data,
+    }
+
+
+@app.get("/api/outlets")
+async def list_outlets():
+    """List all outlets."""
+    result = supabase.table("outlets").select("*, agreements(id, type, status, monthly_rent, lease_expiry_date, risk_flags)").order("created_at", desc=True).execute()
+    return {"outlets": result.data}
+
+
+@app.get("/api/outlets/{outlet_id}")
+async def get_outlet(outlet_id: str):
+    """Get a single outlet with agreements, obligations, and alerts."""
+    result = supabase.table("outlets").select("*").eq("id", outlet_id).single().execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Outlet not found")
+
+    agreements = supabase.table("agreements").select("*").eq("outlet_id", outlet_id).execute()
+    obligations = supabase.table("obligations").select("*").eq("outlet_id", outlet_id).execute()
+    alerts = supabase.table("alerts").select("*").eq("outlet_id", outlet_id).order("trigger_date").execute()
+
+    return {
+        "outlet": result.data,
+        "agreements": agreements.data,
+        "obligations": obligations.data,
+        "alerts": alerts.data,
+    }
+
+
+@app.get("/api/alerts")
+async def list_alerts():
+    """List all alerts."""
+    result = supabase.table("alerts").select("*, outlets(name, city), agreements(type, document_filename)").order("trigger_date").execute()
+    return {"alerts": result.data}
+
+
+@app.get("/api/dashboard")
+async def dashboard_stats():
+    """Get dashboard statistics."""
+    outlets = supabase.table("outlets").select("id, status, city, property_type, franchise_model").execute()
+    agreements = supabase.table("agreements").select("id, status, monthly_rent, cam_monthly, total_monthly_outflow, lease_expiry_date, risk_flags").execute()
+    obligations = supabase.table("obligations").select("id, type, amount, is_active").execute()
+    alerts = supabase.table("alerts").select("id, type, severity, status, trigger_date").execute()
+
+    # Calculate stats
+    total_outlets = len(outlets.data)
+    total_agreements = len(agreements.data)
+    active_agreements = len([a for a in agreements.data if a.get("status") == "active"])
+    total_monthly_rent = sum(a.get("monthly_rent") or 0 for a in agreements.data)
+    total_monthly_outflow = sum(a.get("total_monthly_outflow") or 0 for a in agreements.data)
+    total_risk_flags = sum(len(a.get("risk_flags") or []) for a in agreements.data)
+    pending_alerts = len([a for a in alerts.data if a.get("status") == "pending"])
+
+    # Expiring leases (next 90 days)
+    today = date.today()
+    expiring = [a for a in agreements.data if a.get("lease_expiry_date") and
+                0 <= (date.fromisoformat(a["lease_expiry_date"]) - today).days <= 90]
+
+    # Outlets by city
+    cities = {}
+    for o in outlets.data:
+        city = o.get("city") or "Unknown"
+        cities[city] = cities.get(city, 0) + 1
+
+    # Outlets by status
+    statuses = {}
+    for o in outlets.data:
+        s = o.get("status") or "unknown"
+        statuses[s] = statuses.get(s, 0) + 1
+
+    return {
+        "total_outlets": total_outlets,
+        "total_agreements": total_agreements,
+        "active_agreements": active_agreements,
+        "total_monthly_rent": total_monthly_rent,
+        "total_monthly_outflow": total_monthly_outflow,
+        "total_risk_flags": total_risk_flags,
+        "pending_alerts": pending_alerts,
+        "expiring_leases_90d": len(expiring),
+        "outlets_by_city": cities,
+        "outlets_by_status": statuses,
+    }
 
 
 if __name__ == "__main__":

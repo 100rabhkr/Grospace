@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   FileText,
   Check,
@@ -18,12 +19,14 @@ import {
   Scale,
   Landmark,
   Users,
+  Rocket,
+  ArrowRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { uploadAndExtract } from "@/lib/api";
+import { uploadAndExtract, confirmAndActivate } from "@/lib/api";
 
 type Confidence = "high" | "medium" | "low" | "not_found";
 
@@ -226,11 +229,19 @@ function ProcessingStep() {
 }
 
 export default function UploadAgreementPage() {
+  const router = useRouter();
   const [step, setStep] = useState(1);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ExtractionResult | null>(null);
+  const [isConfirming, setIsConfirming] = useState(false);
+  const [activationResult, setActivationResult] = useState<{
+    agreement_id: number;
+    outlet_id: number;
+    obligations_count: number;
+    alerts_count: number;
+  } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   function handleFileDrop(e: React.DragEvent) {
@@ -325,6 +336,7 @@ export default function UploadAgreementPage() {
           { num: 1, label: "Upload Document" },
           { num: 2, label: "AI Processing" },
           { num: 3, label: "Review & Confirm" },
+          { num: 4, label: "Activated" },
         ].map((s, i) => (
           <div key={s.num} className="flex items-center">
             <div className="flex items-center gap-2">
@@ -347,7 +359,7 @@ export default function UploadAgreementPage() {
                 {s.label}
               </span>
             </div>
-            {i < 2 && (
+            {i < 3 && (
               <div
                 className={`mx-4 h-px w-16 ${
                   step > s.num ? "bg-emerald-600" : "bg-neutral-200"
@@ -608,6 +620,7 @@ export default function UploadAgreementPage() {
                 setStep(1);
                 setResult(null);
                 setSelectedFile(null);
+                setError(null);
               }}
               className="gap-1"
             >
@@ -615,12 +628,111 @@ export default function UploadAgreementPage() {
               Upload Another
             </Button>
             <div className="flex items-center gap-3">
-              <Link href="/agreements">
-                <Button variant="outline">Back to Agreements</Button>
-              </Link>
+              <Button
+                variant="ghost"
+                onClick={() => alert("Draft saved")}
+              >
+                Save as Draft
+              </Button>
+              <Button
+                disabled={isConfirming}
+                onClick={async () => {
+                  if (!result) return;
+                  setIsConfirming(true);
+                  setError(null);
+                  try {
+                    const res = await confirmAndActivate({
+                      extraction: result.extraction,
+                      document_type: result.document_type,
+                      risk_flags: result.risk_flags,
+                      confidence: result.confidence,
+                      filename: result.filename,
+                    });
+                    setActivationResult(res);
+                    setStep(4);
+                  } catch (err) {
+                    setError(
+                      err instanceof Error
+                        ? err.message
+                        : "Activation failed. Please try again."
+                    );
+                  } finally {
+                    setIsConfirming(false);
+                  }
+                }}
+                className="gap-2 px-6"
+              >
+                {isConfirming ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Activating...
+                  </>
+                ) : (
+                  <>
+                    <Rocket className="h-4 w-4" />
+                    Confirm &amp; Activate
+                  </>
+                )}
+              </Button>
             </div>
           </div>
         </div>
+      )}
+
+      {/* Step 4: Activated */}
+      {step === 4 && activationResult && (
+        <Card className="max-w-lg mx-auto">
+          <CardContent className="pt-10 pb-10 flex flex-col items-center text-center">
+            <div className="mb-6">
+              <div className="h-20 w-20 rounded-full bg-emerald-100 flex items-center justify-center">
+                <Check className="h-10 w-10 text-emerald-600" />
+              </div>
+            </div>
+
+            <h2 className="text-2xl font-bold mb-2">Agreement Activated!</h2>
+            <p className="text-sm text-muted-foreground mb-8">
+              {activationResult.obligations_count} obligations and{" "}
+              {activationResult.alerts_count} alerts have been auto-generated
+            </p>
+
+            <div className="flex flex-col sm:flex-row items-center gap-3 w-full max-w-sm">
+              <Button
+                className="w-full gap-2"
+                onClick={() =>
+                  router.push(`/agreements/${activationResult.agreement_id}`)
+                }
+              >
+                View Agreement
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full gap-2"
+                onClick={() =>
+                  router.push(`/outlets/${activationResult.outlet_id}`)
+                }
+              >
+                View Outlet
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <Button
+              variant="ghost"
+              className="mt-4 gap-1"
+              onClick={() => {
+                setStep(1);
+                setResult(null);
+                setSelectedFile(null);
+                setActivationResult(null);
+                setError(null);
+              }}
+            >
+              <ChevronLeft className="h-4 w-4" />
+              Upload Another
+            </Button>
+          </CardContent>
+        </Card>
       )}
     </div>
   );

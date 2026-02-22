@@ -1,132 +1,316 @@
 "use client";
 
-import {
-  getDashboardStats,
-  outlets,
-  agreements,
-  alerts,
-  paymentRecords,
-  organizations,
-  formatCurrency,
-  formatDate,
-  daysUntil,
-  statusColor,
-  statusLabel,
-} from "@/lib/mock-data";
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { getDashboardStats } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
 import {
   Store,
   FileCheck,
   IndianRupee,
-  AlertTriangle,
-  ShieldAlert,
+  Bell,
   CalendarClock,
+  ShieldAlert,
+  TrendingDown,
+  Upload,
+  AlertTriangle,
+  BarChart3,
+  Rocket,
 } from "lucide-react";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  Legend,
-} from "recharts";
 
 // ---------------------------------------------------------------------------
-// Data derivations
+// Types
 // ---------------------------------------------------------------------------
 
-const stats = getDashboardStats();
+interface DashboardStats {
+  total_outlets: number;
+  total_agreements: number;
+  active_agreements: number;
+  total_monthly_rent: number;
+  total_monthly_outflow: number;
+  total_risk_flags: number;
+  pending_alerts: number;
+  expiring_leases_90d: number;
+  outlets_by_city: Record<string, number>;
+  outlets_by_status: Record<string, number>;
+}
 
-// Outlets grouped by city for the bar chart
-const cityCountMap: Record<string, number> = {};
-outlets.forEach((o) => {
-  cityCountMap[o.city] = (cityCountMap[o.city] || 0) + 1;
-});
-const outletsByCity = Object.entries(cityCountMap)
-  .map(([city, count]) => ({ city, count }))
-  .sort((a, b) => b.count - a.count);
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
-// Outlets grouped by status for the pie chart
-const statusCountMap: Record<string, number> = {};
-outlets.forEach((o) => {
-  const label = statusLabel(o.status);
-  statusCountMap[label] = (statusCountMap[label] || 0) + 1;
-});
-const outletsByStatus = Object.entries(statusCountMap).map(
-  ([name, value]) => ({ name, value })
-);
-const PIE_COLORS = ["#171717", "#525252", "#a3a3a3", "#d4d4d4", "#e5e5e5", "#f5f5f5"];
+/** Format a number as Indian currency: ₹1,06,920 */
+function formatINR(amount: number): string {
+  // Indian numbering: last 3 digits grouped, then every 2 digits
+  const str = Math.round(amount).toString();
+  if (str.length <= 3) return `₹${str}`;
+  const last3 = str.slice(-3);
+  const rest = str.slice(0, -3);
+  const withCommas = rest.replace(/\B(?=(\d{2})+(?!\d))/g, ",");
+  return `₹${withCommas},${last3}`;
+}
 
-// Alerts sorted by triggerDate (soonest first), limited to 6
-const sortedAlerts = [...alerts]
-  .sort(
-    (a, b) =>
-      new Date(a.triggerDate).getTime() - new Date(b.triggerDate).getTime()
-  )
-  .slice(0, 6);
+/** Pretty-print a status key like "fit_out" -> "Fit Out" */
+function statusLabel(key: string): string {
+  return key
+    .split("_")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
 
-// Expiring leases: status "expiring" OR expiry within 90 days
-const expiringLeases = agreements.filter((a) => {
-  if (a.status === "expiring") return true;
-  if (!a.leaseExpiryDate) return false;
-  const remaining = daysUntil(a.leaseExpiryDate);
-  return remaining >= 0 && remaining <= 90;
-});
-
-// Risk flags aggregated
-const allRiskFlags = agreements.flatMap((a) => a.riskFlags);
-const highFlags = allRiskFlags.filter((f) => f.severity === "high");
-const mediumFlags = allRiskFlags.filter((f) => f.severity === "medium");
-
-// Overdue payments
-const overduePayments = paymentRecords.filter((p) => p.status === "overdue");
-
-// Severity dot colors
-function severityDotColor(severity: string): string {
-  switch (severity) {
-    case "high":
-      return "bg-red-500";
-    case "medium":
-      return "bg-amber-500";
-    case "low":
-      return "bg-blue-500";
+/** Return Tailwind color classes for outlet status badges */
+function statusBadgeClasses(status: string): string {
+  switch (status) {
+    case "operational":
+      return "border-green-200 text-green-700 bg-green-50";
+    case "fit_out":
+      return "border-amber-200 text-amber-700 bg-amber-50";
+    case "closed":
+      return "border-red-200 text-red-700 bg-red-50";
+    case "under_construction":
+      return "border-blue-200 text-blue-700 bg-blue-50";
     default:
-      return "bg-neutral-400";
+      return "border-neutral-200 text-neutral-600 bg-neutral-50";
   }
 }
 
 // ---------------------------------------------------------------------------
-// Component
+// Skeleton Components
 // ---------------------------------------------------------------------------
 
-export default function Dashboard() {
+function SkeletonBlock({ className }: { className?: string }) {
+  return (
+    <div
+      className={`animate-pulse rounded-md bg-neutral-200/60 ${className ?? ""}`}
+    />
+  );
+}
+
+function StatCardSkeleton() {
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 p-4">
+        <SkeletonBlock className="h-3 w-24" />
+        <SkeletonBlock className="h-4 w-4 rounded" />
+      </CardHeader>
+      <CardContent className="p-4 pt-0">
+        <SkeletonBlock className="h-7 w-16 mb-1.5" />
+        <SkeletonBlock className="h-2.5 w-28" />
+      </CardContent>
+    </Card>
+  );
+}
+
+function DashboardSkeleton() {
   return (
     <div className="space-y-6">
-      {/* Page heading */}
+      {/* Heading */}
+      <div>
+        <SkeletonBlock className="h-5 w-28 mb-1.5" />
+        <SkeletonBlock className="h-3 w-52" />
+      </div>
+
+      {/* Row 1 - 4 stat cards */}
+      <div className="grid grid-cols-4 gap-4">
+        <StatCardSkeleton />
+        <StatCardSkeleton />
+        <StatCardSkeleton />
+        <StatCardSkeleton />
+      </div>
+
+      {/* Row 2 - 3 stat cards */}
+      <div className="grid grid-cols-3 gap-4">
+        <StatCardSkeleton />
+        <StatCardSkeleton />
+        <StatCardSkeleton />
+      </div>
+
+      {/* Row 3 - 2 cards */}
+      <div className="grid grid-cols-2 gap-4">
+        <Card>
+          <CardHeader className="p-4 pb-2">
+            <SkeletonBlock className="h-4 w-28" />
+          </CardHeader>
+          <CardContent className="p-4 pt-2 space-y-3">
+            <SkeletonBlock className="h-6 w-full" />
+            <SkeletonBlock className="h-6 w-full" />
+            <SkeletonBlock className="h-6 w-3/4" />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="p-4 pb-2">
+            <SkeletonBlock className="h-4 w-32" />
+          </CardHeader>
+          <CardContent className="p-4 pt-2 space-y-3">
+            <SkeletonBlock className="h-10 w-full" />
+            <SkeletonBlock className="h-10 w-full" />
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Empty State
+// ---------------------------------------------------------------------------
+
+function EmptyState() {
+  return (
+    <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold tracking-tight">Dashboard</h1>
         <p className="text-xs text-neutral-500 mt-0.5">
-          Platform overview across {organizations.length} brands and{" "}
-          {stats.totalOutlets} outlets
+          Welcome to GroSpace
         </p>
       </div>
 
-      {/* ----------------------------------------------------------------- */}
-      {/* Row 1 -- Stat cards                                                */}
-      {/* ----------------------------------------------------------------- */}
+      <Card className="border-dashed">
+        <CardContent className="p-8 flex flex-col items-center text-center">
+          <div className="w-12 h-12 rounded-full bg-neutral-100 flex items-center justify-center mb-4">
+            <Rocket className="h-6 w-6 text-neutral-400" />
+          </div>
+          <h2 className="text-lg font-semibold mb-1">Get Started with GroSpace</h2>
+          <p className="text-sm text-neutral-500 max-w-md mb-6">
+            Upload your first lease agreement to start tracking outlets,
+            obligations, and alerts across your portfolio.
+          </p>
+          <div className="flex gap-3">
+            <Link href="/agreements/upload">
+              <Button size="sm">
+                <Upload className="h-4 w-4" />
+                Upload Agreement
+              </Button>
+            </Link>
+            <Link href="/outlets">
+              <Button variant="outline" size="sm">
+                <Store className="h-4 w-4" />
+                View Outlets
+              </Button>
+            </Link>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main Dashboard Component
+// ---------------------------------------------------------------------------
+
+export default function Dashboard() {
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchStats() {
+      try {
+        setLoading(true);
+        setError(null);
+        const data = await getDashboardStats();
+        if (!cancelled) {
+          setStats(data);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err instanceof Error ? err.message : "Failed to load dashboard"
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    fetchStats();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Loading state
+  if (loading) {
+    return <DashboardSkeleton />;
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">Dashboard</h1>
+        </div>
+        <Card className="border-red-200">
+          <CardContent className="p-6 flex flex-col items-center text-center">
+            <AlertTriangle className="h-8 w-8 text-red-400 mb-3" />
+            <p className="text-sm font-medium text-red-700 mb-1">
+              Failed to load dashboard
+            </p>
+            <p className="text-xs text-neutral-500 mb-4">{error}</p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => window.location.reload()}
+            >
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Empty state -- no outlets or agreements yet
+  if (
+    stats &&
+    stats.total_outlets === 0 &&
+    stats.total_agreements === 0
+  ) {
+    return <EmptyState />;
+  }
+
+  // Derive chart data
+  const outletsByCity = stats
+    ? Object.entries(stats.outlets_by_city)
+        .map(([city, count]) => ({ city, count }))
+        .sort((a, b) => b.count - a.count)
+    : [];
+
+  const outletsByStatus = stats
+    ? Object.entries(stats.outlets_by_status).map(([status, count]) => ({
+        status,
+        count,
+      }))
+    : [];
+
+  const maxCityCount = outletsByCity.length
+    ? Math.max(...outletsByCity.map((c) => c.count))
+    : 1;
+
+  return (
+    <div className="space-y-6">
+      {/* -------------------------------------------------------------- */}
+      {/* Page heading                                                     */}
+      {/* -------------------------------------------------------------- */}
+      <div>
+        <h1 className="text-xl font-semibold tracking-tight">Dashboard</h1>
+        <p className="text-xs text-neutral-500 mt-0.5">
+          Platform overview across {stats?.total_outlets ?? 0} outlets and{" "}
+          {stats?.total_agreements ?? 0} agreements
+        </p>
+      </div>
+
+      {/* -------------------------------------------------------------- */}
+      {/* Row 1 -- Primary stat cards (4 columns)                          */}
+      {/* -------------------------------------------------------------- */}
       <div className="grid grid-cols-4 gap-4">
         {/* Total Outlets */}
         <Card>
@@ -137,9 +321,11 @@ export default function Dashboard() {
             <Store className="h-4 w-4 text-neutral-400" />
           </CardHeader>
           <CardContent className="p-4 pt-0">
-            <div className="text-2xl font-bold">{stats.totalOutlets}</div>
+            <div className="text-2xl font-bold">
+              {stats?.total_outlets ?? 0}
+            </div>
             <p className="text-[11px] text-neutral-400 mt-0.5">
-              Across {stats.totalBrands} brands
+              Across all locations
             </p>
           </CardContent>
         </Card>
@@ -153,382 +339,208 @@ export default function Dashboard() {
             <FileCheck className="h-4 w-4 text-neutral-400" />
           </CardHeader>
           <CardContent className="p-4 pt-0">
-            <div className="text-2xl font-bold">{stats.activeAgreements}</div>
+            <div className="text-2xl font-bold">
+              {stats?.active_agreements ?? 0}
+            </div>
             <p className="text-[11px] text-neutral-400 mt-0.5">
-              Active + expiring
+              of {stats?.total_agreements ?? 0} total
             </p>
           </CardContent>
         </Card>
 
-        {/* Monthly Exposure */}
+        {/* Monthly Rent Exposure */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 p-4">
             <CardTitle className="text-xs font-medium text-neutral-500">
-              Monthly Exposure
+              Monthly Rent Exposure
             </CardTitle>
             <IndianRupee className="h-4 w-4 text-neutral-400" />
           </CardHeader>
           <CardContent className="p-4 pt-0">
             <div className="text-2xl font-bold">
-              {formatCurrency(stats.monthlyExposure)}
+              {formatINR(stats?.total_monthly_rent ?? 0)}
             </div>
             <p className="text-[11px] text-neutral-400 mt-0.5">
-              Total monthly outflow
+              Total monthly rent
             </p>
           </CardContent>
         </Card>
 
-        {/* Overdue Amount */}
+        {/* Pending Alerts */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 p-4">
             <CardTitle className="text-xs font-medium text-neutral-500">
-              Overdue Amount
+              Pending Alerts
             </CardTitle>
-            <AlertTriangle className="h-4 w-4 text-red-500" />
+            <Bell className="h-4 w-4 text-amber-500" />
           </CardHeader>
           <CardContent className="p-4 pt-0">
-            <div className="text-2xl font-bold text-red-600">
-              {formatCurrency(stats.overdueAmount)}
+            <div className={`text-2xl font-bold ${(stats?.pending_alerts ?? 0) > 0 ? "text-amber-600" : ""}`}>
+              {stats?.pending_alerts ?? 0}
             </div>
             <p className="text-[11px] text-neutral-400 mt-0.5">
-              {stats.overdueCount} payment{stats.overdueCount !== 1 ? "s" : ""}{" "}
-              overdue
+              Require attention
             </p>
           </CardContent>
         </Card>
       </div>
 
-      {/* ----------------------------------------------------------------- */}
-      {/* Row 2 -- Alerts & Expiring Leases                                  */}
-      {/* ----------------------------------------------------------------- */}
-      <div className="grid grid-cols-2 gap-4">
-        {/* Upcoming Alerts */}
-        <Card className="flex flex-col">
-          <CardHeader className="p-4 pb-2">
-            <CardTitle className="text-sm font-semibold">
-              Upcoming Alerts
+      {/* -------------------------------------------------------------- */}
+      {/* Row 2 -- Secondary stat cards (3 columns)                        */}
+      {/* -------------------------------------------------------------- */}
+      <div className="grid grid-cols-3 gap-4">
+        {/* Expiring Leases (90 days) */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 p-4">
+            <CardTitle className="text-xs font-medium text-neutral-500">
+              Expiring Leases (90d)
             </CardTitle>
+            <CalendarClock className="h-4 w-4 text-neutral-400" />
           </CardHeader>
-          <CardContent className="p-4 pt-2 flex-1 overflow-y-auto max-h-[320px]">
-            <div className="space-y-3">
-              {sortedAlerts.map((alert) => (
-                <div
-                  key={alert.id}
-                  className="flex items-start gap-3 border-b border-neutral-100 pb-3 last:border-0 last:pb-0"
-                >
-                  <div className="mt-1.5 shrink-0">
-                    <span
-                      className={`block w-2 h-2 rounded-full ${severityDotColor(
-                        alert.severity
-                      )}`}
-                    />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium leading-tight">
-                      {alert.title}
-                    </p>
-                    <p className="text-xs text-neutral-500 mt-0.5">
-                      {alert.outletName}
-                    </p>
-                    <p className="text-xs text-neutral-400 mt-0.5 line-clamp-2">
-                      {alert.message}
-                    </p>
-                  </div>
-                  <span className="text-[11px] text-neutral-400 shrink-0 whitespace-nowrap">
-                    {formatDate(alert.triggerDate)}
-                  </span>
-                </div>
-              ))}
+          <CardContent className="p-4 pt-0">
+            <div className={`text-2xl font-bold ${(stats?.expiring_leases_90d ?? 0) > 0 ? "text-red-600" : ""}`}>
+              {stats?.expiring_leases_90d ?? 0}
             </div>
+            <p className="text-[11px] text-neutral-400 mt-0.5">
+              Within the next 90 days
+            </p>
           </CardContent>
         </Card>
 
-        {/* Expiring Leases */}
+        {/* Total Risk Flags */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 p-4">
+            <CardTitle className="text-xs font-medium text-neutral-500">
+              Total Risk Flags
+            </CardTitle>
+            <ShieldAlert className="h-4 w-4 text-red-400" />
+          </CardHeader>
+          <CardContent className="p-4 pt-0">
+            <div className={`text-2xl font-bold ${(stats?.total_risk_flags ?? 0) > 0 ? "text-red-600" : ""}`}>
+              {stats?.total_risk_flags ?? 0}
+            </div>
+            <p className="text-[11px] text-neutral-400 mt-0.5">
+              Across all agreements
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* Total Monthly Outflow */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 p-4">
+            <CardTitle className="text-xs font-medium text-neutral-500">
+              Total Monthly Outflow
+            </CardTitle>
+            <TrendingDown className="h-4 w-4 text-neutral-400" />
+          </CardHeader>
+          <CardContent className="p-4 pt-0">
+            <div className="text-2xl font-bold">
+              {formatINR(stats?.total_monthly_outflow ?? 0)}
+            </div>
+            <p className="text-[11px] text-neutral-400 mt-0.5">
+              Rent + CAM + all charges
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* -------------------------------------------------------------- */}
+      {/* Row 3 -- Outlets by City + Outlets by Status                     */}
+      {/* -------------------------------------------------------------- */}
+      <div className="grid grid-cols-2 gap-4">
+        {/* Outlets by City -- horizontal bar chart */}
         <Card className="flex flex-col">
           <CardHeader className="p-4 pb-2">
             <CardTitle className="text-sm font-semibold">
-              Expiring Leases
+              Outlets by City
             </CardTitle>
           </CardHeader>
-          <CardContent className="p-4 pt-2 flex-1 overflow-y-auto max-h-[320px]">
-            {expiringLeases.length === 0 ? (
-              <p className="text-xs text-neutral-400">
-                No leases expiring within 90 days.
-              </p>
+          <CardContent className="p-4 pt-2 flex-1">
+            {outletsByCity.length === 0 ? (
+              <p className="text-xs text-neutral-400">No outlet data yet.</p>
             ) : (
               <div className="space-y-3">
-                {expiringLeases.map((agr) => {
-                  const remaining = daysUntil(agr.leaseExpiryDate);
-                  return (
-                    <div
-                      key={agr.id}
-                      className="flex items-center justify-between border-b border-neutral-100 pb-3 last:border-0 last:pb-0"
-                    >
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <CalendarClock className="h-3.5 w-3.5 text-neutral-400 shrink-0" />
-                          <p className="text-sm font-medium truncate">
-                            {agr.outletName}
-                          </p>
-                        </div>
-                        <p className="text-xs text-neutral-500 mt-0.5 ml-5.5">
-                          Expires {formatDate(agr.leaseExpiryDate)}
-                        </p>
-                      </div>
-                      <Badge
-                        variant="outline"
-                        className={`shrink-0 text-[11px] ${
-                          remaining <= 30
-                            ? "border-red-200 text-red-700 bg-red-50"
-                            : remaining <= 60
-                            ? "border-amber-200 text-amber-700 bg-amber-50"
-                            : "border-neutral-200 text-neutral-600"
-                        }`}
-                      >
-                        {remaining} day{remaining !== 1 ? "s" : ""} left
-                      </Badge>
+                {outletsByCity.map(({ city, count }) => (
+                  <div key={city}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-sm text-neutral-700">{city}</span>
+                      <span className="text-sm font-semibold">{count}</span>
                     </div>
-                  );
-                })}
+                    <div className="h-2 w-full rounded-full bg-neutral-100 overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-neutral-800 transition-all"
+                        style={{
+                          width: `${(count / maxCityCount) * 100}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Outlets by Status -- card grid with badges */}
+        <Card className="flex flex-col">
+          <CardHeader className="p-4 pb-2">
+            <CardTitle className="text-sm font-semibold">
+              Outlets by Status
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-4 pt-2 flex-1">
+            {outletsByStatus.length === 0 ? (
+              <p className="text-xs text-neutral-400">No outlet data yet.</p>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                {outletsByStatus.map(({ status, count }) => (
+                  <div
+                    key={status}
+                    className="rounded-lg border border-neutral-100 p-3 flex items-center justify-between"
+                  >
+                    <Badge
+                      variant="outline"
+                      className={`text-[11px] ${statusBadgeClasses(status)}`}
+                    >
+                      {statusLabel(status)}
+                    </Badge>
+                    <span className="text-lg font-bold">{count}</span>
+                  </div>
+                ))}
               </div>
             )}
           </CardContent>
         </Card>
       </div>
 
-      {/* ----------------------------------------------------------------- */}
-      {/* Row 3 -- Charts & Risk Flags                                       */}
-      {/* ----------------------------------------------------------------- */}
-      <div className="grid grid-cols-3 gap-4">
-        {/* Outlets by City -- horizontal bar chart */}
-        <Card>
-          <CardHeader className="p-4 pb-2">
-            <CardTitle className="text-sm font-semibold">
-              Outlets by City
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-2">
-            <div className="h-[200px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={outletsByCity}
-                  layout="vertical"
-                  margin={{ top: 0, right: 16, bottom: 0, left: 0 }}
-                >
-                  <XAxis type="number" allowDecimals={false} hide />
-                  <YAxis
-                    type="category"
-                    dataKey="city"
-                    width={80}
-                    tick={{ fontSize: 12, fill: "#737373" }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      fontSize: 12,
-                      border: "1px solid #e5e5e5",
-                      borderRadius: 8,
-                      boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
-                    }}
-                    formatter={(value) => [`${value ?? 0}`, "Outlets"]}
-                  />
-                  <Bar
-                    dataKey="count"
-                    fill="#171717"
-                    radius={[0, 4, 4, 0]}
-                    barSize={20}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Outlets by Status -- donut / pie chart */}
-        <Card>
-          <CardHeader className="p-4 pb-2">
-            <CardTitle className="text-sm font-semibold">
-              Outlets by Status
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-2">
-            <div className="h-[200px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={outletsByStatus}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={45}
-                    outerRadius={70}
-                    paddingAngle={3}
-                    dataKey="value"
-                    nameKey="name"
-                    stroke="none"
-                  >
-                    {outletsByStatus.map((_, index) => (
-                      <Cell
-                        key={`cell-${index}`}
-                        fill={PIE_COLORS[index % PIE_COLORS.length]}
-                      />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      fontSize: 12,
-                      border: "1px solid #e5e5e5",
-                      borderRadius: 8,
-                      boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
-                    }}
-                  />
-                  <Legend
-                    iconType="circle"
-                    iconSize={8}
-                    wrapperStyle={{ fontSize: 11 }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Risk Flags Summary */}
-        <Card className="flex flex-col">
-          <CardHeader className="p-4 pb-2">
-            <CardTitle className="text-sm font-semibold">
-              Risk Flags Summary
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-2 flex-1">
-            {/* Counts */}
-            <div className="flex gap-4 mb-4">
-              <div className="flex items-center gap-2">
-                <ShieldAlert className="h-4 w-4 text-red-500" />
-                <div>
-                  <p className="text-lg font-bold leading-tight">
-                    {highFlags.length}
-                  </p>
-                  <p className="text-[11px] text-neutral-400">High</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <ShieldAlert className="h-4 w-4 text-amber-500" />
-                <div>
-                  <p className="text-lg font-bold leading-tight">
-                    {mediumFlags.length}
-                  </p>
-                  <p className="text-[11px] text-neutral-400">Medium</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Flag list */}
-            <div className="space-y-2 overflow-y-auto max-h-[140px]">
-              {/* Deduplicate flags by name */}
-              {Array.from(
-                new Map(allRiskFlags.map((f) => [f.name, f])).values()
-              ).map((flag) => {
-                const count = allRiskFlags.filter(
-                  (f) => f.name === flag.name
-                ).length;
-                return (
-                  <div
-                    key={flag.id}
-                    className="flex items-start gap-2 text-xs"
-                  >
-                    <span
-                      className={`mt-1 block w-1.5 h-1.5 rounded-full shrink-0 ${
-                        flag.severity === "high"
-                          ? "bg-red-500"
-                          : "bg-amber-500"
-                      }`}
-                    />
-                    <span className="text-neutral-700">
-                      {flag.name}
-                      {count > 1 && (
-                        <span className="text-neutral-400 ml-1">
-                          ({count})
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* ----------------------------------------------------------------- */}
-      {/* Row 4 -- Overdue Payments table                                    */}
-      {/* ----------------------------------------------------------------- */}
+      {/* -------------------------------------------------------------- */}
+      {/* Row 4 -- Quick Actions                                           */}
+      {/* -------------------------------------------------------------- */}
       <Card>
         <CardHeader className="p-4 pb-2">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-sm font-semibold">
-              Overdue Payments
-            </CardTitle>
-            <span className="text-xs text-neutral-400">
-              {overduePayments.length} record
-              {overduePayments.length !== 1 ? "s" : ""}
-            </span>
-          </div>
+          <CardTitle className="text-sm font-semibold">Quick Actions</CardTitle>
         </CardHeader>
         <CardContent className="p-4 pt-2">
-          {overduePayments.length === 0 ? (
-            <p className="text-xs text-neutral-400">
-              No overdue payments at this time.
-            </p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <TableHead className="text-xs font-medium text-neutral-500">
-                    Outlet
-                  </TableHead>
-                  <TableHead className="text-xs font-medium text-neutral-500">
-                    Type
-                  </TableHead>
-                  <TableHead className="text-xs font-medium text-neutral-500">
-                    Due Date
-                  </TableHead>
-                  <TableHead className="text-xs font-medium text-neutral-500 text-right">
-                    Amount
-                  </TableHead>
-                  <TableHead className="text-xs font-medium text-neutral-500 text-right">
-                    Status
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {overduePayments.map((p) => (
-                  <TableRow key={p.id}>
-                    <TableCell className="text-sm font-medium">
-                      {p.outletName}
-                    </TableCell>
-                    <TableCell className="text-sm text-neutral-600">
-                      {statusLabel(p.type)}
-                    </TableCell>
-                    <TableCell className="text-sm text-neutral-600">
-                      {formatDate(p.dueDate)}
-                    </TableCell>
-                    <TableCell className="text-sm font-medium text-right">
-                      {formatCurrency(p.dueAmount)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Badge
-                        variant="outline"
-                        className={`text-[11px] ${statusColor(p.status)}`}
-                      >
-                        {statusLabel(p.status)}
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
+          <div className="flex gap-3">
+            <Link href="/agreements/upload">
+              <Button size="sm">
+                <Upload className="h-4 w-4" />
+                Upload Agreement
+              </Button>
+            </Link>
+            <Link href="/alerts">
+              <Button variant="outline" size="sm">
+                <Bell className="h-4 w-4" />
+                View Alerts
+              </Button>
+            </Link>
+            <Link href="/reports">
+              <Button variant="outline" size="sm">
+                <BarChart3 className="h-4 w-4" />
+                View Reports
+              </Button>
+            </Link>
+          </div>
         </CardContent>
       </Card>
     </div>

@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
+import { listOrganizations, createOrganization } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,33 +12,32 @@ import {
   Plus,
   Search,
   Calendar,
-  Store,
-  FileText,
   ChevronRight,
+  Loader2,
+  AlertTriangle,
 } from "lucide-react";
-import {
-  organizations,
-  outlets,
-  agreements,
-  formatDate,
-} from "@/lib/mock-data";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface Organization {
+  id: string;
+  name: string;
+  created_at: string;
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function getOrgStats(orgId: string) {
-  const orgOutlets = outlets.filter((o) => o.orgId === orgId);
-  const orgAgreements = agreements.filter((a) => a.orgId === orgId);
-  const activeAgreements = orgAgreements.filter(
-    (a) => a.status === "active" || a.status === "expiring"
-  );
-
-  return {
-    outletCount: orgOutlets.length,
-    agreementCount: orgAgreements.length,
-    activeAgreementCount: activeAgreements.length,
-  };
+function formatDate(dateStr: string): string {
+  if (!dateStr) return "--";
+  return new Date(dateStr).toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -45,20 +45,90 @@ function getOrgStats(orgId: string) {
 // ---------------------------------------------------------------------------
 
 export default function OrganizationsPage() {
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
   const [searchQuery, setSearchQuery] = useState("");
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newOrgName, setNewOrgName] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+
+  async function fetchOrganizations() {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await listOrganizations();
+      setOrganizations(data.organizations || []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load organizations");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    fetchOrganizations();
+  }, []);
 
   const filteredOrgs = organizations.filter((org) =>
     org.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  function handleCreateOrg() {
-    // Placeholder for create logic
-    setNewOrgName("");
-    setShowCreateForm(false);
+  async function handleCreateOrg() {
+    if (!newOrgName.trim()) return;
+    try {
+      setCreating(true);
+      setCreateError(null);
+      await createOrganization(newOrgName.trim());
+      setNewOrgName("");
+      setShowCreateForm(false);
+      await fetchOrganizations();
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : "Failed to create organization");
+    } finally {
+      setCreating(false);
+    }
   }
 
+  // ---------------------------------------------------------------------------
+  // Loading State
+  // ---------------------------------------------------------------------------
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-8 w-8 animate-spin text-neutral-400" />
+          <p className="text-sm text-neutral-500">Loading organizations...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Error State
+  // ---------------------------------------------------------------------------
+  if (error) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3 text-center max-w-md">
+          <AlertTriangle className="h-10 w-10 text-red-400" />
+          <p className="text-lg font-medium text-neutral-800">
+            Failed to load organizations
+          </p>
+          <p className="text-sm text-neutral-500">{error}</p>
+          <Button variant="outline" onClick={() => fetchOrganizations()}>
+            Try Again
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
   return (
     <div className="min-h-screen bg-white">
       <div className="max-w-7xl mx-auto px-6 py-8 space-y-8">
@@ -119,17 +189,29 @@ export default function OrganizationsPage() {
                     onChange={(e) => setNewOrgName(e.target.value)}
                     placeholder="e.g. Chaayos, Third Wave Coffee"
                     className="bg-white border-neutral-200"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && newOrgName.trim()) {
+                        handleCreateOrg();
+                      }
+                    }}
                   />
                 </div>
                 <Button
                   onClick={handleCreateOrg}
-                  disabled={!newOrgName.trim()}
+                  disabled={!newOrgName.trim() || creating}
                   className="gap-1.5 bg-black text-white hover:bg-neutral-800"
                 >
-                  <Plus className="w-4 h-4" />
-                  Create
+                  {creating ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Plus className="w-4 h-4" />
+                  )}
+                  {creating ? "Creating..." : "Create"}
                 </Button>
               </div>
+              {createError && (
+                <p className="text-sm text-red-600 mt-2">{createError}</p>
+              )}
             </CardContent>
           </Card>
         )}
@@ -137,20 +219,46 @@ export default function OrganizationsPage() {
         {/* ----------------------------------------------------------------- */}
         {/* Search                                                             */}
         {/* ----------------------------------------------------------------- */}
-        <div className="relative max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
-          <Input
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search organizations..."
-            className="pl-9 h-9 text-sm bg-white border-neutral-200"
-          />
-        </div>
+        {organizations.length > 0 && (
+          <div className="relative max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search organizations..."
+              className="pl-9 h-9 text-sm bg-white border-neutral-200"
+            />
+          </div>
+        )}
 
         {/* ----------------------------------------------------------------- */}
-        {/* Organization Grid                                                  */}
+        {/* Empty State - No organizations at all                              */}
         {/* ----------------------------------------------------------------- */}
-        {filteredOrgs.length === 0 ? (
+        {organizations.length === 0 && (
+          <Card className="border border-neutral-200">
+            <CardContent className="py-16 text-center">
+              <Building2 className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
+              <p className="text-lg font-medium text-neutral-700 mb-1">
+                No organizations yet
+              </p>
+              <p className="text-sm text-neutral-500 mb-4">
+                Create your first organization to get started.
+              </p>
+              <Button
+                onClick={() => setShowCreateForm(true)}
+                className="gap-1.5 bg-black text-white hover:bg-neutral-800"
+              >
+                <Plus className="w-4 h-4" />
+                Create Organization
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ----------------------------------------------------------------- */}
+        {/* Empty State - No search results                                    */}
+        {/* ----------------------------------------------------------------- */}
+        {organizations.length > 0 && filteredOrgs.length === 0 && (
           <Card className="border border-neutral-200">
             <CardContent className="py-16 text-center">
               <Building2 className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
@@ -159,10 +267,14 @@ export default function OrganizationsPage() {
               </p>
             </CardContent>
           </Card>
-        ) : (
+        )}
+
+        {/* ----------------------------------------------------------------- */}
+        {/* Organization Grid                                                  */}
+        {/* ----------------------------------------------------------------- */}
+        {filteredOrgs.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
             {filteredOrgs.map((org) => {
-              const stats = getOrgStats(org.id);
               const initial = org.name.charAt(0).toUpperCase();
 
               return (
@@ -184,39 +296,8 @@ export default function OrganizationsPage() {
                         </h3>
                         <div className="flex items-center gap-1.5 mt-1 text-xs text-neutral-500">
                           <Calendar className="w-3 h-3 shrink-0" />
-                          <span>Created {formatDate(org.createdAt)}</span>
+                          <span>Created {formatDate(org.created_at)}</span>
                         </div>
-                      </div>
-                    </div>
-
-                    {/* Stats Row */}
-                    <div className="grid grid-cols-3 gap-3 mb-5">
-                      <div className="text-center py-3 px-2 rounded-lg bg-neutral-50 border border-neutral-100">
-                        <Store className="w-4 h-4 text-neutral-400 mx-auto mb-1" />
-                        <p className="text-lg font-bold text-black">
-                          {stats.outletCount}
-                        </p>
-                        <p className="text-[10px] text-neutral-500 uppercase tracking-wider font-medium">
-                          Outlets
-                        </p>
-                      </div>
-                      <div className="text-center py-3 px-2 rounded-lg bg-neutral-50 border border-neutral-100">
-                        <FileText className="w-4 h-4 text-neutral-400 mx-auto mb-1" />
-                        <p className="text-lg font-bold text-black">
-                          {stats.agreementCount}
-                        </p>
-                        <p className="text-[10px] text-neutral-500 uppercase tracking-wider font-medium">
-                          Agreements
-                        </p>
-                      </div>
-                      <div className="text-center py-3 px-2 rounded-lg bg-emerald-50 border border-emerald-100">
-                        <FileText className="w-4 h-4 text-emerald-500 mx-auto mb-1" />
-                        <p className="text-lg font-bold text-emerald-700">
-                          {stats.activeAgreementCount}
-                        </p>
-                        <p className="text-[10px] text-neutral-500 uppercase tracking-wider font-medium">
-                          Active
-                        </p>
                       </div>
                     </div>
 

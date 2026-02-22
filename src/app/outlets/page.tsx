@@ -1,15 +1,8 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
-import {
-  outlets,
-  agreements,
-  formatCurrency,
-  statusColor,
-  statusLabel,
-} from "@/lib/mock-data";
-import type { Outlet } from "@/lib/mock-data";
+import { listOutlets } from "@/lib/api";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -37,21 +30,43 @@ import {
   MapPin,
   Building2,
   Plus,
+  Loader2,
+  AlertTriangle,
 } from "lucide-react";
 
-// Derive unique filter options from data
-const uniqueCities = Array.from(new Set(outlets.map((o) => o.city))).sort();
-const uniqueStatuses = Array.from(new Set(outlets.map((o) => o.status))).sort();
-const uniquePropertyTypes = Array.from(
-  new Set(outlets.map((o) => o.propertyType))
-).sort();
-const uniqueFranchiseModels = Array.from(
-  new Set(outlets.map((o) => o.franchiseModel))
-).sort();
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
-function getAgreementForOutlet(outletId: string) {
-  return agreements.find((a) => a.outletId === outletId) || null;
+interface OutletAgreement {
+  id: string;
+  type: string;
+  status: string;
+  monthly_rent: number;
+  lease_expiry_date: string;
+  risk_flags: unknown[];
 }
+
+interface Outlet {
+  id: string;
+  name: string;
+  brand_name: string;
+  address: string;
+  city: string;
+  state: string;
+  property_type: string;
+  floor: string;
+  unit_number: string;
+  super_area_sqft: number;
+  covered_area_sqft: number;
+  franchise_model: string;
+  status: string;
+  agreements: OutletAgreement[];
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function propertyTypeLabel(type: string): string {
   const labels: Record<string, string> = {
@@ -64,7 +79,7 @@ function propertyTypeLabel(type: string): string {
     hospital: "Hospital",
     college: "College",
   };
-  return labels[type] || statusLabel(type);
+  return labels[type] || type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function franchiseModelLabel(model: string): string {
@@ -77,7 +92,49 @@ function franchiseModelLabel(model: string): string {
   return labels[model] || model;
 }
 
+function statusLabel(status: string): string {
+  return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function statusColor(status: string): string {
+  const map: Record<string, string> = {
+    active: "bg-emerald-50 text-emerald-700",
+    operational: "bg-emerald-50 text-emerald-700",
+    fit_out: "bg-blue-50 text-blue-700",
+    expiring: "bg-amber-50 text-amber-700",
+    expired: "bg-red-50 text-red-700",
+    closed: "bg-neutral-100 text-neutral-500",
+    draft: "bg-neutral-100 text-neutral-600",
+  };
+  return map[status] || "bg-neutral-100 text-neutral-600";
+}
+
+function formatCurrency(amount: number): string {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0,
+  }).format(amount);
+}
+
+function formatDate(dateStr: string): string {
+  if (!dateStr) return "--";
+  return new Date(dateStr).toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Page Component
+// ---------------------------------------------------------------------------
+
 export default function OutletsPage() {
+  const [outlets, setOutlets] = useState<Outlet[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
   const [searchQuery, setSearchQuery] = useState("");
   const [cityFilter, setCityFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -85,43 +142,94 @@ export default function OutletsPage() {
   const [franchiseModelFilter, setFranchiseModelFilter] = useState("all");
   const [viewMode, setViewMode] = useState<"card" | "table">("card");
 
+  useEffect(() => {
+    async function fetchOutlets() {
+      try {
+        setLoading(true);
+        setError(null);
+        const data = await listOutlets();
+        setOutlets(data.outlets || []);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load outlets");
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchOutlets();
+  }, []);
+
+  // Derive unique filter options from fetched data
+  const uniqueCities = useMemo(
+    () => Array.from(new Set(outlets.map((o) => o.city))).sort(),
+    [outlets]
+  );
+  const uniqueStatuses = useMemo(
+    () => Array.from(new Set(outlets.map((o) => o.status))).sort(),
+    [outlets]
+  );
+  const uniquePropertyTypes = useMemo(
+    () => Array.from(new Set(outlets.map((o) => o.property_type))).sort(),
+    [outlets]
+  );
+  const uniqueFranchiseModels = useMemo(
+    () => Array.from(new Set(outlets.map((o) => o.franchise_model))).sort(),
+    [outlets]
+  );
+
   const filteredOutlets = useMemo(() => {
-    return outlets.filter((outlet: Outlet) => {
-      // Search filter
+    return outlets.filter((outlet) => {
       if (searchQuery) {
         const query = searchQuery.toLowerCase();
         const matchesSearch =
           outlet.name.toLowerCase().includes(query) ||
-          outlet.brandName.toLowerCase().includes(query) ||
+          outlet.brand_name.toLowerCase().includes(query) ||
           outlet.city.toLowerCase().includes(query) ||
           outlet.address.toLowerCase().includes(query);
         if (!matchesSearch) return false;
       }
-
-      // City filter
       if (cityFilter !== "all" && outlet.city !== cityFilter) return false;
-
-      // Status filter
       if (statusFilter !== "all" && outlet.status !== statusFilter) return false;
-
-      // Property type filter
-      if (
-        propertyTypeFilter !== "all" &&
-        outlet.propertyType !== propertyTypeFilter
-      )
-        return false;
-
-      // Franchise model filter
-      if (
-        franchiseModelFilter !== "all" &&
-        outlet.franchiseModel !== franchiseModelFilter
-      )
-        return false;
-
+      if (propertyTypeFilter !== "all" && outlet.property_type !== propertyTypeFilter) return false;
+      if (franchiseModelFilter !== "all" && outlet.franchise_model !== franchiseModelFilter) return false;
       return true;
     });
-  }, [searchQuery, cityFilter, statusFilter, propertyTypeFilter, franchiseModelFilter]);
+  }, [outlets, searchQuery, cityFilter, statusFilter, propertyTypeFilter, franchiseModelFilter]);
 
+  // ---------------------------------------------------------------------------
+  // Loading State
+  // ---------------------------------------------------------------------------
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-8 w-8 animate-spin text-neutral-400" />
+          <p className="text-sm text-neutral-500">Loading outlets...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Error State
+  // ---------------------------------------------------------------------------
+  if (error) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3 text-center max-w-md">
+          <AlertTriangle className="h-10 w-10 text-red-400" />
+          <p className="text-lg font-medium text-neutral-800">Failed to load outlets</p>
+          <p className="text-sm text-neutral-500">{error}</p>
+          <Button variant="outline" onClick={() => window.location.reload()}>
+            Try Again
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
   return (
     <div className="min-h-screen bg-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -188,10 +296,7 @@ export default function OutletsPage() {
           </Select>
 
           {/* Property Type Dropdown */}
-          <Select
-            value={propertyTypeFilter}
-            onValueChange={setPropertyTypeFilter}
-          >
+          <Select value={propertyTypeFilter} onValueChange={setPropertyTypeFilter}>
             <SelectTrigger className="w-full lg:w-44 bg-white border-neutral-200 text-black">
               <SelectValue placeholder="All Types" />
             </SelectTrigger>
@@ -206,10 +311,7 @@ export default function OutletsPage() {
           </Select>
 
           {/* Franchise Model Dropdown */}
-          <Select
-            value={franchiseModelFilter}
-            onValueChange={setFranchiseModelFilter}
-          >
+          <Select value={franchiseModelFilter} onValueChange={setFranchiseModelFilter}>
             <SelectTrigger className="w-full lg:w-44 bg-white border-neutral-200 text-black">
               <SelectValue placeholder="All Models" />
             </SelectTrigger>
@@ -253,7 +355,20 @@ export default function OutletsPage() {
         </div>
 
         {/* Empty State */}
-        {filteredOutlets.length === 0 && (
+        {outlets.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-20 text-center">
+            <Store className="h-12 w-12 text-neutral-300 mb-4" />
+            <p className="text-lg font-medium text-neutral-600 mb-1">
+              No outlets yet
+            </p>
+            <p className="text-sm text-neutral-400">
+              Outlets will appear here once created via agreement upload.
+            </p>
+          </div>
+        )}
+
+        {/* No results for filters */}
+        {outlets.length > 0 && filteredOutlets.length === 0 && (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <Store className="h-12 w-12 text-neutral-300 mb-4" />
             <p className="text-lg font-medium text-neutral-600 mb-1">
@@ -269,14 +384,14 @@ export default function OutletsPage() {
         {viewMode === "card" && filteredOutlets.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {filteredOutlets.map((outlet) => {
-              const agreement = getAgreementForOutlet(outlet.id);
+              const primaryAgreement = outlet.agreements?.[0] || null;
               return (
                 <Link key={outlet.id} href={`/outlets/${outlet.id}`}>
                   <Card className="bg-white border border-neutral-200 hover:border-neutral-300 hover:shadow-md transition-all duration-200 cursor-pointer h-full">
                     <CardHeader className="pb-3">
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-xs font-medium text-neutral-500 bg-neutral-50 border border-neutral-100 rounded px-2 py-0.5">
-                          {outlet.brandName}
+                          {outlet.brand_name}
                         </span>
                         <Badge
                           className={`${statusColor(outlet.status)} border-0 text-xs font-medium`}
@@ -293,16 +408,16 @@ export default function OutletsPage() {
                       <div className="flex items-center gap-1.5 text-sm text-neutral-600">
                         <MapPin className="h-3.5 w-3.5 text-neutral-400 flex-shrink-0" />
                         <span>
-                          {outlet.city}, {outlet.state}
+                          {outlet.city}, {outlet.address}
                         </span>
                       </div>
 
-                      {/* Property Type and Floor */}
+                      {/* Property Type */}
                       <div className="flex items-center gap-1.5 text-sm text-neutral-600">
                         <Building2 className="h-3.5 w-3.5 text-neutral-400 flex-shrink-0" />
                         <span>
-                          {propertyTypeLabel(outlet.propertyType)} --{" "}
-                          {outlet.floor}
+                          {propertyTypeLabel(outlet.property_type)}
+                          {outlet.floor ? ` -- ${outlet.floor}` : ""}
                         </span>
                       </div>
 
@@ -314,16 +429,8 @@ export default function OutletsPage() {
                               Area
                             </p>
                             <p className="text-sm font-semibold text-black">
-                              {outlet.superAreaSqft.toLocaleString("en-IN")} sqft
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-neutral-400 font-medium uppercase tracking-wide">
-                              Monthly Rent
-                            </p>
-                            <p className="text-sm font-semibold text-black">
-                              {agreement && agreement.monthlyRent > 0
-                                ? formatCurrency(agreement.monthlyRent)
+                              {outlet.super_area_sqft
+                                ? outlet.super_area_sqft.toLocaleString("en-IN") + " sqft"
                                 : "--"}
                             </p>
                           </div>
@@ -332,19 +439,41 @@ export default function OutletsPage() {
                               Model
                             </p>
                             <p className="text-sm font-semibold text-black">
-                              {franchiseModelLabel(outlet.franchiseModel)}
+                              {franchiseModelLabel(outlet.franchise_model)}
                             </p>
                           </div>
-                          <div>
-                            <p className="text-xs text-neutral-400 font-medium uppercase tracking-wide">
-                              Revenue
-                            </p>
-                            <p className="text-sm font-semibold text-black">
-                              {outlet.monthlyNetRevenue
-                                ? formatCurrency(outlet.monthlyNetRevenue)
-                                : "--"}
-                            </p>
-                          </div>
+                          {primaryAgreement && (
+                            <>
+                              <div>
+                                <p className="text-xs text-neutral-400 font-medium uppercase tracking-wide">
+                                  Monthly Rent
+                                </p>
+                                <p className="text-sm font-semibold text-black">
+                                  {primaryAgreement.monthly_rent > 0
+                                    ? formatCurrency(primaryAgreement.monthly_rent)
+                                    : "--"}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-neutral-400 font-medium uppercase tracking-wide">
+                                  Lease Expiry
+                                </p>
+                                <p className="text-sm font-semibold text-black">
+                                  {formatDate(primaryAgreement.lease_expiry_date)}
+                                </p>
+                              </div>
+                            </>
+                          )}
+                          {primaryAgreement && primaryAgreement.risk_flags && primaryAgreement.risk_flags.length > 0 && (
+                            <div className="col-span-2">
+                              <p className="text-xs text-neutral-400 font-medium uppercase tracking-wide">
+                                Risk Flags
+                              </p>
+                              <Badge variant="outline" className="mt-0.5 bg-red-50 text-red-700 border-red-200 text-xs">
+                                {primaryAgreement.risk_flags.length} flag{primaryAgreement.risk_flags.length !== 1 ? "s" : ""}
+                              </Badge>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </CardContent>
@@ -365,9 +494,6 @@ export default function OutletsPage() {
                     Outlet Name
                   </TableHead>
                   <TableHead className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">
-                    Brand
-                  </TableHead>
-                  <TableHead className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">
                     City
                   </TableHead>
                   <TableHead className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">
@@ -376,6 +502,9 @@ export default function OutletsPage() {
                   <TableHead className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">
                     Status
                   </TableHead>
+                  <TableHead className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">
+                    Franchise Model
+                  </TableHead>
                   <TableHead className="text-xs font-semibold text-neutral-500 uppercase tracking-wide text-right">
                     Area (sqft)
                   </TableHead>
@@ -383,13 +512,16 @@ export default function OutletsPage() {
                     Monthly Rent
                   </TableHead>
                   <TableHead className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">
-                    Franchise Model
+                    Lease Expiry
+                  </TableHead>
+                  <TableHead className="text-xs font-semibold text-neutral-500 uppercase tracking-wide text-center">
+                    Risk Flags
                   </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredOutlets.map((outlet) => {
-                  const agreement = getAgreementForOutlet(outlet.id);
+                  const primaryAgreement = outlet.agreements?.[0] || null;
                   return (
                     <TableRow
                       key={outlet.id}
@@ -404,13 +536,10 @@ export default function OutletsPage() {
                         </Link>
                       </TableCell>
                       <TableCell className="text-sm text-neutral-600">
-                        {outlet.brandName}
-                      </TableCell>
-                      <TableCell className="text-sm text-neutral-600">
                         {outlet.city}
                       </TableCell>
                       <TableCell className="text-sm text-neutral-600">
-                        {propertyTypeLabel(outlet.propertyType)}
+                        {propertyTypeLabel(outlet.property_type)}
                       </TableCell>
                       <TableCell>
                         <Badge
@@ -419,16 +548,32 @@ export default function OutletsPage() {
                           {statusLabel(outlet.status)}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-sm text-black font-medium text-right">
-                        {outlet.superAreaSqft.toLocaleString("en-IN")}
+                      <TableCell className="text-sm text-neutral-600">
+                        {franchiseModelLabel(outlet.franchise_model)}
                       </TableCell>
                       <TableCell className="text-sm text-black font-medium text-right">
-                        {agreement && agreement.monthlyRent > 0
-                          ? formatCurrency(agreement.monthlyRent)
+                        {outlet.super_area_sqft
+                          ? outlet.super_area_sqft.toLocaleString("en-IN")
+                          : "--"}
+                      </TableCell>
+                      <TableCell className="text-sm text-black font-medium text-right">
+                        {primaryAgreement && primaryAgreement.monthly_rent > 0
+                          ? formatCurrency(primaryAgreement.monthly_rent)
                           : "--"}
                       </TableCell>
                       <TableCell className="text-sm text-neutral-600">
-                        {franchiseModelLabel(outlet.franchiseModel)}
+                        {primaryAgreement
+                          ? formatDate(primaryAgreement.lease_expiry_date)
+                          : "--"}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {primaryAgreement && primaryAgreement.risk_flags && primaryAgreement.risk_flags.length > 0 ? (
+                          <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 text-xs">
+                            {primaryAgreement.risk_flags.length}
+                          </Badge>
+                        ) : (
+                          <span className="text-sm text-neutral-400">--</span>
+                        )}
                       </TableCell>
                     </TableRow>
                   );
