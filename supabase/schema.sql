@@ -1,8 +1,29 @@
 -- GroSpace Database Schema
 -- Run this in Supabase SQL Editor to set up all tables
+-- Safe to re-run: drops and recreates everything
 
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- ============================================
+-- DROP EXISTING (clean slate, safe to re-run)
+-- ============================================
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+DROP FUNCTION IF EXISTS public.handle_new_user();
+
+DROP POLICY IF EXISTS "Authenticated users can upload documents" ON storage.objects;
+DROP POLICY IF EXISTS "Authenticated users can view documents" ON storage.objects;
+
+DROP TABLE IF EXISTS activity_log CASCADE;
+DROP TABLE IF EXISTS document_qa_sessions CASCADE;
+DROP TABLE IF EXISTS documents CASCADE;
+DROP TABLE IF EXISTS alerts CASCADE;
+DROP TABLE IF EXISTS payment_records CASCADE;
+DROP TABLE IF EXISTS obligations CASCADE;
+DROP TABLE IF EXISTS agreements CASCADE;
+DROP TABLE IF EXISTS outlets CASCADE;
+DROP TABLE IF EXISTS profiles CASCADE;
+DROP TABLE IF EXISTS organizations CASCADE;
 
 -- ============================================
 -- ORGANIZATIONS (brands)
@@ -69,7 +90,6 @@ CREATE TABLE agreements (
   extraction_status text DEFAULT 'pending' CHECK (extraction_status IN ('pending', 'processing', 'review', 'confirmed', 'failed')),
   extraction_confidence jsonb,
   risk_flags jsonb,
-  -- Denormalized key fields for querying
   lessor_name text,
   lessee_name text,
   brand_name text,
@@ -84,13 +104,11 @@ CREATE TABLE agreements (
   total_monthly_outflow numeric,
   security_deposit numeric,
   late_payment_interest_pct numeric,
-  -- License fields
   certificate_type text,
   certificate_number text,
   issuing_authority text,
   valid_from date,
   valid_to date,
-  -- Timestamps
   created_at timestamptz DEFAULT now(),
   confirmed_at timestamptz,
   confirmed_by uuid REFERENCES auth.users(id)
@@ -234,23 +252,19 @@ ALTER TABLE documents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE document_qa_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE activity_log ENABLE ROW LEVEL SECURITY;
 
--- Profiles: users can read their own profile
 CREATE POLICY "Users can view own profile" ON profiles FOR SELECT USING (auth.uid() = id);
 CREATE POLICY "Users can update own profile" ON profiles FOR UPDATE USING (auth.uid() = id);
 
--- Platform admins can see everything
 CREATE POLICY "Platform admins full access to organizations" ON organizations
   FOR ALL USING (
     EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'platform_admin')
   );
 
--- Org users can see their org
 CREATE POLICY "Org users can view their organization" ON organizations
   FOR SELECT USING (
     id IN (SELECT org_id FROM profiles WHERE id = auth.uid())
   );
 
--- Outlets: org-scoped + platform admin
 CREATE POLICY "Platform admins full access to outlets" ON outlets
   FOR ALL USING (
     EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'platform_admin')
@@ -266,7 +280,6 @@ CREATE POLICY "Org admins can manage their outlets" ON outlets
     org_id IN (SELECT org_id FROM profiles WHERE id = auth.uid() AND role = 'org_admin')
   );
 
--- Agreements: org-scoped
 CREATE POLICY "Platform admins full access to agreements" ON agreements
   FOR ALL USING (
     EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'platform_admin')
@@ -282,7 +295,6 @@ CREATE POLICY "Org admins can manage their agreements" ON agreements
     org_id IN (SELECT org_id FROM profiles WHERE id = auth.uid() AND role = 'org_admin')
   );
 
--- Obligations: org-scoped
 CREATE POLICY "Platform admins full access to obligations" ON obligations
   FOR ALL USING (
     EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'platform_admin')
@@ -293,7 +305,6 @@ CREATE POLICY "Org users can view their obligations" ON obligations
     org_id IN (SELECT org_id FROM profiles WHERE id = auth.uid())
   );
 
--- Payment records: org-scoped
 CREATE POLICY "Platform admins full access to payments" ON payment_records
   FOR ALL USING (
     EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'platform_admin')
@@ -309,7 +320,6 @@ CREATE POLICY "Org users can update their payments" ON payment_records
     org_id IN (SELECT org_id FROM profiles WHERE id = auth.uid())
   );
 
--- Alerts: org-scoped
 CREATE POLICY "Platform admins full access to alerts" ON alerts
   FOR ALL USING (
     EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'platform_admin')
@@ -325,7 +335,6 @@ CREATE POLICY "Org users can update their alerts" ON alerts
     org_id IN (SELECT org_id FROM profiles WHERE id = auth.uid())
   );
 
--- Documents: org-scoped
 CREATE POLICY "Platform admins full access to documents" ON documents
   FOR ALL USING (
     EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'platform_admin')
@@ -336,11 +345,9 @@ CREATE POLICY "Org users can view their documents" ON documents
     org_id IN (SELECT org_id FROM profiles WHERE id = auth.uid())
   );
 
--- Q&A sessions: user-scoped
 CREATE POLICY "Users can manage own QA sessions" ON document_qa_sessions
   FOR ALL USING (user_id = auth.uid());
 
--- Activity log: org-scoped read
 CREATE POLICY "Platform admins full access to activity log" ON activity_log
   FOR ALL USING (
     EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'platform_admin')
@@ -368,7 +375,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-CREATE OR REPLACE TRIGGER on_auth_user_created
+CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
@@ -378,7 +385,6 @@ CREATE OR REPLACE TRIGGER on_auth_user_created
 INSERT INTO storage.buckets (id, name, public) VALUES ('documents', 'documents', false)
 ON CONFLICT (id) DO NOTHING;
 
--- Storage policies
 CREATE POLICY "Authenticated users can upload documents" ON storage.objects
   FOR INSERT WITH CHECK (bucket_id = 'documents' AND auth.role() = 'authenticated');
 
