@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import {
   FileText,
@@ -141,6 +141,89 @@ type ExtractionResult = {
   }>;
   filename: string;
 };
+
+const processingSteps = [
+  { label: "Uploading document", duration: 1500 },
+  { label: "Parsing document structure", duration: 2500 },
+  { label: "Classifying document type", duration: 2000 },
+  { label: "Extracting key terms & dates", duration: 4000 },
+  { label: "Analyzing financial data", duration: 3000 },
+  { label: "Detecting risk flags", duration: 2000 },
+];
+
+function ProcessingStep() {
+  const [activeStep, setActiveStep] = useState(0);
+
+  useEffect(() => {
+    let timeout: NodeJS.Timeout;
+    function advance(index: number) {
+      if (index >= processingSteps.length) return;
+      timeout = setTimeout(() => {
+        setActiveStep(index + 1);
+        advance(index + 1);
+      }, processingSteps[index].duration);
+    }
+    advance(0);
+    return () => clearTimeout(timeout);
+  }, []);
+
+  return (
+    <Card className="max-w-lg mx-auto">
+      <CardContent className="pt-8 pb-10 flex flex-col items-center text-center">
+        <div className="mb-6">
+          <div className="h-16 w-16 rounded-full bg-neutral-100 flex items-center justify-center">
+            <Loader2 className="h-8 w-8 text-black animate-spin" />
+          </div>
+        </div>
+
+        <h2 className="text-lg font-semibold mb-1">
+          {activeStep < processingSteps.length
+            ? processingSteps[activeStep].label + "..."
+            : "Finalizing extraction..."}
+        </h2>
+        <p className="text-sm text-muted-foreground mb-6">
+          Powered by 360Labs AI Engine
+        </p>
+
+        <div className="text-left w-full max-w-xs space-y-3">
+          {processingSteps.map((item, i) => (
+            <div
+              key={item.label}
+              className={`flex items-center gap-2.5 text-sm transition-all duration-300 ${
+                i < activeStep
+                  ? "text-black"
+                  : i === activeStep
+                  ? "text-black"
+                  : "text-muted-foreground opacity-40"
+              }`}
+            >
+              {i < activeStep ? (
+                <Check className="h-4 w-4 text-emerald-600 flex-shrink-0" />
+              ) : i === activeStep ? (
+                <Loader2 className="h-4 w-4 text-black animate-spin flex-shrink-0" />
+              ) : (
+                <div className="h-4 w-4 rounded-full border border-neutral-300 flex-shrink-0" />
+              )}
+              <span className={i < activeStep ? "font-medium" : ""}>{item.label}</span>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-6 w-full max-w-xs">
+          <div className="h-1.5 bg-neutral-100 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-black rounded-full transition-all duration-500 ease-out"
+              style={{ width: `${Math.min((activeStep / processingSteps.length) * 100, 100)}%` }}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            Step {Math.min(activeStep + 1, processingSteps.length)} of {processingSteps.length}
+          </p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function UploadAgreementPage() {
   const [step, setStep] = useState(1);
@@ -366,38 +449,7 @@ export default function UploadAgreementPage() {
       )}
 
       {/* Step 2: Processing */}
-      {step === 2 && (
-        <Card className="max-w-lg mx-auto">
-          <CardContent className="pt-8 pb-10 flex flex-col items-center text-center">
-            <div className="mb-6">
-              <div className="h-16 w-16 rounded-full bg-neutral-100 flex items-center justify-center">
-                <Loader2 className="h-8 w-8 text-black animate-spin" />
-              </div>
-            </div>
-
-            <h2 className="text-lg font-semibold mb-1">AI is extracting data...</h2>
-            <p className="text-sm text-muted-foreground mb-6">
-              Powered by Gemini 2.5 Pro. This takes 15-30 seconds.
-            </p>
-
-            <div className="text-left w-full max-w-xs space-y-3">
-              {[
-                "Uploading document...",
-                "Parsing document structure...",
-                "Classifying document type...",
-                "Extracting key terms and dates...",
-                "Analyzing financial data...",
-                "Detecting risk flags...",
-              ].map((item) => (
-                <div key={item} className="flex items-center gap-2.5 text-sm text-muted-foreground">
-                  <div className="h-3.5 w-3.5 rounded-full border border-neutral-300 flex-shrink-0" />
-                  <span>{item}</span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {step === 2 && <ProcessingStep />}
 
       {/* Step 3: Review */}
       {step === 3 && result && (
