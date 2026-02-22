@@ -38,7 +38,7 @@
 | Key | Value |
 |-----|-------|
 | API Key | AIzaSyBWuHmXy2MKzH3vISGp8eun2hRHsPzLjIw |
-| Model | gemini-1.5-pro |
+| Model | gemini-2.5-pro |
 
 ---
 

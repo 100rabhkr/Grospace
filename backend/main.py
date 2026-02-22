@@ -40,7 +40,7 @@ supabase: Client = create_client(
 )
 
 genai.configure(api_key=os.getenv("GEMINI_API_KEY", ""))
-model = genai.GenerativeModel("gemini-1.5-pro")
+model = genai.GenerativeModel("gemini-2.5-pro")
 
 
 # ============================================
