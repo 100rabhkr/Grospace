@@ -126,6 +126,11 @@ export async function listOrganizations() {
   return apiFetch("/api/organizations");
 }
 
+/** Get a single organization with outlets, agreements, and alerts */
+export async function getOrganization(id: string) {
+  return apiFetch(`/api/organizations/${id}`);
+}
+
 /** Create organization */
 export async function createOrganization(name: string) {
   const formData = new FormData();

@@ -246,10 +246,12 @@ export default function OutletsPage() {
               {filteredOutlets.length} of {outlets.length}
             </Badge>
           </div>
-          <Button className="bg-black text-white hover:bg-neutral-800">
-            <Plus className="h-4 w-4 mr-1" />
-            Add Outlet
-          </Button>
+          <Link href="/agreements/upload">
+            <Button className="bg-black text-white hover:bg-neutral-800">
+              <Plus className="h-4 w-4 mr-1" />
+              Add Outlet
+            </Button>
+          </Link>
         </div>
 
         {/* Filter Bar */}

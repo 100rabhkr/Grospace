@@ -1040,6 +1040,25 @@ async def create_organization(name: str = Form(...)):
     return {"organization": result.data[0]}
 
 
+@app.get("/api/organizations/{org_id}")
+async def get_organization(org_id: str):
+    """Get a single organization with its outlets and agreements."""
+    result = supabase.table("organizations").select("*").eq("id", org_id).single().execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    outlets = supabase.table("outlets").select("*").eq("org_id", org_id).order("created_at", desc=True).execute()
+    agreements = supabase.table("agreements").select("id, type, status, document_filename, monthly_rent, lease_expiry_date, outlet_id, outlets(name, city)").eq("org_id", org_id).order("created_at", desc=True).execute()
+    alerts = supabase.table("alerts").select("id, type, severity, title, trigger_date, status").eq("org_id", org_id).order("trigger_date").limit(10).execute()
+
+    return {
+        "organization": result.data,
+        "outlets": outlets.data,
+        "agreements": agreements.data,
+        "alerts": alerts.data,
+    }
+
+
 @app.get("/api/agreements")
 async def list_agreements():
     """List all agreements with outlet info."""
