@@ -29,6 +29,9 @@ yarn-error.log*
 .env*.local
 backend/.env
 
+# credentials / deployment secrets
+DEPLOYMENT.md
+
 # vercel
 .vercel
 
