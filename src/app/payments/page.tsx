@@ -245,12 +245,12 @@ export default function PaymentsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-fade-in">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Wallet className="h-6 w-6 text-neutral-700" />
-          <h1 className="text-2xl font-bold tracking-tight text-black">Payments</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-black">Payments</h1>
           {!loading && (
             <Badge variant="secondary" className="text-sm">
               {payments.length}
@@ -284,19 +284,19 @@ export default function PaymentsPage() {
           <Card>
             <CardContent className="pt-6">
               <p className="text-xs text-muted-foreground uppercase tracking-wide">Due + Overdue</p>
-              <p className="text-2xl font-bold mt-1">{formatCurrency(totalDue)}</p>
+              <p className="text-2xl font-semibold mt-1">{formatCurrency(totalDue)}</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-6">
               <p className="text-xs text-muted-foreground uppercase tracking-wide">Total Paid</p>
-              <p className="text-2xl font-bold text-emerald-700 mt-1">{formatCurrency(totalPaid)}</p>
+              <p className="text-2xl font-semibold text-emerald-700 mt-1">{formatCurrency(totalPaid)}</p>
             </CardContent>
           </Card>
           <Card>
             <CardContent className="pt-6">
               <p className="text-xs text-muted-foreground uppercase tracking-wide">Overdue</p>
-              <p className={`text-2xl font-bold mt-1 ${totalOverdue > 0 ? "text-red-700" : ""}`}>
+              <p className={`text-2xl font-semibold mt-1 ${totalOverdue > 0 ? "text-red-700" : ""}`}>
                 {formatCurrency(totalOverdue)}
               </p>
             </CardContent>
@@ -304,7 +304,7 @@ export default function PaymentsPage() {
           <Card>
             <CardContent className="pt-6">
               <p className="text-xs text-muted-foreground uppercase tracking-wide">Upcoming</p>
-              <p className="text-2xl font-bold text-blue-700 mt-1">{upcomingCount}</p>
+              <p className="text-2xl font-semibold text-blue-700 mt-1">{upcomingCount}</p>
             </CardContent>
           </Card>
         </div>

@@ -114,7 +114,7 @@ function DashboardSkeleton() {
       </div>
 
       {/* Row 1 - 4 stat cards */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-4 gap-5">
         <StatCardSkeleton />
         <StatCardSkeleton />
         <StatCardSkeleton />
@@ -122,14 +122,14 @@ function DashboardSkeleton() {
       </div>
 
       {/* Row 2 - 3 stat cards */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-5">
         <StatCardSkeleton />
         <StatCardSkeleton />
         <StatCardSkeleton />
       </div>
 
       {/* Row 3 - 2 cards */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-5">
         <Card>
           <CardHeader className="p-4 pb-2">
             <SkeletonBlock className="h-4 w-28" />
@@ -297,7 +297,7 @@ export default function Dashboard() {
     : 1;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-fade-in">
       {/* -------------------------------------------------------------- */}
       {/* Page heading                                                     */}
       {/* -------------------------------------------------------------- */}
@@ -312,17 +312,17 @@ export default function Dashboard() {
       {/* -------------------------------------------------------------- */}
       {/* Row 1 -- Primary stat cards (4 columns)                          */}
       {/* -------------------------------------------------------------- */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-4 gap-5">
         {/* Total Outlets */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 p-4">
             <CardTitle className="text-xs font-medium text-neutral-500">
               Total Outlets
             </CardTitle>
-            <Store className="h-4 w-4 text-neutral-400" />
+            <Store className="h-4 w-4 text-neutral-500" />
           </CardHeader>
           <CardContent className="p-4 pt-0">
-            <div className="text-2xl font-bold">
+            <div className="text-2xl font-semibold">
               {stats?.total_outlets ?? 0}
             </div>
             <p className="text-[11px] text-neutral-400 mt-0.5">
@@ -337,10 +337,10 @@ export default function Dashboard() {
             <CardTitle className="text-xs font-medium text-neutral-500">
               Active Agreements
             </CardTitle>
-            <FileCheck className="h-4 w-4 text-neutral-400" />
+            <FileCheck className="h-4 w-4 text-neutral-500" />
           </CardHeader>
           <CardContent className="p-4 pt-0">
-            <div className="text-2xl font-bold">
+            <div className="text-2xl font-semibold">
               {stats?.active_agreements ?? 0}
             </div>
             <p className="text-[11px] text-neutral-400 mt-0.5">
@@ -355,10 +355,10 @@ export default function Dashboard() {
             <CardTitle className="text-xs font-medium text-neutral-500">
               Monthly Rent Exposure
             </CardTitle>
-            <IndianRupee className="h-4 w-4 text-neutral-400" />
+            <IndianRupee className="h-4 w-4 text-neutral-500" />
           </CardHeader>
           <CardContent className="p-4 pt-0">
-            <div className="text-2xl font-bold">
+            <div className="text-2xl font-semibold">
               {formatINR(stats?.total_monthly_rent ?? 0)}
             </div>
             <p className="text-[11px] text-neutral-400 mt-0.5">
@@ -376,7 +376,7 @@ export default function Dashboard() {
             <Bell className="h-4 w-4 text-amber-500" />
           </CardHeader>
           <CardContent className="p-4 pt-0">
-            <div className={`text-2xl font-bold ${(stats?.pending_alerts ?? 0) > 0 ? "text-amber-600" : ""}`}>
+            <div className={`text-2xl font-semibold ${(stats?.pending_alerts ?? 0) > 0 ? "text-amber-600" : ""}`}>
               {stats?.pending_alerts ?? 0}
             </div>
             <p className="text-[11px] text-neutral-400 mt-0.5">
@@ -389,17 +389,17 @@ export default function Dashboard() {
       {/* -------------------------------------------------------------- */}
       {/* Row 2 -- Secondary stat cards (3 columns)                        */}
       {/* -------------------------------------------------------------- */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-5">
         {/* Expiring Leases (90 days) */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 p-4">
             <CardTitle className="text-xs font-medium text-neutral-500">
               Expiring Leases (90d)
             </CardTitle>
-            <CalendarClock className="h-4 w-4 text-neutral-400" />
+            <CalendarClock className="h-4 w-4 text-neutral-500" />
           </CardHeader>
           <CardContent className="p-4 pt-0">
-            <div className={`text-2xl font-bold ${(stats?.expiring_leases_90d ?? 0) > 0 ? "text-red-600" : ""}`}>
+            <div className={`text-2xl font-semibold ${(stats?.expiring_leases_90d ?? 0) > 0 ? "text-red-600" : ""}`}>
               {stats?.expiring_leases_90d ?? 0}
             </div>
             <p className="text-[11px] text-neutral-400 mt-0.5">
@@ -417,7 +417,7 @@ export default function Dashboard() {
             <ShieldAlert className="h-4 w-4 text-red-400" />
           </CardHeader>
           <CardContent className="p-4 pt-0">
-            <div className={`text-2xl font-bold ${(stats?.total_risk_flags ?? 0) > 0 ? "text-red-600" : ""}`}>
+            <div className={`text-2xl font-semibold ${(stats?.total_risk_flags ?? 0) > 0 ? "text-red-600" : ""}`}>
               {stats?.total_risk_flags ?? 0}
             </div>
             <p className="text-[11px] text-neutral-400 mt-0.5">
@@ -432,10 +432,10 @@ export default function Dashboard() {
             <CardTitle className="text-xs font-medium text-neutral-500">
               Total Monthly Outflow
             </CardTitle>
-            <TrendingDown className="h-4 w-4 text-neutral-400" />
+            <TrendingDown className="h-4 w-4 text-neutral-500" />
           </CardHeader>
           <CardContent className="p-4 pt-0">
-            <div className="text-2xl font-bold">
+            <div className="text-2xl font-semibold">
               {formatINR(stats?.total_monthly_outflow ?? 0)}
             </div>
             <p className="text-[11px] text-neutral-400 mt-0.5">
@@ -448,7 +448,7 @@ export default function Dashboard() {
       {/* -------------------------------------------------------------- */}
       {/* Row 3 -- Outlets by City + Outlets by Status                     */}
       {/* -------------------------------------------------------------- */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-5">
         {/* Outlets by City -- horizontal bar chart */}
         <Card className="flex flex-col">
           <CardHeader className="p-4 pb-2">

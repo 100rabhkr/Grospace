@@ -19,7 +19,7 @@ export function TopBar() {
   ).length;
 
   return (
-    <header className="h-14 bg-white border-b border-neutral-200 flex items-center justify-between px-6 shrink-0">
+    <header className="h-14 bg-white border-b border-neutral-100 flex items-center justify-between px-8 shrink-0">
       {/* Search */}
       <div className="flex items-center gap-3 flex-1 max-w-md">
         <div className="relative w-full">

@@ -235,12 +235,12 @@ export default function OutletsPage() {
   // Render
   // ---------------------------------------------------------------------------
   return (
-    <div className="min-h-screen bg-white">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div className="animate-fade-in">
+      <div>
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-black tracking-tight">
+            <h1 className="text-xl font-semibold text-black tracking-tight">
               Outlets
             </h1>
             <Badge
@@ -388,7 +388,7 @@ export default function OutletsPage() {
 
         {/* Card View */}
         {viewMode === "card" && filteredOutlets.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredOutlets.map((outlet) => {
               const primaryAgreement = outlet.agreements?.[0] || null;
               return (
@@ -405,7 +405,7 @@ export default function OutletsPage() {
                           {statusLabel(outlet.status)}
                         </Badge>
                       </div>
-                      <h3 className="text-base font-bold text-black leading-tight">
+                      <h3 className="text-base font-semibold text-black leading-tight">
                         {outlet.name}
                       </h3>
                     </CardHeader>

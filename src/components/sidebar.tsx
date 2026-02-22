@@ -50,9 +50,9 @@ export function Sidebar() {
   });
 
   return (
-    <aside className="w-[240px] h-screen bg-white border-r border-neutral-200 flex flex-col shrink-0">
+    <aside className="w-[240px] h-screen bg-white border-r border-neutral-100 flex flex-col shrink-0">
       {/* Logo */}
-      <div className="h-14 flex items-center px-5 border-b border-neutral-200">
+      <div className="h-14 flex items-center px-5 border-b border-neutral-100">
         <Link href="/" className="flex items-center gap-2">
           <div className="w-7 h-7 bg-black rounded-lg flex items-center justify-center">
             <span className="text-white text-xs font-bold">G</span>
@@ -80,7 +80,7 @@ export function Sidebar() {
                   className={cn(
                     "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
                     isActive
-                      ? "bg-neutral-100 text-black"
+                      ? "bg-neutral-900 text-white"
                       : "text-neutral-500 hover:text-black hover:bg-neutral-50"
                   )}
                   onClick={(e) => {
@@ -137,7 +137,7 @@ export function Sidebar() {
             className={cn(
               "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
               pathname === "/organizations"
-                ? "bg-neutral-100 text-black"
+                ? "bg-neutral-900 text-white"
                 : "text-neutral-500 hover:text-black hover:bg-neutral-50"
             )}
           >
@@ -148,7 +148,7 @@ export function Sidebar() {
       </nav>
 
       {/* User */}
-      <div className="p-3 border-t border-neutral-200">
+      <div className="p-3 border-t border-neutral-100">
         <div className="flex items-center gap-2.5 px-2 py-1.5">
           <div className="w-7 h-7 rounded-full bg-black flex items-center justify-center">
             <span className="text-white text-[10px] font-semibold">SS</span>
