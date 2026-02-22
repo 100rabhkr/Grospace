@@ -97,6 +97,7 @@ const extractionLabels: Record<string, string> = {
 };
 
 function statusColor(status: string): string {
+  if (!status) return "bg-neutral-100 text-neutral-600";
   const map: Record<string, string> = {
     active: "bg-emerald-100 text-emerald-800",
     expiring: "bg-orange-100 text-orange-800",
@@ -114,6 +115,7 @@ function statusColor(status: string): string {
 }
 
 function statusLabel(status: string): string {
+  if (!status) return "Unknown";
   return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 

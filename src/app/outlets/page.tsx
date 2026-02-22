@@ -69,6 +69,7 @@ interface Outlet {
 // ---------------------------------------------------------------------------
 
 function propertyTypeLabel(type: string): string {
+  if (!type) return "Unknown";
   const labels: Record<string, string> = {
     mall: "Mall",
     high_street: "High Street",
@@ -83,6 +84,7 @@ function propertyTypeLabel(type: string): string {
 }
 
 function franchiseModelLabel(model: string): string {
+  if (!model) return "Unknown";
   const labels: Record<string, string> = {
     FOFO: "FOFO",
     FOCO: "FOCO",
@@ -93,10 +95,12 @@ function franchiseModelLabel(model: string): string {
 }
 
 function statusLabel(status: string): string {
+  if (!status) return "Unknown";
   return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function statusColor(status: string): string {
+  if (!status) return "bg-neutral-100 text-neutral-600";
   const map: Record<string, string> = {
     active: "bg-emerald-50 text-emerald-700",
     operational: "bg-emerald-50 text-emerald-700",

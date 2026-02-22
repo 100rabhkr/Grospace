@@ -107,6 +107,7 @@ interface OutletResponse {
 // ---------------------------------------------------------------------------
 
 function propertyTypeLabel(pt: string): string {
+  if (!pt) return "Unknown";
   const map: Record<string, string> = {
     mall: "Mall",
     high_street: "High Street",
@@ -121,6 +122,7 @@ function propertyTypeLabel(pt: string): string {
 }
 
 function agreementTypeLabel(t: string): string {
+  if (!t) return "Unknown";
   const map: Record<string, string> = {
     lease_loi: "Lease / LOI",
     license_certificate: "License Certificate",
@@ -130,6 +132,7 @@ function agreementTypeLabel(t: string): string {
 }
 
 function obligationTypeLabel(t: string): string {
+  if (!t) return "Unknown";
   const map: Record<string, string> = {
     rent: "Rent",
     cam: "CAM",
@@ -143,10 +146,12 @@ function obligationTypeLabel(t: string): string {
 }
 
 function statusLabel(status: string): string {
+  if (!status) return "Unknown";
   return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function statusColor(status: string): string {
+  if (!status) return "bg-neutral-100 text-neutral-600";
   const map: Record<string, string> = {
     active: "bg-emerald-50 text-emerald-700",
     operational: "bg-emerald-50 text-emerald-700",
@@ -591,7 +596,7 @@ export default function OutletDetailPage() {
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-semibold">{alert.title}</span>
                       <Badge variant="outline" className="text-xs">
-                        {alert.type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+                        {(alert.type || "").replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
                       </Badge>
                       {alert.severity && (
                         <Badge variant="outline" className={`text-xs ${statusColor(alert.severity)}`}>

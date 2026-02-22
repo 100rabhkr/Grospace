@@ -108,6 +108,7 @@ function severityDotColor(severity: AlertSeverity): string {
 }
 
 function statusColor(status: string): string {
+  if (!status) return "bg-neutral-100 text-neutral-600";
   const map: Record<string, string> = {
     pending: "bg-amber-100 text-amber-800",
     sent: "bg-blue-100 text-blue-800",
@@ -118,6 +119,7 @@ function statusColor(status: string): string {
 }
 
 function statusLabel(status: string): string {
+  if (!status) return "Unknown";
   return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
