@@ -252,11 +252,17 @@ async def extract_structured_data(text: str, doc_type: str) -> dict:
         ),
     )
 
-    return json.loads(response.text)
+    result = json.loads(response.text)
+    # Gemini sometimes wraps the result in a list — unwrap it
+    if isinstance(result, list) and len(result) > 0:
+        result = result[0]
+    return result if isinstance(result, dict) else {}
 
 
 def calculate_confidence(extraction: dict) -> dict:
     """Calculate confidence scores for each field in the extraction."""
+    if not isinstance(extraction, dict):
+        return {}
     confidence = {}
     for section_key, section_val in extraction.items():
         if isinstance(section_val, dict):
@@ -299,6 +305,8 @@ async def detect_risk_flags(text: str, extraction: dict) -> list:
     )
 
     result = json.loads(response.text)
+    if isinstance(result, list):
+        return result
     return result.get("flags", result.get("risk_flags", []))
 
 
