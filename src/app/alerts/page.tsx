@@ -24,7 +24,6 @@ import {
   Search,
   CheckCircle2,
   Clock,
-  UserPlus,
   CalendarDays,
   X,
   ChevronDown,
@@ -108,6 +107,7 @@ function severityDotColor(severity: AlertSeverity): string {
 }
 
 function statusColor(status: string): string {
+  if (!status) return "bg-neutral-100 text-neutral-600";
   const map: Record<string, string> = {
     pending: "bg-amber-100 text-amber-800",
     sent: "bg-blue-100 text-blue-800",
@@ -118,6 +118,7 @@ function statusColor(status: string): string {
 }
 
 function statusLabel(status: string): string {
+  if (!status) return "Unknown";
   return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
@@ -248,8 +249,8 @@ export default function AlertsPage() {
 
       if (
         searchQuery &&
-        !alert.title.toLowerCase().includes(searchQuery.toLowerCase()) &&
-        !alert.message.toLowerCase().includes(searchQuery.toLowerCase()) &&
+        !(alert.title || "").toLowerCase().includes(searchQuery.toLowerCase()) &&
+        !(alert.message || "").toLowerCase().includes(searchQuery.toLowerCase()) &&
         !outletName.toLowerCase().includes(searchQuery.toLowerCase())
       ) {
         return false;
@@ -314,12 +315,12 @@ export default function AlertsPage() {
   // ---------- Render ----------
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-fade-in">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Bell className="h-6 w-6 text-neutral-700" />
-          <h1 className="text-2xl font-bold tracking-tight text-black">
+          <h1 className="text-xl font-semibold tracking-tight text-black">
             Alerts
           </h1>
           {!loading && (
@@ -613,15 +614,6 @@ export default function AlertsPage() {
                               </DropdownMenu>
                             )}
 
-                            {/* Assign */}
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-7 text-xs"
-                            >
-                              <UserPlus className="h-3.5 w-3.5 mr-1" />
-                              Assign
-                            </Button>
                           </div>
                         </div>
                       </div>

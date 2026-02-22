@@ -92,6 +92,7 @@ function formatCurrency(amount: number): string {
 }
 
 function statusColor(status: string): string {
+  if (!status) return "bg-neutral-100 text-neutral-600";
   const map: Record<string, string> = {
     active: "bg-emerald-50 text-emerald-700",
     operational: "bg-emerald-50 text-emerald-700",
@@ -108,12 +109,14 @@ function statusColor(status: string): string {
 }
 
 function statusLabel(status: string): string {
+  if (!status) return "Unknown";
   return status
     .replace(/_/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function severityColor(severity: string): string {
+  if (!severity) return "bg-neutral-100 text-neutral-600";
   const map: Record<string, string> = {
     high: "bg-red-50 text-red-700",
     medium: "bg-amber-50 text-amber-700",

@@ -146,7 +146,7 @@ type ExtractionResult = {
   filename: string;
 };
 
-const processingSteps = [
+const defaultProcessingSteps = [
   { label: "Uploading document", duration: 1500 },
   { label: "Parsing document structure", duration: 2500 },
   { label: "Classifying document type", duration: 2000 },
@@ -155,21 +155,32 @@ const processingSteps = [
   { label: "Detecting risk flags", duration: 2000 },
 ];
 
-function ProcessingStep() {
+const imageProcessingSteps = [
+  { label: "Uploading document", duration: 1500 },
+  { label: "Scanning image content", duration: 4000 },
+  { label: "Running OCR & vision analysis", duration: 5000 },
+  { label: "Classifying document type", duration: 3000 },
+  { label: "Extracting key terms & dates", duration: 5000 },
+  { label: "Analyzing financial data", duration: 4000 },
+  { label: "Detecting risk flags", duration: 3000 },
+];
+
+function ProcessingStep({ isImageDoc }: { isImageDoc: boolean }) {
+  const steps = isImageDoc ? imageProcessingSteps : defaultProcessingSteps;
   const [activeStep, setActiveStep] = useState(0);
 
   useEffect(() => {
     let timeout: NodeJS.Timeout;
     function advance(index: number) {
-      if (index >= processingSteps.length) return;
+      if (index >= steps.length) return;
       timeout = setTimeout(() => {
         setActiveStep(index + 1);
         advance(index + 1);
-      }, processingSteps[index].duration);
+      }, steps[index].duration);
     }
     advance(0);
     return () => clearTimeout(timeout);
-  }, []);
+  }, [steps]);
 
   return (
     <Card className="max-w-lg mx-auto">
@@ -181,16 +192,21 @@ function ProcessingStep() {
         </div>
 
         <h2 className="text-lg font-semibold mb-1">
-          {activeStep < processingSteps.length
-            ? processingSteps[activeStep].label + "..."
+          {activeStep < steps.length
+            ? steps[activeStep].label + "..."
             : "Finalizing extraction..."}
         </h2>
-        <p className="text-sm text-muted-foreground mb-6">
+        <p className="text-sm text-muted-foreground mb-1">
           Powered by 360Labs AI Engine
         </p>
+        {isImageDoc && (
+          <p className="text-xs text-amber-600 bg-amber-50 px-3 py-1.5 rounded-full mb-4">
+            Scanned / image document detected — this may take a bit longer
+          </p>
+        )}
 
         <div className="text-left w-full max-w-xs space-y-3">
-          {processingSteps.map((item, i) => (
+          {steps.map((item, i) => (
             <div
               key={item.label}
               className={`flex items-center gap-2.5 text-sm transition-all duration-300 ${
@@ -217,11 +233,11 @@ function ProcessingStep() {
           <div className="h-1.5 bg-neutral-100 rounded-full overflow-hidden">
             <div
               className="h-full bg-black rounded-full transition-all duration-500 ease-out"
-              style={{ width: `${Math.min((activeStep / processingSteps.length) * 100, 100)}%` }}
+              style={{ width: `${Math.min((activeStep / steps.length) * 100, 100)}%` }}
             />
           </div>
           <p className="text-xs text-muted-foreground mt-2">
-            Step {Math.min(activeStep + 1, processingSteps.length)} of {processingSteps.length}
+            Step {Math.min(activeStep + 1, steps.length)} of {steps.length}
           </p>
         </div>
       </CardContent>
@@ -249,11 +265,16 @@ export default function UploadAgreementPage() {
     e.preventDefault();
     setIsDragOver(false);
     const file = e.dataTransfer.files[0];
-    if (file && file.type === "application/pdf") {
+    const validTypes = [
+      "application/pdf",
+      "image/png", "image/jpeg", "image/webp",
+      "image/gif", "image/bmp", "image/tiff",
+    ];
+    if (file && (validTypes.includes(file.type) || file.name.match(/\.(pdf|png|jpe?g|webp|gif|bmp|tiff?)$/i))) {
       setSelectedFile(file);
       setError(null);
     } else {
-      setError("Please upload a PDF file.");
+      setError("Please upload a PDF or image file (PDF, PNG, JPG, WEBP, TIFF).");
     }
   }
 
@@ -278,8 +299,16 @@ export default function UploadAgreementPage() {
 
     try {
       const data = await uploadAndExtract(selectedFile);
-      setResult(data);
-      setStep(3);
+      if (data.error && data.status === "partial" && Object.keys(data.extraction || {}).length === 0) {
+        setError(data.error);
+        setStep(1);
+      } else {
+        setResult(data);
+        setStep(3);
+        if (data.error) {
+          setError(data.error);
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Extraction failed. Please try again.");
       setStep(1);
@@ -394,7 +423,7 @@ export default function UploadAgreementPage() {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".pdf"
+                accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tiff,.tif"
                 className="hidden"
                 onChange={handleFileSelect}
               />
@@ -417,17 +446,17 @@ export default function UploadAgreementPage() {
                     <CloudUpload className="h-7 w-7 text-neutral-400" />
                   </div>
                   <p className="text-sm font-medium text-black mb-1">
-                    Drag and drop your PDF here
+                    Drag and drop your document here
                   </p>
                   <p className="text-xs text-muted-foreground mb-3">
                     or click to browse files
                   </p>
-                  <Badge variant="outline" className="text-xs font-normal">PDF up to 50MB</Badge>
+                  <Badge variant="outline" className="text-xs font-normal">PDF or image up to 50MB</Badge>
                 </div>
               ) : (
                 <div className="flex items-center gap-3 p-4 rounded-xl border bg-neutral-50">
-                  <div className="h-10 w-10 rounded-lg bg-red-100 flex items-center justify-center">
-                    <FileText className="h-5 w-5 text-red-600" />
+                  <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${selectedFile?.type?.startsWith("image/") ? "bg-blue-100" : "bg-red-100"}`}>
+                    <FileText className={`h-5 w-5 ${selectedFile?.type?.startsWith("image/") ? "text-blue-600" : "text-red-600"}`} />
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate">{selectedFile.name}</p>
@@ -462,7 +491,14 @@ export default function UploadAgreementPage() {
       )}
 
       {/* Step 2: Processing */}
-      {step === 2 && <ProcessingStep />}
+      {step === 2 && (
+        <ProcessingStep
+          isImageDoc={
+            selectedFile?.type?.startsWith("image/") ||
+            /\.(png|jpe?g|webp|gif|bmp|tiff?)$/i.test(selectedFile?.name || "")
+          }
+        />
+      )}
 
       {/* Step 3: Review */}
       {step === 3 && result && (
@@ -475,8 +511,11 @@ export default function UploadAgreementPage() {
             <div className="flex-1">
               <p className="text-sm font-semibold text-emerald-900">Extraction Complete</p>
               <p className="text-xs text-emerald-700">
-                Classified as <strong>{result.document_type.replace(/_/g, " ").toUpperCase()}</strong>
+                Classified as <strong>{(result.document_type || "unknown").replace(/_/g, " ").toUpperCase()}</strong>
                 {stats && <> &middot; {stats.total} fields extracted &middot; {stats.highConf} high confidence</>}
+                {(result as Record<string, unknown>)?.extraction_method === "vision" && (
+                  <Badge variant="outline" className="ml-2 text-[10px]">Vision AI</Badge>
+                )}
               </p>
             </div>
             <Badge variant="outline" className="text-xs">{result.filename}</Badge>
@@ -638,12 +677,6 @@ export default function UploadAgreementPage() {
               Upload Another
             </Button>
             <div className="flex items-center gap-3">
-              <Button
-                variant="ghost"
-                onClick={() => alert("Draft saved")}
-              >
-                Save as Draft
-              </Button>
               <Button
                 disabled={isConfirming}
                 onClick={async () => {

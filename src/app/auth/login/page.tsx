@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,7 +14,6 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [mode, setMode] = useState<"login" | "signup">("login");
-  const router = useRouter();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -30,8 +28,7 @@ export default function LoginPage() {
         body: JSON.stringify({ email, password }),
       });
       if (demoRes.ok) {
-        router.push("/");
-        router.refresh();
+        window.location.href = "/";
         return;
       }
     } catch {
@@ -39,6 +36,14 @@ export default function LoginPage() {
     }
 
     // Fall back to Supabase auth if configured
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!supabaseUrl || supabaseUrl === "your-supabase-project-url" || !supabaseKey) {
+      setError("Invalid email or password");
+      setLoading(false);
+      return;
+    }
+
     try {
       const supabase = createClient();
 
@@ -64,8 +69,7 @@ export default function LoginPage() {
         }
       }
 
-      router.push("/");
-      router.refresh();
+      window.location.href = "/";
     } catch {
       setError("Invalid email or password");
       setLoading(false);
@@ -87,8 +91,7 @@ export default function LoginPage() {
         body: JSON.stringify({ email: demoEmail, password: demoPassword }),
       });
       if (demoRes.ok) {
-        router.push("/");
-        router.refresh();
+        window.location.href = "/";
         return;
       }
     } catch {

@@ -69,6 +69,7 @@ interface Outlet {
 // ---------------------------------------------------------------------------
 
 function propertyTypeLabel(type: string): string {
+  if (!type) return "Unknown";
   const labels: Record<string, string> = {
     mall: "Mall",
     high_street: "High Street",
@@ -83,6 +84,7 @@ function propertyTypeLabel(type: string): string {
 }
 
 function franchiseModelLabel(model: string): string {
+  if (!model) return "Unknown";
   const labels: Record<string, string> = {
     FOFO: "FOFO",
     FOCO: "FOCO",
@@ -93,10 +95,12 @@ function franchiseModelLabel(model: string): string {
 }
 
 function statusLabel(status: string): string {
+  if (!status) return "Unknown";
   return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function statusColor(status: string): string {
+  if (!status) return "bg-neutral-100 text-neutral-600";
   const map: Record<string, string> = {
     active: "bg-emerald-50 text-emerald-700",
     operational: "bg-emerald-50 text-emerald-700",
@@ -181,10 +185,10 @@ export default function OutletsPage() {
       if (searchQuery) {
         const query = searchQuery.toLowerCase();
         const matchesSearch =
-          outlet.name.toLowerCase().includes(query) ||
-          outlet.brand_name.toLowerCase().includes(query) ||
-          outlet.city.toLowerCase().includes(query) ||
-          outlet.address.toLowerCase().includes(query);
+          (outlet.name || "").toLowerCase().includes(query) ||
+          (outlet.brand_name || "").toLowerCase().includes(query) ||
+          (outlet.city || "").toLowerCase().includes(query) ||
+          (outlet.address || "").toLowerCase().includes(query);
         if (!matchesSearch) return false;
       }
       if (cityFilter !== "all" && outlet.city !== cityFilter) return false;
@@ -231,12 +235,12 @@ export default function OutletsPage() {
   // Render
   // ---------------------------------------------------------------------------
   return (
-    <div className="min-h-screen bg-white">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div className="animate-fade-in">
+      <div>
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-black tracking-tight">
+            <h1 className="text-xl font-semibold text-black tracking-tight">
               Outlets
             </h1>
             <Badge
@@ -384,7 +388,7 @@ export default function OutletsPage() {
 
         {/* Card View */}
         {viewMode === "card" && filteredOutlets.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredOutlets.map((outlet) => {
               const primaryAgreement = outlet.agreements?.[0] || null;
               return (
@@ -401,7 +405,7 @@ export default function OutletsPage() {
                           {statusLabel(outlet.status)}
                         </Badge>
                       </div>
-                      <h3 className="text-base font-bold text-black leading-tight">
+                      <h3 className="text-base font-semibold text-black leading-tight">
                         {outlet.name}
                       </h3>
                     </CardHeader>

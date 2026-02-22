@@ -324,7 +324,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-fade-in">
       {/* Page Header */}
       <div className="flex items-center gap-3">
         <div className="w-9 h-9 bg-black rounded-lg flex items-center justify-center">

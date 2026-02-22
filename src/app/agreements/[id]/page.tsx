@@ -221,6 +221,7 @@ function parseField(fieldVal: unknown): {
 }
 
 function statusColor(status: string): string {
+  if (!status) return "bg-neutral-100 text-neutral-600";
   const map: Record<string, string> = {
     active: "bg-emerald-100 text-emerald-800",
     expiring: "bg-orange-100 text-orange-800",
@@ -241,6 +242,7 @@ function statusColor(status: string): string {
 }
 
 function statusLabel(status: string): string {
+  if (!status) return "Unknown";
   return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
@@ -820,7 +822,7 @@ export default function AgreementDetailPage() {
 
         {/* Document Tab */}
         <TabsContent value="document">
-          <Card className="min-h-[500px] flex flex-col">
+          <Card>
             <div className="flex items-center justify-between px-4 py-3 border-b">
               <div className="flex items-center gap-2">
                 <FileText className="h-4 w-4 text-red-600" />
@@ -828,18 +830,9 @@ export default function AgreementDetailPage() {
                   {agreement.document_filename}
                 </span>
               </div>
-              <div className="flex items-center gap-2">
-                <Badge variant="outline" className="text-xs">
-                  PDF
-                </Badge>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="text-xs h-7"
-                >
-                  Download
-                </Button>
-              </div>
+              <Badge variant="outline" className="text-xs">
+                {agreement.document_filename?.endsWith(".pdf") ? "PDF" : "Document"}
+              </Badge>
             </div>
             <CardContent className="flex-1 p-0 bg-neutral-50 overflow-hidden">
               {agreement.document_url ? (

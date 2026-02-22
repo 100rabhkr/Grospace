@@ -280,12 +280,12 @@ export default function ReportsPage() {
   const totalRisk = filteredData.reduce((s, r) => s + r.risk_flags_count, 0);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-fade-in">
       {/* ---------- Header ---------- */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <FileSpreadsheet className="h-6 w-6 text-neutral-700" />
-          <h1 className="text-2xl font-bold tracking-tight text-black">Outlet Report</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-black">Outlet Report</h1>
           {!loading && (
             <Badge variant="secondary" className="text-sm">
               {filteredData.length} outlets

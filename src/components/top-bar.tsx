@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Bell, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,7 +19,7 @@ export function TopBar() {
   ).length;
 
   return (
-    <header className="h-14 bg-white border-b border-neutral-200 flex items-center justify-between px-6 shrink-0">
+    <header className="h-14 bg-white border-b border-neutral-100 flex items-center justify-between px-8 shrink-0">
       {/* Search */}
       <div className="flex items-center gap-3 flex-1 max-w-md">
         <div className="relative w-full">
@@ -80,12 +81,11 @@ export function TopBar() {
                             {alert.message}
                           </p>
                           <div className="flex gap-2 mt-2">
-                            <Button variant="outline" size="sm" className="h-7 text-xs">
-                              Acknowledge
-                            </Button>
-                            <Button variant="ghost" size="sm" className="h-7 text-xs">
-                              Snooze
-                            </Button>
+                            <Link href="/alerts">
+                              <Button variant="outline" size="sm" className="h-7 text-xs">
+                                View in Alerts
+                              </Button>
+                            </Link>
                           </div>
                         </div>
                       </div>
