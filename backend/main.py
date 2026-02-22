@@ -211,6 +211,31 @@ class AssignRequest(BaseModel):
     user_id: str
 
 
+class UpdateAgreementRequest(BaseModel):
+    """Sparse update of agreement extracted_data via dot-notation keys."""
+    field_updates: Optional[dict] = None  # e.g. {"parties.lessor_name": "New Name"}
+    extracted_data: Optional[dict] = None  # Full replacement (rare)
+
+
+class UpdateOrganizationRequest(BaseModel):
+    name: Optional[str] = None
+    logo_url: Optional[str] = None
+    alert_preferences: Optional[dict] = None
+
+
+class InviteMemberRequest(BaseModel):
+    email: str
+    role: str = "org_member"
+
+
+class UpdateProfileRequest(BaseModel):
+    full_name: Optional[str] = None
+
+
+class AlertPreferencesRequest(BaseModel):
+    preferences: dict  # { alert_type: { lead_days, email_enabled } }
+
+
 # ============================================
 # AUTH MIDDLEWARE
 # ============================================
@@ -1147,6 +1172,69 @@ async def get_agreement(agreement_id: str):
     }
 
 
+@app.patch("/api/agreements/{agreement_id}")
+async def update_agreement(agreement_id: str, body: UpdateAgreementRequest):
+    """Update extracted fields on an agreement (sparse dot-notation merge)."""
+    # Fetch current agreement
+    current = supabase.table("agreements").select("extracted_data").eq("id", agreement_id).single().execute()
+    if not current.data:
+        raise HTTPException(status_code=404, detail="Agreement not found")
+
+    extracted = current.data.get("extracted_data") or {}
+
+    # Apply dot-notation field_updates into extracted_data
+    if body.field_updates:
+        for dot_key, new_val in body.field_updates.items():
+            parts = dot_key.split(".", 1)
+            if len(parts) == 2:
+                section, field = parts
+                if section not in extracted:
+                    extracted[section] = {}
+                if isinstance(extracted[section], dict):
+                    existing = extracted[section].get(field)
+                    # Preserve confidence wrapper if it exists
+                    if isinstance(existing, dict) and "value" in existing:
+                        existing["value"] = new_val
+                        extracted[section][field] = existing
+                    else:
+                        extracted[section][field] = new_val
+
+    # Build top-level shortcut updates from extracted_data
+    shortcuts = {}
+    shortcut_map = {
+        "parties.lessor_name": "lessor_name",
+        "parties.lessee_name": "lessee_name",
+        "rent.monthly_rent": "monthly_rent",
+        "charges.cam_monthly": "cam_monthly",
+        "rent.revenue_share_pct": "revenue_share_pct",
+        "lease_term.lease_start_date": "lease_start_date",
+        "lease_term.lease_expiry_date": "lease_expiry_date",
+        "lease_term.lock_in_period": "lock_in_period",
+        "deposits.security_deposit": "security_deposit",
+    }
+    if body.field_updates:
+        for dot_key, new_val in body.field_updates.items():
+            if dot_key in shortcut_map:
+                col = shortcut_map[dot_key]
+                # For numeric columns, try to convert
+                if col in ("monthly_rent", "cam_monthly", "security_deposit", "revenue_share_pct"):
+                    try:
+                        shortcuts[col] = float(str(new_val).replace(",", ""))
+                    except (ValueError, TypeError):
+                        shortcuts[col] = new_val
+                else:
+                    shortcuts[col] = new_val
+
+    update_payload = {"extracted_data": extracted, **shortcuts}
+
+    # Full replace of extracted_data if provided
+    if body.extracted_data:
+        update_payload["extracted_data"] = body.extracted_data
+
+    result = supabase.table("agreements").update(update_payload).eq("id", agreement_id).execute()
+    return {"agreement": result.data[0] if result.data else None}
+
+
 @app.get("/api/outlets")
 async def list_outlets():
     """List all outlets."""
@@ -1833,6 +1921,203 @@ async def get_reports(user: Optional[CurrentUser] = Depends(get_current_user)):
         })
 
     return {"report": report}
+
+
+# ============================================
+# SETTINGS ENDPOINTS
+# ============================================
+
+@app.patch("/api/organizations/{org_id}")
+async def update_organization(org_id: str, req: UpdateOrganizationRequest):
+    """Update organization name/settings."""
+    update_data: dict = {}
+    if req.name is not None:
+        update_data["name"] = req.name
+    if req.logo_url is not None:
+        update_data["logo_url"] = req.logo_url
+    if req.alert_preferences is not None:
+        update_data["alert_preferences"] = req.alert_preferences
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    result = supabase.table("organizations").update(update_data).eq("id", org_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    return {"organization": result.data[0]}
+
+
+@app.get("/api/organizations/{org_id}/members")
+async def list_org_members(org_id: str):
+    """List all profiles belonging to an organization."""
+    result = supabase.table("profiles").select("*").eq("org_id", org_id).execute()
+    return {"members": result.data}
+
+
+@app.post("/api/organizations/{org_id}/invite")
+async def invite_org_member(org_id: str, req: InviteMemberRequest):
+    """Stub invite — creates a profile entry with 'invited' status."""
+    profile_data = {
+        "id": str(uuid.uuid4()),
+        "email": req.email,
+        "role": req.role,
+        "org_id": org_id,
+        "full_name": req.email.split("@")[0].title(),
+        "status": "invited",
+    }
+    try:
+        result = supabase.table("profiles").insert(profile_data).execute()
+        return {"member": result.data[0] if result.data else profile_data}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.delete("/api/organizations/{org_id}/members/{user_id}")
+async def remove_org_member(org_id: str, user_id: str):
+    """Remove a member from the organization."""
+    result = supabase.table("profiles").delete().eq("id", user_id).eq("org_id", org_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Member not found")
+    return {"deleted": True}
+
+
+@app.get("/api/profile")
+async def get_profile(user: Optional[CurrentUser] = Depends(get_current_user)):
+    """Get the current user's profile."""
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    result = supabase.table("profiles").select("*").eq("id", user.user_id).single().execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return {"profile": result.data}
+
+
+@app.patch("/api/profile")
+async def update_profile(req: UpdateProfileRequest, user: Optional[CurrentUser] = Depends(get_current_user)):
+    """Update the current user's profile."""
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    update_data: dict = {}
+    if req.full_name is not None:
+        update_data["full_name"] = req.full_name
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    result = supabase.table("profiles").update(update_data).eq("id", user.user_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return {"profile": result.data[0]}
+
+
+@app.get("/api/alert-preferences/{org_id}")
+async def get_alert_preferences(org_id: str):
+    """Get alert preferences for an organization."""
+    result = supabase.table("organizations").select("alert_preferences").eq("id", org_id).single().execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    return {"preferences": result.data.get("alert_preferences") or {}}
+
+
+@app.put("/api/alert-preferences/{org_id}")
+async def save_alert_preferences(org_id: str, req: AlertPreferencesRequest):
+    """Save alert preferences for an organization."""
+    result = supabase.table("organizations").update({"alert_preferences": req.preferences}).eq("id", org_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    return {"preferences": req.preferences}
+
+
+# ============================================
+# EMAIL DIGEST STUB
+# ============================================
+
+@app.post("/api/digest/send")
+async def send_digest(cron_secret: Optional[str] = Header(None, alias="X-Cron-Secret")):
+    """Collect today's alerts + overdue payments per org and return digest data.
+    Ready to wire to Resend/SendGrid later — just add the send call."""
+    # In production, validate cron_secret against an env var
+    today = date.today()
+
+    # Get all orgs
+    orgs = supabase.table("organizations").select("id, name").execute()
+
+    digests = []
+    for org in orgs.data:
+        org_id = org["id"]
+
+        # Upcoming alerts (next 7 days)
+        upcoming_alerts = supabase.table("alerts").select(
+            "id, title, severity, trigger_date, type"
+        ).eq("org_id", org_id).eq("status", "pending").gte(
+            "trigger_date", today.isoformat()
+        ).lte(
+            "trigger_date", (today + timedelta(days=7)).isoformat()
+        ).execute()
+
+        # Overdue payments
+        overdue_payments = supabase.table("payment_records").select(
+            "id, due_amount, due_date, outlets(name)"
+        ).eq("org_id", org_id).eq("status", "overdue").execute()
+
+        digests.append({
+            "org_id": org_id,
+            "org_name": org["name"],
+            "upcoming_alerts": upcoming_alerts.data,
+            "overdue_payments": overdue_payments.data,
+            "alert_count": len(upcoming_alerts.data),
+            "overdue_count": len(overdue_payments.data),
+        })
+
+    return {
+        "date": today.isoformat(),
+        "digests": digests,
+        "message": "Digest data collected. Email sending not yet configured.",
+    }
+
+
+@app.post("/api/digest/preview")
+async def preview_digest(org_id: str = Query(...)):
+    """Return HTML preview of what the digest email would look like."""
+    today = date.today()
+
+    upcoming_alerts = supabase.table("alerts").select(
+        "title, severity, trigger_date, type"
+    ).eq("org_id", org_id).eq("status", "pending").gte(
+        "trigger_date", today.isoformat()
+    ).lte(
+        "trigger_date", (today + timedelta(days=7)).isoformat()
+    ).order("trigger_date").execute()
+
+    overdue_payments = supabase.table("payment_records").select(
+        "due_amount, due_date, outlets(name)"
+    ).eq("org_id", org_id).eq("status", "overdue").order("due_date").execute()
+
+    # Simple HTML preview
+    alert_rows = ""
+    for a in upcoming_alerts.data:
+        alert_rows += f'<tr><td>{a["title"]}</td><td>{a["severity"]}</td><td>{a["trigger_date"]}</td></tr>'
+
+    payment_rows = ""
+    for p in overdue_payments.data:
+        outlet_name = p.get("outlets", {}).get("name", "Unknown") if p.get("outlets") else "Unknown"
+        amount = p.get("due_amount", 0)
+        payment_rows += f'<tr><td>{outlet_name}</td><td>Rs {amount:,.0f}</td><td>{p["due_date"]}</td></tr>'
+
+    org = supabase.table("organizations").select("name").eq("id", org_id).single().execute()
+    org_name = org.data.get("name", "Organization") if org.data else "Organization"
+
+    html = f"""
+    <html><body style="font-family:sans-serif;max-width:600px;margin:auto;padding:20px">
+    <h2>GroSpace Daily Digest — {org_name}</h2>
+    <p style="color:#666">{today.strftime('%B %d, %Y')}</p>
+    <h3>Upcoming Alerts ({len(upcoming_alerts.data)})</h3>
+    {"<table border='1' cellpadding='8' cellspacing='0' width='100%'><tr><th>Alert</th><th>Severity</th><th>Date</th></tr>" + alert_rows + "</table>" if alert_rows else "<p style='color:#999'>No upcoming alerts this week.</p>"}
+    <h3 style="margin-top:20px">Overdue Payments ({len(overdue_payments.data)})</h3>
+    {"<table border='1' cellpadding='8' cellspacing='0' width='100%'><tr><th>Outlet</th><th>Amount</th><th>Due Date</th></tr>" + payment_rows + "</table>" if payment_rows else "<p style='color:#999'>No overdue payments.</p>"}
+    <hr style="margin-top:30px"><p style="color:#999;font-size:12px">This is a preview. Email sending is not yet configured.</p>
+    </body></html>
+    """
+
+    return {"html": html, "org_name": org_name, "date": today.isoformat()}
 
 
 if __name__ == "__main__":

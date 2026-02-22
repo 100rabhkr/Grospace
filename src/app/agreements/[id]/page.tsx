@@ -35,7 +35,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { getAgreement, askDocumentQuestion } from "@/lib/api";
+import { getAgreement, askDocumentQuestion, updateAgreement } from "@/lib/api";
+import { PdfViewer } from "@/components/pdf-viewer";
+import { EditableField } from "@/components/editable-field";
 
 // --- Types ---
 
@@ -88,6 +90,7 @@ type Agreement = {
   cam_monthly: number | null;
   total_monthly_outflow: number | null;
   security_deposit: number | null;
+  document_url: string | null;
   confirmed_at: string | null;
   created_at: string;
   outlets: OutletInfo | null;
@@ -315,6 +318,36 @@ export default function AgreementDetailPage() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
+
+  // Inline editing state
+  const [editedFields, setEditedFields] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+
+  const hasEdits = Object.keys(editedFields).length > 0;
+
+  function handleFieldEdit(sectionKey: string, fieldKey: string, newValue: string) {
+    setEditedFields((prev) => ({ ...prev, [`${sectionKey}.${fieldKey}`]: newValue }));
+  }
+
+  function discardEdits() {
+    setEditedFields({});
+  }
+
+  async function saveEdits() {
+    if (!agreement || !hasEdits) return;
+    setSaving(true);
+    try {
+      const res = await updateAgreement(agreementId, { field_updates: editedFields });
+      if (res.agreement) {
+        setAgreement(res.agreement);
+      }
+      setEditedFields({});
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to save changes");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -585,6 +618,10 @@ export default function AgreementDetailPage() {
                             const { displayVal, confidence } =
                               parseField(fieldVal);
 
+                            const dotKey = `${sectionKey}.${fieldKey}`;
+                            const editedVal = editedFields[dotKey];
+                            const currentVal = editedVal !== undefined ? editedVal : displayVal;
+
                             return (
                               <div key={fieldKey} className="min-w-0">
                                 <div className="flex items-center gap-1.5 mb-0.5">
@@ -593,23 +630,11 @@ export default function AgreementDetailPage() {
                                     {formatFieldLabel(fieldKey)}
                                   </p>
                                 </div>
-                                <p
-                                  className={`text-sm font-medium leading-snug ${
-                                    displayVal === "Not found"
-                                      ? "text-neutral-400 italic"
-                                      : "text-black"
-                                  }`}
-                                >
-                                  {displayVal.includes("\n")
-                                    ? displayVal
-                                        .split("\n")
-                                        .map((line, i) => (
-                                          <span key={i} className="block">
-                                            {line}
-                                          </span>
-                                        ))
-                                    : displayVal}
-                                </p>
+                                <EditableField
+                                  value={currentVal}
+                                  isNotFound={currentVal === "Not found"}
+                                  onChange={(v) => handleFieldEdit(sectionKey, fieldKey, v)}
+                                />
                               </div>
                             );
                           })}
@@ -619,6 +644,28 @@ export default function AgreementDetailPage() {
                   );
                 }
               )}
+            </div>
+          )}
+
+          {/* Save / Discard bar */}
+          {hasEdits && (
+            <div className="flex items-center justify-end gap-2 mt-4 pt-3 border-t">
+              <span className="text-xs text-muted-foreground mr-auto">
+                {Object.keys(editedFields).length} field{Object.keys(editedFields).length > 1 ? "s" : ""} modified
+              </span>
+              <Button variant="ghost" size="sm" onClick={discardEdits} disabled={saving}>
+                Discard
+              </Button>
+              <Button size="sm" onClick={saveEdits} disabled={saving}>
+                {saving ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                    Saving...
+                  </>
+                ) : (
+                  "Save Changes"
+                )}
+              </Button>
             </div>
           )}
         </TabsContent>
@@ -794,21 +841,22 @@ export default function AgreementDetailPage() {
                 </Button>
               </div>
             </div>
-            <CardContent className="flex-1 flex items-center justify-center bg-neutral-50">
-              <div className="text-center space-y-3">
-                <FileText className="h-20 w-20 text-neutral-300 mx-auto" />
-                <div>
-                  <p className="text-base font-medium text-neutral-500">
-                    PDF Viewer
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    The original agreement document will be rendered here
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {agreement.document_filename}
-                  </p>
+            <CardContent className="flex-1 p-0 bg-neutral-50 overflow-hidden">
+              {agreement.document_url ? (
+                <PdfViewer url={agreement.document_url} />
+              ) : (
+                <div className="flex-1 flex items-center justify-center py-16">
+                  <div className="text-center space-y-3">
+                    <FileText className="h-20 w-20 text-neutral-300 mx-auto" />
+                    <p className="text-base font-medium text-neutral-500">
+                      No document uploaded
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      Upload a document to view it here
+                    </p>
+                  </div>
                 </div>
-              </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

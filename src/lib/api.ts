@@ -182,6 +182,21 @@ export async function createOrganization(name: string) {
 }
 
 // ============================================
+// AGREEMENT EDITING
+// ============================================
+
+/** Update agreement extracted fields (sparse dot-notation merge) */
+export async function updateAgreement(id: string, data: {
+  field_updates?: Record<string, unknown>;
+  extracted_data?: Record<string, unknown>;
+}) {
+  return apiFetch(`/api/agreements/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+// ============================================
 // PAYMENT TRACKING
 // ============================================
 
@@ -267,4 +282,66 @@ export async function assignAlert(alertId: string, userId: string) {
 /** Get outlet report data (joined outlets + agreements + payments) */
 export async function getReportData() {
   return apiFetch("/api/reports");
+}
+
+// ============================================
+// SETTINGS
+// ============================================
+
+/** Update organization */
+export async function updateOrganization(orgId: string, data: {
+  name?: string;
+  logo_url?: string;
+  alert_preferences?: Record<string, unknown>;
+}) {
+  return apiFetch(`/api/organizations/${orgId}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+/** List organization members */
+export async function getOrgMembers(orgId: string) {
+  return apiFetch(`/api/organizations/${orgId}/members`);
+}
+
+/** Invite a member to the organization */
+export async function inviteOrgMember(orgId: string, email: string, role: string = "org_member") {
+  return apiFetch(`/api/organizations/${orgId}/invite`, {
+    method: "POST",
+    body: JSON.stringify({ email, role }),
+  });
+}
+
+/** Remove a member from the organization */
+export async function removeOrgMember(orgId: string, userId: string) {
+  return apiFetch(`/api/organizations/${orgId}/members/${userId}`, {
+    method: "DELETE",
+  });
+}
+
+/** Get current user's profile */
+export async function getProfile() {
+  return apiFetch("/api/profile");
+}
+
+/** Update current user's profile */
+export async function updateProfile(data: { full_name?: string }) {
+  return apiFetch("/api/profile", {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+/** Get alert preferences for an org */
+export async function getAlertPreferences(orgId: string) {
+  return apiFetch(`/api/alert-preferences/${orgId}`);
+}
+
+/** Save alert preferences for an org */
+export async function saveAlertPreferences(orgId: string, preferences: Record<string, unknown>) {
+  return apiFetch(`/api/alert-preferences/${orgId}`, {
+    method: "PUT",
+    body: JSON.stringify({ preferences }),
+  });
 }
