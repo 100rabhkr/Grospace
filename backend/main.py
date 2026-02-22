@@ -1148,6 +1148,310 @@ async def dashboard_stats():
     }
 
 
+@app.post("/api/seed")
+async def seed_demo_data():
+    """Seed 6 realistic demo outlets with agreements, obligations, and alerts for demo purposes."""
+    try:
+        # Get or create demo org
+        org_id = get_or_create_demo_org()
+
+        # ---- 6 Demo Outlets ----
+        outlets_data = [
+            {
+                "org_id": org_id, "name": "Ambience Mall", "brand_name": "Tan Coffee",
+                "address": "Unit GF-127, Ground Floor, Ambience Mall, NH-8, Gurugram, Haryana 122002",
+                "city": "Gurugram", "state": "Haryana", "pincode": "122002",
+                "property_type": "mall", "floor": "Ground Floor", "unit_number": "GF-127",
+                "super_area_sqft": 1850, "covered_area_sqft": 1550, "carpet_area_sqft": 1200,
+                "franchise_model": "FOFO", "status": "operational",
+            },
+            {
+                "org_id": org_id, "name": "Phoenix MarketCity", "brand_name": "Tan Coffee",
+                "address": "Unit F-215, 2nd Floor, Phoenix MarketCity, LBS Marg, Kurla, Mumbai 400070",
+                "city": "Mumbai", "state": "Maharashtra", "pincode": "400070",
+                "property_type": "mall", "floor": "2nd Floor", "unit_number": "F-215",
+                "super_area_sqft": 2200, "covered_area_sqft": 1850, "carpet_area_sqft": 1450,
+                "franchise_model": "FOCO", "status": "operational",
+            },
+            {
+                "org_id": org_id, "name": "Indiranagar High Street", "brand_name": "Tan Coffee",
+                "address": "No. 42, 12th Main, HAL 2nd Stage, Indiranagar, Bengaluru 560038",
+                "city": "Bengaluru", "state": "Karnataka", "pincode": "560038",
+                "property_type": "high_street", "floor": "Ground Floor", "unit_number": "42",
+                "super_area_sqft": 1400, "covered_area_sqft": 1250, "carpet_area_sqft": 1050,
+                "franchise_model": "FOFO", "status": "fit_out",
+            },
+            {
+                "org_id": org_id, "name": "Select Citywalk", "brand_name": "Tan Coffee",
+                "address": "Unit 2-14, 2nd Floor, Select Citywalk, Saket, New Delhi 110017",
+                "city": "New Delhi", "state": "Delhi", "pincode": "110017",
+                "property_type": "mall", "floor": "2nd Floor", "unit_number": "2-14",
+                "super_area_sqft": 1650, "covered_area_sqft": 1380, "carpet_area_sqft": 1100,
+                "franchise_model": "FOFO", "status": "up_for_renewal",
+            },
+            {
+                "org_id": org_id, "name": "Palladium Chennai", "brand_name": "Tan Coffee",
+                "address": "Unit GF-08, Ground Floor, Palladium Mall, Velachery, Chennai 600042",
+                "city": "Chennai", "state": "Tamil Nadu", "pincode": "600042",
+                "property_type": "mall", "floor": "Ground Floor", "unit_number": "GF-08",
+                "super_area_sqft": 1300, "covered_area_sqft": 1100, "carpet_area_sqft": 900,
+                "franchise_model": "COCO", "status": "operational",
+            },
+            {
+                "org_id": org_id, "name": "DLF CyberHub", "brand_name": "Tan Coffee",
+                "address": "Unit CH-305, 3rd Floor, DLF CyberHub, DLF Cyber City, Gurugram 122002",
+                "city": "Gurugram", "state": "Haryana", "pincode": "122002",
+                "property_type": "cyber_park", "floor": "3rd Floor", "unit_number": "CH-305",
+                "super_area_sqft": 1000, "covered_area_sqft": 850, "carpet_area_sqft": 700,
+                "franchise_model": "FOFO", "status": "pipeline",
+            },
+        ]
+
+        created_outlets = []
+        for od in outlets_data:
+            result = supabase.table("outlets").insert(od).execute()
+            created_outlets.append(result.data[0])
+
+        # ---- 6 Demo Agreements ----
+        today = date.today()
+        agreements_data = [
+            {
+                "org_id": org_id, "outlet_id": created_outlets[0]["id"],
+                "type": "lease_loi", "status": "active",
+                "document_filename": "ambience-mall-lease.pdf",
+                "lessor_name": "Mr. Rajesh Kumar Sharma", "lessee_name": "Tan Coffee Pvt Ltd",
+                "brand_name": "Tan Coffee", "rent_model": "fixed",
+                "lease_commencement_date": "2025-02-01", "rent_commencement_date": "2025-03-18",
+                "lease_expiry_date": "2034-01-31", "lock_in_end_date": "2028-02-01",
+                "monthly_rent": 285000, "rent_per_sqft": 154, "cam_monthly": 59200,
+                "total_monthly_outflow": 344200, "security_deposit": 1710000,
+                "late_payment_interest_pct": 18,
+                "extraction_status": "confirmed", "confirmed_at": datetime.utcnow().isoformat(),
+                "risk_flags": [{"flag_id": 6, "severity": "high", "explanation": "Lessor can relocate lessee with 90 days notice"}],
+                "extracted_data": {"parties": {"lessor_name": "Mr. Rajesh Kumar Sharma", "lessee_name": "Tan Coffee Pvt Ltd", "brand_name": "Tan Coffee"}, "premises": {"property_name": "Ambience Mall", "city": "Gurugram"}},
+            },
+            {
+                "org_id": org_id, "outlet_id": created_outlets[1]["id"],
+                "type": "lease_loi", "status": "active",
+                "document_filename": "phoenix-mumbai-lease.pdf",
+                "lessor_name": "Phoenix Mills Ltd", "lessee_name": "Tan Coffee Pvt Ltd",
+                "brand_name": "Tan Coffee", "rent_model": "hybrid_mglr",
+                "lease_commencement_date": "2024-06-01", "rent_commencement_date": "2024-07-15",
+                "lease_expiry_date": "2030-05-31", "lock_in_end_date": "2027-06-01",
+                "monthly_rent": 350000, "rent_per_sqft": 159, "cam_monthly": 72600,
+                "total_monthly_outflow": 422600, "security_deposit": 2100000,
+                "late_payment_interest_pct": 15,
+                "extraction_status": "confirmed", "confirmed_at": datetime.utcnow().isoformat(),
+                "risk_flags": [{"flag_id": 8, "severity": "medium", "explanation": "Revenue share with no maximum cap"}],
+                "extracted_data": {"parties": {"lessor_name": "Phoenix Mills Ltd", "lessee_name": "Tan Coffee Pvt Ltd", "brand_name": "Tan Coffee"}, "premises": {"property_name": "Phoenix MarketCity", "city": "Mumbai"}},
+            },
+            {
+                "org_id": org_id, "outlet_id": created_outlets[2]["id"],
+                "type": "lease_loi", "status": "active",
+                "document_filename": "indiranagar-lease.pdf",
+                "lessor_name": "Mrs. Lakshmi Devi", "lessee_name": "Tan Coffee Pvt Ltd",
+                "brand_name": "Tan Coffee", "rent_model": "fixed",
+                "lease_commencement_date": "2025-12-01", "rent_commencement_date": "2026-01-15",
+                "lease_expiry_date": "2031-11-30", "lock_in_end_date": "2028-12-01",
+                "monthly_rent": 195000, "rent_per_sqft": 139, "cam_monthly": 0,
+                "total_monthly_outflow": 195000, "security_deposit": 1170000,
+                "late_payment_interest_pct": 18,
+                "extraction_status": "confirmed", "confirmed_at": datetime.utcnow().isoformat(),
+                "risk_flags": [],
+                "extracted_data": {"parties": {"lessor_name": "Mrs. Lakshmi Devi", "lessee_name": "Tan Coffee Pvt Ltd", "brand_name": "Tan Coffee"}, "premises": {"property_name": "Indiranagar High Street", "city": "Bengaluru"}},
+            },
+            {
+                "org_id": org_id, "outlet_id": created_outlets[3]["id"],
+                "type": "lease_loi", "status": "expiring",
+                "document_filename": "select-citywalk-lease.pdf",
+                "lessor_name": "Select Infrastructure Pvt Ltd", "lessee_name": "Tan Coffee Pvt Ltd",
+                "brand_name": "Tan Coffee", "rent_model": "fixed",
+                "lease_commencement_date": "2022-04-01", "rent_commencement_date": "2022-05-15",
+                "lease_expiry_date": (today + timedelta(days=75)).isoformat(),
+                "lock_in_end_date": "2025-04-01",
+                "monthly_rent": 310000, "rent_per_sqft": 188, "cam_monthly": 52800,
+                "total_monthly_outflow": 362800, "security_deposit": 1860000,
+                "late_payment_interest_pct": 18,
+                "extraction_status": "confirmed", "confirmed_at": datetime.utcnow().isoformat(),
+                "risk_flags": [{"flag_id": 1, "severity": "high", "explanation": "No lessor lock-in clause found"}, {"flag_id": 5, "severity": "medium", "explanation": "Late interest at 18% - borderline predatory"}],
+                "extracted_data": {"parties": {"lessor_name": "Select Infrastructure Pvt Ltd", "lessee_name": "Tan Coffee Pvt Ltd", "brand_name": "Tan Coffee"}, "premises": {"property_name": "Select Citywalk", "city": "New Delhi"}},
+            },
+            {
+                "org_id": org_id, "outlet_id": created_outlets[4]["id"],
+                "type": "lease_loi", "status": "active",
+                "document_filename": "palladium-chennai-lease.pdf",
+                "lessor_name": "Forum Synergy Realty", "lessee_name": "Tan Coffee Pvt Ltd",
+                "brand_name": "Tan Coffee", "rent_model": "revenue_share",
+                "lease_commencement_date": "2024-11-01", "rent_commencement_date": "2024-12-15",
+                "lease_expiry_date": "2030-10-31", "lock_in_end_date": "2027-11-01",
+                "monthly_rent": 175000, "rent_per_sqft": 135, "cam_monthly": 41600,
+                "total_monthly_outflow": 216600, "security_deposit": 1050000,
+                "late_payment_interest_pct": 12,
+                "extraction_status": "confirmed", "confirmed_at": datetime.utcnow().isoformat(),
+                "risk_flags": [],
+                "extracted_data": {"parties": {"lessor_name": "Forum Synergy Realty", "lessee_name": "Tan Coffee Pvt Ltd", "brand_name": "Tan Coffee"}, "premises": {"property_name": "Palladium Chennai", "city": "Chennai"}},
+            },
+            {
+                "org_id": org_id, "outlet_id": created_outlets[5]["id"],
+                "type": "lease_loi", "status": "draft",
+                "document_filename": "cyberhub-loi-draft.pdf",
+                "lessor_name": "DLF Assets Ltd", "lessee_name": "Tan Coffee Pvt Ltd",
+                "brand_name": "Tan Coffee", "rent_model": "fixed",
+                "lease_commencement_date": None, "rent_commencement_date": None,
+                "lease_expiry_date": None, "lock_in_end_date": None,
+                "monthly_rent": 145000, "rent_per_sqft": 145, "cam_monthly": 35000,
+                "total_monthly_outflow": 180000, "security_deposit": 870000,
+                "late_payment_interest_pct": 15,
+                "extraction_status": "review",
+                "risk_flags": [{"flag_id": 2, "severity": "high", "explanation": "Escalation at 20% every 3 years - above market"}],
+                "extracted_data": {"parties": {"lessor_name": "DLF Assets Ltd", "lessee_name": "Tan Coffee Pvt Ltd", "brand_name": "Tan Coffee"}, "premises": {"property_name": "DLF CyberHub", "city": "Gurugram"}},
+            },
+        ]
+
+        created_agreements = []
+        for ad in agreements_data:
+            clean = {k: v for k, v in ad.items() if v is not None}
+            result = supabase.table("agreements").insert(clean).execute()
+            created_agreements.append(result.data[0])
+
+        # ---- Obligations for each active agreement ----
+        all_obligations = []
+        obligation_configs = [
+            # (outlet_idx, agreement_idx, obligations_list)
+            (0, 0, [
+                {"type": "rent", "frequency": "monthly", "amount": 285000, "due_day_of_month": 7, "start_date": "2025-03-18", "end_date": "2034-01-31", "escalation_pct": 15, "escalation_frequency_years": 3, "next_escalation_date": "2028-03-18"},
+                {"type": "cam", "frequency": "monthly", "amount": 59200, "due_day_of_month": 7, "start_date": "2025-02-01", "end_date": "2034-01-31", "escalation_pct": 5},
+                {"type": "hvac", "frequency": "monthly", "amount": 27900, "amount_formula": "Rs.18/sqft x 1550 sqft (covered)", "due_day_of_month": 7, "start_date": "2025-02-01", "end_date": "2034-01-31"},
+                {"type": "security_deposit", "frequency": "one_time", "amount": 1710000, "start_date": "2025-02-01"},
+                {"type": "cam_deposit", "frequency": "one_time", "amount": 118400, "start_date": "2025-02-01"},
+            ]),
+            (1, 1, [
+                {"type": "rent", "frequency": "monthly", "amount": 350000, "due_day_of_month": 5, "start_date": "2024-07-15", "end_date": "2030-05-31", "escalation_pct": 12, "escalation_frequency_years": 3, "next_escalation_date": "2027-07-15"},
+                {"type": "cam", "frequency": "monthly", "amount": 72600, "due_day_of_month": 5, "start_date": "2024-06-01", "end_date": "2030-05-31", "escalation_pct": 5},
+                {"type": "security_deposit", "frequency": "one_time", "amount": 2100000, "start_date": "2024-06-01"},
+            ]),
+            (2, 2, [
+                {"type": "rent", "frequency": "monthly", "amount": 195000, "due_day_of_month": 10, "start_date": "2026-01-15", "end_date": "2031-11-30", "escalation_pct": 10, "escalation_frequency_years": 3, "next_escalation_date": "2029-01-15"},
+                {"type": "electricity", "frequency": "monthly", "amount": None, "amount_formula": "Actual metered (35 KW load)", "due_day_of_month": 10, "start_date": "2025-12-01", "end_date": "2031-11-30"},
+                {"type": "security_deposit", "frequency": "one_time", "amount": 1170000, "start_date": "2025-12-01"},
+            ]),
+            (3, 3, [
+                {"type": "rent", "frequency": "monthly", "amount": 310000, "due_day_of_month": 1, "start_date": "2022-05-15", "end_date": (today + timedelta(days=75)).isoformat(), "escalation_pct": 15, "escalation_frequency_years": 3},
+                {"type": "cam", "frequency": "monthly", "amount": 52800, "due_day_of_month": 1, "start_date": "2022-04-01", "end_date": (today + timedelta(days=75)).isoformat(), "escalation_pct": 5},
+                {"type": "security_deposit", "frequency": "one_time", "amount": 1860000, "start_date": "2022-04-01"},
+            ]),
+            (4, 4, [
+                {"type": "rent", "frequency": "monthly", "amount": 175000, "due_day_of_month": 15, "start_date": "2024-12-15", "end_date": "2030-10-31", "escalation_pct": 10, "escalation_frequency_years": 3, "next_escalation_date": "2027-12-15"},
+                {"type": "cam", "frequency": "monthly", "amount": 41600, "due_day_of_month": 15, "start_date": "2024-11-01", "end_date": "2030-10-31", "escalation_pct": 5},
+                {"type": "security_deposit", "frequency": "one_time", "amount": 1050000, "start_date": "2024-11-01"},
+                {"type": "utility_deposit", "frequency": "one_time", "amount": 600000, "amount_formula": "Rs.15000/KW x 40 KW", "start_date": "2024-11-01"},
+            ]),
+        ]
+
+        for outlet_idx, agr_idx, obls in obligation_configs:
+            for obl in obls:
+                obl_data = {
+                    "org_id": org_id,
+                    "agreement_id": created_agreements[agr_idx]["id"],
+                    "outlet_id": created_outlets[outlet_idx]["id"],
+                    "is_active": True,
+                    **obl,
+                }
+                clean = {k: v for k, v in obl_data.items() if v is not None}
+                result = supabase.table("obligations").insert(clean).execute()
+                all_obligations.append(result.data[0])
+
+        # ---- Alerts ----
+        all_alerts = []
+        alert_configs = [
+            # Lease expiry alerts for Select Citywalk (expiring in 75 days)
+            {"outlet_idx": 3, "agr_idx": 3, "type": "lease_expiry", "severity": "high",
+             "title": "Lease expiry in 75 days - Select Citywalk",
+             "message": f"Select Citywalk lease expires on {(today + timedelta(days=75)).isoformat()}. Initiate renewal discussions.",
+             "trigger_date": today.isoformat(), "lead_days": 75,
+             "reference_date": (today + timedelta(days=75)).isoformat()},
+            {"outlet_idx": 3, "agr_idx": 3, "type": "lease_expiry", "severity": "high",
+             "title": "Lease expiry in 30 days - Select Citywalk",
+             "message": f"Select Citywalk lease expires on {(today + timedelta(days=75)).isoformat()}. URGENT: Only 30 days remaining.",
+             "trigger_date": (today + timedelta(days=45)).isoformat(), "lead_days": 30,
+             "reference_date": (today + timedelta(days=75)).isoformat()},
+            # Escalation alerts for Ambience Mall
+            {"outlet_idx": 0, "agr_idx": 0, "type": "escalation", "severity": "medium",
+             "title": "Rent escalation in 90 days - Ambience Mall",
+             "message": "15% rent escalation due on 2028-03-18 for Ambience Mall. Current rent: Rs. 2,85,000.",
+             "trigger_date": "2027-12-18", "lead_days": 90, "reference_date": "2028-03-18"},
+            # Lock-in expiry alert for Phoenix Mumbai
+            {"outlet_idx": 1, "agr_idx": 1, "type": "lock_in_expiry", "severity": "medium",
+             "title": "Lock-in expires in 90 days - Phoenix MarketCity",
+             "message": "Lock-in period ends on 2027-06-01. You may exit after this date with notice.",
+             "trigger_date": "2027-03-03", "lead_days": 90, "reference_date": "2027-06-01"},
+            # Rent due alerts (upcoming months)
+            {"outlet_idx": 0, "agr_idx": 0, "type": "rent_due", "severity": "medium",
+             "title": f"Rent due on {date(today.year, today.month, 7).strftime('%d %b %Y')} - Ambience Mall",
+             "message": "Monthly rent payment of Rs. 2,85,000 + CAM Rs. 59,200 due.",
+             "trigger_date": (today + timedelta(days=3)).isoformat(), "lead_days": 7,
+             "reference_date": (today + timedelta(days=10)).isoformat()},
+            {"outlet_idx": 1, "agr_idx": 1, "type": "rent_due", "severity": "medium",
+             "title": f"Rent due - Phoenix MarketCity",
+             "message": "Monthly rent payment of Rs. 3,50,000 + CAM Rs. 72,600 due.",
+             "trigger_date": (today + timedelta(days=5)).isoformat(), "lead_days": 7,
+             "reference_date": (today + timedelta(days=12)).isoformat()},
+            {"outlet_idx": 4, "agr_idx": 4, "type": "rent_due", "severity": "medium",
+             "title": f"Rent due - Palladium Chennai",
+             "message": "Monthly rent payment of Rs. 1,75,000 + CAM Rs. 41,600 due.",
+             "trigger_date": (today + timedelta(days=8)).isoformat(), "lead_days": 7,
+             "reference_date": (today + timedelta(days=15)).isoformat()},
+            # Lease expiry far-out alerts for Ambience Mall
+            {"outlet_idx": 0, "agr_idx": 0, "type": "lease_expiry", "severity": "medium",
+             "title": "Lease expiry in 180 days - Ambience Mall",
+             "message": "Lease expires on 2034-01-31. 180 days remaining. Plan renewal strategy.",
+             "trigger_date": "2033-08-04", "lead_days": 180, "reference_date": "2034-01-31"},
+            # Fit-out deadline for Indiranagar
+            {"outlet_idx": 2, "agr_idx": 2, "type": "fit_out_deadline", "severity": "high",
+             "title": "Fit-out deadline approaching - Indiranagar",
+             "message": "Fit-out period ends on 2026-01-15. Rent commencement starts after.",
+             "trigger_date": "2026-01-08", "lead_days": 7, "reference_date": "2026-01-15"},
+        ]
+
+        for ac in alert_configs:
+            outlet_idx = ac.pop("outlet_idx")
+            agr_idx = ac.pop("agr_idx")
+            alert_data = {
+                "org_id": org_id,
+                "outlet_id": created_outlets[outlet_idx]["id"],
+                "agreement_id": created_agreements[agr_idx]["id"],
+                "status": "pending",
+                **ac,
+            }
+            result = supabase.table("alerts").insert(alert_data).execute()
+            all_alerts.append(result.data[0])
+
+        # Log activity
+        supabase.table("activity_log").insert({
+            "org_id": org_id,
+            "entity_type": "system",
+            "action": "seed_demo_data",
+            "details": {
+                "outlets_created": len(created_outlets),
+                "agreements_created": len(created_agreements),
+                "obligations_created": len(all_obligations),
+                "alerts_created": len(all_alerts),
+            }
+        }).execute()
+
+        return {
+            "status": "seeded",
+            "outlets_created": len(created_outlets),
+            "agreements_created": len(created_agreements),
+            "obligations_created": len(all_obligations),
+            "alerts_created": len(all_alerts),
+            "message": "Demo data seeded successfully! Check Dashboard, Outlets, Agreements, and Alerts pages.",
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", "8000")), reload=True)
