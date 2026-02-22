@@ -250,8 +250,8 @@ export default function AlertsPage() {
 
       if (
         searchQuery &&
-        !alert.title.toLowerCase().includes(searchQuery.toLowerCase()) &&
-        !alert.message.toLowerCase().includes(searchQuery.toLowerCase()) &&
+        !(alert.title || "").toLowerCase().includes(searchQuery.toLowerCase()) &&
+        !(alert.message || "").toLowerCase().includes(searchQuery.toLowerCase()) &&
         !outletName.toLowerCase().includes(searchQuery.toLowerCase())
       ) {
         return false;

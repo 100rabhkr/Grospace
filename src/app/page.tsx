@@ -54,6 +54,7 @@ function formatINR(amount: number): string {
 
 /** Pretty-print a status key like "fit_out" -> "Fit Out" */
 function statusLabel(key: string): string {
+  if (!key) return "Unknown";
   return key
     .split("_")
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))

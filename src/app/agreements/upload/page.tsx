@@ -487,7 +487,7 @@ export default function UploadAgreementPage() {
             <div className="flex-1">
               <p className="text-sm font-semibold text-emerald-900">Extraction Complete</p>
               <p className="text-xs text-emerald-700">
-                Classified as <strong>{result.document_type.replace(/_/g, " ").toUpperCase()}</strong>
+                Classified as <strong>{(result.document_type || "unknown").replace(/_/g, " ").toUpperCase()}</strong>
                 {stats && <> &middot; {stats.total} fields extracted &middot; {stats.highConf} high confidence</>}
                 {(result as Record<string, unknown>)?.extraction_method === "vision" && (
                   <Badge variant="outline" className="ml-2 text-[10px]">Vision AI</Badge>

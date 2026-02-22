@@ -185,10 +185,10 @@ export default function OutletsPage() {
       if (searchQuery) {
         const query = searchQuery.toLowerCase();
         const matchesSearch =
-          outlet.name.toLowerCase().includes(query) ||
-          outlet.brand_name.toLowerCase().includes(query) ||
-          outlet.city.toLowerCase().includes(query) ||
-          outlet.address.toLowerCase().includes(query);
+          (outlet.name || "").toLowerCase().includes(query) ||
+          (outlet.brand_name || "").toLowerCase().includes(query) ||
+          (outlet.city || "").toLowerCase().includes(query) ||
+          (outlet.address || "").toLowerCase().includes(query);
         if (!matchesSearch) return false;
       }
       if (cityFilter !== "all" && outlet.city !== cityFilter) return false;
