@@ -206,6 +206,8 @@ export default function OutletDetailPage() {
   const [data, setData] = useState<OutletResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [revenueInput, setRevenueInput] = useState<string>("");
+  const [revenueSaving, setRevenueSaving] = useState(false);
 
   useEffect(() => {
     async function fetchOutlet() {
@@ -224,6 +226,30 @@ export default function OutletDetailPage() {
       fetchOutlet();
     }
   }, [outletId]);
+
+  // Initialize revenue input when data loads
+  useEffect(() => {
+    if (data?.outlet?.monthly_net_revenue != null) {
+      setRevenueInput(String(data.outlet.monthly_net_revenue));
+    }
+  }, [data]);
+
+  async function handleSaveRevenue() {
+    const value = parseFloat(revenueInput);
+    if (isNaN(value) || value < 0) return;
+    setRevenueSaving(true);
+    try {
+      await updateOutlet(outletId, { monthly_net_revenue: value });
+      setData((prev) => prev ? {
+        ...prev,
+        outlet: { ...prev.outlet, monthly_net_revenue: value, revenue_updated_at: new Date().toISOString() },
+      } : prev);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save revenue");
+    } finally {
+      setRevenueSaving(false);
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // Loading State
@@ -262,34 +288,7 @@ export default function OutletDetailPage() {
     );
   }
 
-  const [revenueInput, setRevenueInput] = useState<string>("");
-  const [revenueSaving, setRevenueSaving] = useState(false);
-
   const { outlet, agreements, obligations, alerts } = data;
-
-  // Initialize revenue input when data loads
-  useEffect(() => {
-    if (data?.outlet?.monthly_net_revenue != null) {
-      setRevenueInput(String(data.outlet.monthly_net_revenue));
-    }
-  }, [data]);
-
-  async function handleSaveRevenue() {
-    const value = parseFloat(revenueInput);
-    if (isNaN(value) || value < 0) return;
-    setRevenueSaving(true);
-    try {
-      await updateOutlet(outletId, { monthly_net_revenue: value });
-      setData((prev) => prev ? {
-        ...prev,
-        outlet: { ...prev.outlet, monthly_net_revenue: value, revenue_updated_at: new Date().toISOString() },
-      } : prev);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save revenue");
-    } finally {
-      setRevenueSaving(false);
-    }
-  }
 
   // ---------------------------------------------------------------------------
   // Render
