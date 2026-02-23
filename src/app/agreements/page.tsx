@@ -256,7 +256,7 @@ export default function AgreementsPage() {
     <TooltipProvider>
       <div className="space-y-6 animate-fade-in">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <h1 className="text-xl font-semibold tracking-tight">
               Agreements
@@ -296,7 +296,7 @@ export default function AgreementsPage() {
         )}
 
         {/* Filter Bar */}
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="w-full flex flex-wrap items-center gap-3">
           <div className="relative flex-1 min-w-[240px] max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input

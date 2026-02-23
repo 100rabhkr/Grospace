@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Bell, Search } from "lucide-react";
+import { Bell, Search, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -13,16 +13,30 @@ import {
 } from "@/components/ui/sheet";
 import { alerts, formatDate } from "@/lib/mock-data";
 
-export function TopBar() {
+interface TopBarProps {
+  onMenuClick?: () => void;
+}
+
+export function TopBar({ onMenuClick }: TopBarProps) {
   const unreadCount = alerts.filter(
     (a) => a.status === "sent" || a.status === "pending"
   ).length;
 
   return (
-    <header className="h-14 bg-white border-b border-neutral-100 flex items-center justify-between px-8 shrink-0">
-      {/* Search */}
+    <header className="h-14 bg-white border-b border-neutral-100 flex items-center justify-between px-4 sm:px-6 lg:px-8 shrink-0 gap-3">
+      {/* Left: Hamburger (mobile) + Search */}
       <div className="flex items-center gap-3 flex-1 max-w-md">
-        <div className="relative w-full">
+        {/* Hamburger — only on mobile */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="lg:hidden h-9 w-9 shrink-0"
+          onClick={onMenuClick}
+        >
+          <Menu className="w-5 h-5" />
+        </Button>
+
+        <div className="relative w-full hidden sm:block">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
           <Input
             placeholder="Search outlets, agreements, alerts..."
@@ -45,7 +59,7 @@ export function TopBar() {
               )}
             </Button>
           </SheetTrigger>
-          <SheetContent className="w-[400px] p-0">
+          <SheetContent className="w-full sm:w-[400px] p-0">
             <SheetHeader className="p-4 border-b">
               <SheetTitle className="text-base font-semibold">Notifications</SheetTitle>
             </SheetHeader>
