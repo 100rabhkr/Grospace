@@ -1,7 +1,15 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { listAlerts, acknowledgeAlert, snoozeAlert } from "@/lib/api";
+import { listAlerts, acknowledgeAlert, snoozeAlert, createReminder, updateReminder, deleteReminder } from "@/lib/api";
+import { Pagination } from "@/components/pagination";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -28,6 +36,10 @@ import {
   X,
   ChevronDown,
   AlertTriangle,
+  Plus,
+  Pencil,
+  Trash2,
+  Loader2,
 } from "lucide-react";
 
 // ---------- Types ----------
@@ -73,6 +85,7 @@ const alertTypeOptions: { value: AlertType; label: string }[] = [
   { value: "license_expiry", label: "License Expiry" },
   { value: "lock_in_expiry", label: "Lock-in Expiry" },
   { value: "renewal_window", label: "Renewal Window" },
+  { value: "custom", label: "Custom Reminder" },
 ];
 
 const severityOptions: { value: AlertSeverity; label: string }[] = [
@@ -196,6 +209,9 @@ export default function AlertsPage() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const pageSize = 50;
 
   // Filter state
   const [searchQuery, setSearchQuery] = useState("");
@@ -208,37 +224,39 @@ export default function AlertsPage() {
     {}
   );
 
+  // Reminder dialog state
+  const [showReminderForm, setShowReminderForm] = useState(false);
+  const [editingReminder, setEditingReminder] = useState<Alert | null>(null);
+  const [reminderSaving, setReminderSaving] = useState(false);
+  const [reminderForm, setReminderForm] = useState({
+    title: "",
+    message: "",
+    trigger_date: "",
+    severity: "medium" as string,
+  });
+
   // ---------- Fetch alerts ----------
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function fetchAlerts() {
-      try {
-        setLoading(true);
-        setError(null);
-        const data = await listAlerts();
-        if (!cancelled) {
-          setAlerts(data.alerts || []);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(
-            err instanceof Error ? err.message : "Failed to load alerts"
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
+  async function fetchAlerts() {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await listAlerts({ page, page_size: pageSize });
+      setAlerts(data.items || []);
+      setTotal(data.total || 0);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to load alerts"
+      );
+    } finally {
+      setLoading(false);
     }
+  }
 
+  useEffect(() => {
     fetchAlerts();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page]);
 
   // ---------- Filtered + grouped alerts ----------
 
@@ -299,6 +317,49 @@ export default function AlertsPage() {
     }
   }
 
+  function openReminderForm(alert?: Alert) {
+    if (alert) {
+      setEditingReminder(alert);
+      setReminderForm({
+        title: alert.title,
+        message: alert.message || "",
+        trigger_date: alert.trigger_date || "",
+        severity: alert.severity,
+      });
+    } else {
+      setEditingReminder(null);
+      setReminderForm({ title: "", message: "", trigger_date: "", severity: "medium" });
+    }
+    setShowReminderForm(true);
+  }
+
+  async function handleSaveReminder() {
+    if (!reminderForm.title || !reminderForm.trigger_date) return;
+    setReminderSaving(true);
+    try {
+      if (editingReminder) {
+        await updateReminder(editingReminder.id, reminderForm);
+      } else {
+        await createReminder(reminderForm);
+      }
+      setShowReminderForm(false);
+      await fetchAlerts();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save reminder");
+    } finally {
+      setReminderSaving(false);
+    }
+  }
+
+  async function handleDeleteReminder(alertId: string) {
+    try {
+      await deleteReminder(alertId);
+      await fetchAlerts();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete reminder");
+    }
+  }
+
   function clearFilters() {
     setSearchQuery("");
     setTypeFilter("all");
@@ -325,10 +386,14 @@ export default function AlertsPage() {
           </h1>
           {!loading && (
             <Badge variant="secondary" className="text-sm">
-              {alerts.length}
+              {total}
             </Badge>
           )}
         </div>
+        <Button onClick={() => openReminderForm()} className="gap-2">
+          <Plus className="h-4 w-4" />
+          Add Reminder
+        </Button>
       </div>
 
       {/* Error State */}
@@ -614,6 +679,29 @@ export default function AlertsPage() {
                               </DropdownMenu>
                             )}
 
+                            {/* Edit / Delete for custom reminders */}
+                            {alert.type === "custom" && (
+                              <>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 text-xs"
+                                  onClick={() => openReminderForm(alert)}
+                                >
+                                  <Pencil className="h-3.5 w-3.5 mr-1" />
+                                  Edit
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 text-xs text-red-600 hover:text-red-700"
+                                  onClick={() => handleDeleteReminder(alert.id)}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5 mr-1" />
+                                  Delete
+                                </Button>
+                              </>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -624,6 +712,82 @@ export default function AlertsPage() {
             })}
           </div>
         ))}
+
+      {/* Pagination */}
+      {!loading && !error && (
+        <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} />
+      )}
+
+      {/* Reminder Dialog */}
+      <Dialog open={showReminderForm} onOpenChange={setShowReminderForm}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {editingReminder ? "Edit Reminder" : "New Custom Reminder"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div>
+              <Label htmlFor="reminder-title">Title</Label>
+              <Input
+                id="reminder-title"
+                value={reminderForm.title}
+                onChange={(e) => setReminderForm((f) => ({ ...f, title: e.target.value }))}
+                placeholder="e.g. Renewal negotiation deadline"
+              />
+            </div>
+            <div>
+              <Label htmlFor="reminder-message">Message (optional)</Label>
+              <Input
+                id="reminder-message"
+                value={reminderForm.message}
+                onChange={(e) => setReminderForm((f) => ({ ...f, message: e.target.value }))}
+                placeholder="Additional details..."
+              />
+            </div>
+            <div>
+              <Label htmlFor="reminder-date">Trigger Date</Label>
+              <Input
+                id="reminder-date"
+                type="date"
+                value={reminderForm.trigger_date}
+                onChange={(e) => setReminderForm((f) => ({ ...f, trigger_date: e.target.value }))}
+              />
+            </div>
+            <div>
+              <Label htmlFor="reminder-severity">Severity</Label>
+              <Select
+                value={reminderForm.severity}
+                onValueChange={(v) => setReminderForm((f) => ({ ...f, severity: v }))}
+              >
+                <SelectTrigger id="reminder-severity">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="high">High</SelectItem>
+                  <SelectItem value="medium">Medium</SelectItem>
+                  <SelectItem value="low">Low</SelectItem>
+                  <SelectItem value="info">Info</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setShowReminderForm(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSaveReminder}
+                disabled={reminderSaving || !reminderForm.title || !reminderForm.trigger_date}
+              >
+                {reminderSaving ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : null}
+                {editingReminder ? "Update" : "Create"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

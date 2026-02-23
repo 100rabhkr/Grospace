@@ -116,9 +116,13 @@ export async function confirmAndActivate(data: {
   });
 }
 
-/** List all agreements from the database */
-export async function listAgreements() {
-  return apiFetch("/api/agreements");
+/** List agreements (paginated) */
+export async function listAgreements(params?: { page?: number; page_size?: number }) {
+  const sp = new URLSearchParams();
+  if (params?.page) sp.set("page", String(params.page));
+  if (params?.page_size) sp.set("page_size", String(params.page_size));
+  const qs = sp.toString();
+  return apiFetch(`/api/agreements${qs ? `?${qs}` : ""}`);
 }
 
 /** Get a single agreement with obligations and alerts */
@@ -126,9 +130,13 @@ export async function getAgreement(id: string) {
   return apiFetch(`/api/agreements/${id}`);
 }
 
-/** List all outlets */
-export async function listOutlets() {
-  return apiFetch("/api/outlets");
+/** List outlets (paginated) */
+export async function listOutlets(params?: { page?: number; page_size?: number }) {
+  const sp = new URLSearchParams();
+  if (params?.page) sp.set("page", String(params.page));
+  if (params?.page_size) sp.set("page_size", String(params.page_size));
+  const qs = sp.toString();
+  return apiFetch(`/api/outlets${qs ? `?${qs}` : ""}`);
 }
 
 /** Get a single outlet with full details */
@@ -136,9 +144,24 @@ export async function getOutlet(id: string) {
   return apiFetch(`/api/outlets/${id}`);
 }
 
-/** List all alerts */
-export async function listAlerts() {
-  return apiFetch("/api/alerts");
+/** List alerts (paginated) */
+export async function listAlerts(params?: { page?: number; page_size?: number }) {
+  const sp = new URLSearchParams();
+  if (params?.page) sp.set("page", String(params.page));
+  if (params?.page_size) sp.set("page_size", String(params.page_size));
+  const qs = sp.toString();
+  return apiFetch(`/api/alerts${qs ? `?${qs}` : ""}`);
+}
+
+/** Update an outlet (revenue, status) */
+export async function updateOutlet(outletId: string, data: {
+  monthly_net_revenue?: number;
+  status?: string;
+}) {
+  return apiFetch(`/api/outlets/${outletId}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
 }
 
 /** Get dashboard stats */
@@ -200,18 +223,22 @@ export async function updateAgreement(id: string, data: {
 // PAYMENT TRACKING
 // ============================================
 
-/** List payment records with optional filters */
+/** List payment records with optional filters (paginated) */
 export async function listPayments(params?: {
   outlet_id?: string;
   status?: string;
   period_year?: number;
   period_month?: number;
+  page?: number;
+  page_size?: number;
 }) {
   const searchParams = new URLSearchParams();
   if (params?.outlet_id) searchParams.set("outlet_id", params.outlet_id);
   if (params?.status) searchParams.set("status", params.status);
   if (params?.period_year) searchParams.set("period_year", String(params.period_year));
   if (params?.period_month) searchParams.set("period_month", String(params.period_month));
+  if (params?.page) searchParams.set("page", String(params.page));
+  if (params?.page_size) searchParams.set("page_size", String(params.page_size));
   const qs = searchParams.toString();
   return apiFetch(`/api/payments${qs ? `?${qs}` : ""}`);
 }
@@ -236,14 +263,18 @@ export async function generatePayments(monthsAhead: number = 3) {
   });
 }
 
-/** List obligations */
+/** List obligations (paginated) */
 export async function listObligations(params?: {
   outlet_id?: string;
   active_only?: boolean;
+  page?: number;
+  page_size?: number;
 }) {
   const searchParams = new URLSearchParams();
   if (params?.outlet_id) searchParams.set("outlet_id", params.outlet_id);
   if (params?.active_only !== undefined) searchParams.set("active_only", String(params.active_only));
+  if (params?.page) searchParams.set("page", String(params.page));
+  if (params?.page_size) searchParams.set("page_size", String(params.page_size));
   const qs = searchParams.toString();
   return apiFetch(`/api/obligations${qs ? `?${qs}` : ""}`);
 }
@@ -343,5 +374,44 @@ export async function saveAlertPreferences(orgId: string, preferences: Record<st
   return apiFetch(`/api/alert-preferences/${orgId}`, {
     method: "PUT",
     body: JSON.stringify({ preferences }),
+  });
+}
+
+// ============================================
+// CUSTOM REMINDERS
+// ============================================
+
+/** Create a custom reminder (stored as alert with type='custom') */
+export async function createReminder(data: {
+  title: string;
+  message?: string;
+  trigger_date: string;
+  severity?: string;
+  outlet_id?: string;
+  agreement_id?: string;
+}) {
+  return apiFetch("/api/reminders", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+/** Update a custom reminder */
+export async function updateReminder(id: string, data: {
+  title?: string;
+  message?: string;
+  trigger_date?: string;
+  severity?: string;
+}) {
+  return apiFetch(`/api/reminders/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+/** Delete a custom reminder */
+export async function deleteReminder(id: string) {
+  return apiFetch(`/api/reminders/${id}`, {
+    method: "DELETE",
   });
 }

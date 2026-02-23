@@ -3,7 +3,8 @@
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { getOutlet } from "@/lib/api";
+import { getOutlet, updateOutlet } from "@/lib/api";
+import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,8 @@ import {
   FileText,
   Clock,
   ShieldAlert,
+  IndianRupee,
+  Save,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -93,6 +96,8 @@ interface OutletDetail {
   covered_area_sqft: number;
   franchise_model: string;
   status: string;
+  monthly_net_revenue: number | null;
+  revenue_updated_at: string | null;
 }
 
 interface OutletResponse {
@@ -257,7 +262,34 @@ export default function OutletDetailPage() {
     );
   }
 
+  const [revenueInput, setRevenueInput] = useState<string>("");
+  const [revenueSaving, setRevenueSaving] = useState(false);
+
   const { outlet, agreements, obligations, alerts } = data;
+
+  // Initialize revenue input when data loads
+  useEffect(() => {
+    if (data?.outlet?.monthly_net_revenue != null) {
+      setRevenueInput(String(data.outlet.monthly_net_revenue));
+    }
+  }, [data]);
+
+  async function handleSaveRevenue() {
+    const value = parseFloat(revenueInput);
+    if (isNaN(value) || value < 0) return;
+    setRevenueSaving(true);
+    try {
+      await updateOutlet(outletId, { monthly_net_revenue: value });
+      setData((prev) => prev ? {
+        ...prev,
+        outlet: { ...prev.outlet, monthly_net_revenue: value, revenue_updated_at: new Date().toISOString() },
+      } : prev);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save revenue");
+    } finally {
+      setRevenueSaving(false);
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // Render
@@ -375,6 +407,69 @@ export default function OutletDetailPage() {
               </div>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* ----------------------------------------------------------------- */}
+      {/* REVENUE INPUT                                                     */}
+      {/* ----------------------------------------------------------------- */}
+      <Card className="border-neutral-200">
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <IndianRupee className="h-4 w-4" />
+            Monthly Net Revenue
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-end gap-3">
+            <div className="flex-1 max-w-xs">
+              <label className="text-xs text-neutral-500 mb-1 block">Revenue (INR)</label>
+              <Input
+                type="number"
+                min="0"
+                step="1000"
+                placeholder="e.g. 500000"
+                value={revenueInput}
+                onChange={(e) => setRevenueInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleSaveRevenue(); }}
+              />
+            </div>
+            <Button
+              onClick={handleSaveRevenue}
+              disabled={revenueSaving || !revenueInput}
+              size="sm"
+              className="gap-1.5"
+            >
+              {revenueSaving ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Save className="h-3.5 w-3.5" />
+              )}
+              Save
+            </Button>
+          </div>
+          {outlet.monthly_net_revenue != null && outlet.monthly_net_revenue > 0 && (
+            <div className="mt-3 text-sm text-neutral-600">
+              Current: <span className="font-semibold">{formatCurrency(outlet.monthly_net_revenue)}</span>
+              {outlet.revenue_updated_at && (
+                <span className="text-xs text-neutral-400 ml-2">
+                  Updated {formatDate(outlet.revenue_updated_at)}
+                </span>
+              )}
+              {(() => {
+                const primaryRent = agreements?.[0]?.monthly_rent;
+                if (primaryRent && primaryRent > 0 && outlet.monthly_net_revenue > 0) {
+                  const ratio = ((primaryRent / outlet.monthly_net_revenue) * 100).toFixed(1);
+                  return (
+                    <span className="ml-3 text-xs">
+                      Rent-to-Revenue: <span className={`font-semibold ${Number(ratio) > 25 ? "text-red-600" : "text-emerald-600"}`}>{ratio}%</span>
+                    </span>
+                  );
+                }
+                return null;
+              })()}
+            </div>
+          )}
         </CardContent>
       </Card>
 

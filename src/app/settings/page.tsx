@@ -177,7 +177,7 @@ export default function SettingsPage() {
     if (!orgId) return;
     setLoadingMembers(true);
     getOrgMembers(orgId)
-      .then((data) => setTeamMembers(data.members || []))
+      .then((data) => setTeamMembers(data.items || data.members || []))
       .catch(() => {})
       .finally(() => setLoadingMembers(false));
   }, [orgId]);

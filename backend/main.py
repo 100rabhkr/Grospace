@@ -243,6 +243,27 @@ class AlertPreferencesRequest(BaseModel):
     preferences: dict  # { alert_type: { lead_days, email_enabled } }
 
 
+class UpdateOutletRequest(BaseModel):
+    monthly_net_revenue: Optional[float] = None
+    status: Optional[str] = None
+
+
+class CreateReminderRequest(BaseModel):
+    title: str
+    message: Optional[str] = None
+    trigger_date: str  # ISO date string
+    severity: str = "medium"
+    outlet_id: Optional[str] = None
+    agreement_id: Optional[str] = None
+
+
+class UpdateReminderRequest(BaseModel):
+    title: Optional[str] = None
+    message: Optional[str] = None
+    trigger_date: Optional[str] = None
+    severity: Optional[str] = None
+
+
 # ============================================
 # AUTH MIDDLEWARE
 # ============================================
@@ -1378,10 +1399,16 @@ async def confirm_and_activate(req: ConfirmActivateRequest):
 
 
 @app.get("/api/organizations")
-async def list_organizations():
-    """List all organizations."""
-    result = supabase.table("organizations").select("*").order("created_at", desc=True).execute()
-    return {"organizations": result.data}
+async def list_organizations(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+):
+    """List all organizations (paginated)."""
+    offset = (page - 1) * page_size
+    count_result = supabase.table("organizations").select("id", count="exact").execute()
+    total = count_result.count or 0
+    result = supabase.table("organizations").select("*").order("created_at", desc=True).range(offset, offset + page_size - 1).execute()
+    return {"items": result.data, "total": total, "page": page, "page_size": page_size}
 
 
 @app.post("/api/organizations")
@@ -1411,10 +1438,18 @@ async def get_organization(org_id: str):
 
 
 @app.get("/api/agreements")
-async def list_agreements():
-    """List all agreements with outlet info."""
-    result = supabase.table("agreements").select("*, outlets(name, city, address, property_type, status)").order("created_at", desc=True).execute()
-    return {"agreements": result.data}
+async def list_agreements(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+):
+    """List agreements with outlet info (paginated)."""
+    offset = (page - 1) * page_size
+    count_result = supabase.table("agreements").select("id", count="exact").execute()
+    total = count_result.count or 0
+    result = supabase.table("agreements").select(
+        "*, outlets(name, city, address, property_type, status)"
+    ).order("created_at", desc=True).range(offset, offset + page_size - 1).execute()
+    return {"items": result.data, "total": total, "page": page, "page_size": page_size}
 
 
 @app.get("/api/agreements/{agreement_id}")
@@ -1501,10 +1536,18 @@ async def update_agreement(agreement_id: str, body: UpdateAgreementRequest):
 
 
 @app.get("/api/outlets")
-async def list_outlets():
-    """List all outlets."""
-    result = supabase.table("outlets").select("*, agreements(id, type, status, monthly_rent, lease_expiry_date, risk_flags)").order("created_at", desc=True).execute()
-    return {"outlets": result.data}
+async def list_outlets(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+):
+    """List outlets (paginated)."""
+    offset = (page - 1) * page_size
+    count_result = supabase.table("outlets").select("id", count="exact").execute()
+    total = count_result.count or 0
+    result = supabase.table("outlets").select(
+        "*, agreements(id, type, status, monthly_rent, lease_expiry_date, risk_flags)"
+    ).order("created_at", desc=True).range(offset, offset + page_size - 1).execute()
+    return {"items": result.data, "total": total, "page": page, "page_size": page_size}
 
 
 @app.get("/api/outlets/{outlet_id}")
@@ -1526,11 +1569,40 @@ async def get_outlet(outlet_id: str):
     }
 
 
+@app.patch("/api/outlets/{outlet_id}")
+async def update_outlet(outlet_id: str, req: UpdateOutletRequest):
+    """Update outlet fields (revenue, status)."""
+    update_data: dict = {}
+    if req.monthly_net_revenue is not None:
+        update_data["monthly_net_revenue"] = req.monthly_net_revenue
+        update_data["revenue_updated_at"] = datetime.utcnow().isoformat()
+    if req.status is not None:
+        valid_statuses = {"pipeline", "fit_out", "operational", "up_for_renewal", "renewed", "closed"}
+        if req.status not in valid_statuses:
+            raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {', '.join(valid_statuses)}")
+        update_data["status"] = req.status
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    result = supabase.table("outlets").update(update_data).eq("id", outlet_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Outlet not found")
+    return {"outlet": result.data[0]}
+
+
 @app.get("/api/alerts")
-async def list_alerts():
-    """List all alerts."""
-    result = supabase.table("alerts").select("*, outlets(name, city), agreements(type, document_filename)").order("trigger_date").execute()
-    return {"alerts": result.data}
+async def list_alerts(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+):
+    """List all alerts (paginated)."""
+    offset = (page - 1) * page_size
+    count_result = supabase.table("alerts").select("id", count="exact").execute()
+    total = count_result.count or 0
+    result = supabase.table("alerts").select(
+        "*, outlets(name, city), agreements(type, document_filename)"
+    ).order("trigger_date").range(offset, offset + page_size - 1).execute()
+    return {"items": result.data, "total": total, "page": page, "page_size": page_size}
 
 
 @app.get("/api/dashboard")
@@ -1895,27 +1967,40 @@ async def list_payments(
     status: Optional[str] = Query(None),
     period_year: Optional[int] = Query(None),
     period_month: Optional[int] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
     user: Optional[CurrentUser] = Depends(get_current_user),
 ):
-    """List payment records with optional filters."""
-    query = supabase.table("payment_records").select(
+    """List payment records with optional filters (paginated)."""
+    offset = (page - 1) * page_size
+
+    # Build count query with same filters
+    count_query = supabase.table("payment_records").select("id", count="exact")
+    data_query = supabase.table("payment_records").select(
         "*, obligations(type, frequency, amount), outlets(name, city)"
     )
 
     org_id = get_org_filter(user)
     if org_id:
-        query = query.eq("org_id", org_id)
+        count_query = count_query.eq("org_id", org_id)
+        data_query = data_query.eq("org_id", org_id)
     if outlet_id:
-        query = query.eq("outlet_id", outlet_id)
+        count_query = count_query.eq("outlet_id", outlet_id)
+        data_query = data_query.eq("outlet_id", outlet_id)
     if status:
-        query = query.eq("status", status)
+        count_query = count_query.eq("status", status)
+        data_query = data_query.eq("status", status)
     if period_year:
-        query = query.eq("period_year", period_year)
+        count_query = count_query.eq("period_year", period_year)
+        data_query = data_query.eq("period_year", period_year)
     if period_month:
-        query = query.eq("period_month", period_month)
+        count_query = count_query.eq("period_month", period_month)
+        data_query = data_query.eq("period_month", period_month)
 
-    result = query.order("due_date", desc=True).execute()
-    return {"payments": result.data}
+    count_result = count_query.execute()
+    total = count_result.count or 0
+    result = data_query.order("due_date", desc=True).range(offset, offset + page_size - 1).execute()
+    return {"items": result.data, "total": total, "page": page, "page_size": page_size}
 
 
 @app.patch("/api/payments/{payment_id}")
@@ -1950,23 +2035,33 @@ async def update_payment(
 async def list_obligations(
     outlet_id: Optional[str] = Query(None),
     active_only: bool = Query(True),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
     user: Optional[CurrentUser] = Depends(get_current_user),
 ):
-    """List obligations with optional filters."""
-    query = supabase.table("obligations").select(
+    """List obligations with optional filters (paginated)."""
+    offset = (page - 1) * page_size
+
+    count_query = supabase.table("obligations").select("id", count="exact")
+    data_query = supabase.table("obligations").select(
         "*, outlets(name, city), agreements(type, document_filename, brand_name)"
     )
 
     org_id = get_org_filter(user)
     if org_id:
-        query = query.eq("org_id", org_id)
+        count_query = count_query.eq("org_id", org_id)
+        data_query = data_query.eq("org_id", org_id)
     if outlet_id:
-        query = query.eq("outlet_id", outlet_id)
+        count_query = count_query.eq("outlet_id", outlet_id)
+        data_query = data_query.eq("outlet_id", outlet_id)
     if active_only:
-        query = query.eq("is_active", True)
+        count_query = count_query.eq("is_active", True)
+        data_query = data_query.eq("is_active", True)
 
-    result = query.order("type").execute()
-    return {"obligations": result.data}
+    count_result = count_query.execute()
+    total = count_result.count or 0
+    result = data_query.order("type").range(offset, offset + page_size - 1).execute()
+    return {"items": result.data, "total": total, "page": page, "page_size": page_size}
 
 
 @app.post("/api/payments/generate")
@@ -2098,6 +2193,91 @@ async def assign_alert(
 
 
 # ============================================
+# CUSTOM REMINDERS CRUD
+# ============================================
+
+@app.post("/api/reminders")
+async def create_reminder(
+    req: CreateReminderRequest,
+    user: Optional[CurrentUser] = Depends(get_current_user),
+):
+    """Create a custom reminder (alert with type='custom')."""
+    valid_severities = {"high", "medium", "low", "info"}
+    if req.severity not in valid_severities:
+        raise HTTPException(status_code=400, detail="Invalid severity")
+
+    org_id = None
+    if user and user.org_id:
+        org_id = user.org_id
+    elif req.outlet_id:
+        outlet = supabase.table("outlets").select("org_id").eq("id", req.outlet_id).single().execute()
+        if outlet.data:
+            org_id = outlet.data["org_id"]
+
+    if not org_id:
+        orgs = supabase.table("organizations").select("id").limit(1).execute()
+        org_id = orgs.data[0]["id"] if orgs.data else None
+
+    if not org_id:
+        raise HTTPException(status_code=400, detail="Could not determine organization")
+
+    alert_data: dict = {
+        "org_id": org_id,
+        "type": "custom",
+        "title": req.title,
+        "message": req.message,
+        "trigger_date": req.trigger_date,
+        "severity": req.severity,
+        "status": "pending",
+    }
+    if req.outlet_id:
+        alert_data["outlet_id"] = req.outlet_id
+    if req.agreement_id:
+        alert_data["agreement_id"] = req.agreement_id
+
+    result = supabase.table("alerts").insert(alert_data).execute()
+    return {"reminder": result.data[0] if result.data else None}
+
+
+@app.patch("/api/reminders/{reminder_id}")
+async def update_reminder(reminder_id: str, req: UpdateReminderRequest):
+    """Update a custom reminder. Only type='custom' alerts can be edited."""
+    existing = supabase.table("alerts").select("type").eq("id", reminder_id).single().execute()
+    if not existing.data:
+        raise HTTPException(status_code=404, detail="Reminder not found")
+    if existing.data.get("type") != "custom":
+        raise HTTPException(status_code=403, detail="Only custom reminders can be edited")
+
+    update_data: dict = {}
+    if req.title is not None:
+        update_data["title"] = req.title
+    if req.message is not None:
+        update_data["message"] = req.message
+    if req.trigger_date is not None:
+        update_data["trigger_date"] = req.trigger_date
+    if req.severity is not None:
+        update_data["severity"] = req.severity
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    result = supabase.table("alerts").update(update_data).eq("id", reminder_id).execute()
+    return {"reminder": result.data[0] if result.data else None}
+
+
+@app.delete("/api/reminders/{reminder_id}")
+async def delete_reminder(reminder_id: str):
+    """Delete a custom reminder. Only type='custom' alerts can be deleted."""
+    existing = supabase.table("alerts").select("type").eq("id", reminder_id).single().execute()
+    if not existing.data:
+        raise HTTPException(status_code=404, detail="Reminder not found")
+    if existing.data.get("type") != "custom":
+        raise HTTPException(status_code=403, detail="Only custom reminders can be deleted")
+
+    supabase.table("alerts").delete().eq("id", reminder_id).execute()
+    return {"deleted": True}
+
+
+# ============================================
 # REPORTS ENDPOINT
 # ============================================
 
@@ -2212,10 +2392,17 @@ async def update_organization(org_id: str, req: UpdateOrganizationRequest):
 
 
 @app.get("/api/organizations/{org_id}/members")
-async def list_org_members(org_id: str):
-    """List all profiles belonging to an organization."""
-    result = supabase.table("profiles").select("*").eq("org_id", org_id).execute()
-    return {"members": result.data}
+async def list_org_members(
+    org_id: str,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+):
+    """List all profiles belonging to an organization (paginated)."""
+    offset = (page - 1) * page_size
+    count_result = supabase.table("profiles").select("id", count="exact").eq("org_id", org_id).execute()
+    total = count_result.count or 0
+    result = supabase.table("profiles").select("*").eq("org_id", org_id).range(offset, offset + page_size - 1).execute()
+    return {"items": result.data, "total": total, "page": page, "page_size": page_size}
 
 
 @app.post("/api/organizations/{org_id}/invite")

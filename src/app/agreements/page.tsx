@@ -34,6 +34,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { listAgreements } from "@/lib/api";
+import { Pagination } from "@/components/pagination";
 
 // --- Types ---
 
@@ -180,6 +181,9 @@ export default function AgreementsPage() {
   const [agreements, setAgreements] = useState<Agreement[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const pageSize = 50;
 
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
@@ -193,9 +197,10 @@ export default function AgreementsPage() {
       try {
         setLoading(true);
         setError(null);
-        const data = await listAgreements();
+        const data = await listAgreements({ page, page_size: pageSize });
         if (!cancelled) {
-          setAgreements(data.agreements || []);
+          setAgreements(data.items || []);
+          setTotal(data.total || 0);
         }
       } catch (err) {
         if (!cancelled) {
@@ -214,7 +219,7 @@ export default function AgreementsPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [page]);
 
   const filtered = useMemo(() => {
     return agreements.filter((agr) => {
@@ -263,7 +268,7 @@ export default function AgreementsPage() {
             </h1>
             {!loading && (
               <Badge variant="secondary" className="text-sm font-medium">
-                {agreements.length}
+                {total}
               </Badge>
             )}
           </div>
@@ -516,6 +521,11 @@ export default function AgreementsPage() {
               </TableBody>
             </Table>
           </div>
+        )}
+
+        {/* Pagination */}
+        {!loading && !error && (
+          <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} />
         )}
       </div>
     </TooltipProvider>
