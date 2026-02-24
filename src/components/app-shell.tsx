@@ -9,9 +9,10 @@ import { MobileNav } from "@/components/mobile-nav";
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isAuthPage = pathname?.startsWith("/auth");
+  const isPublicPage = pathname?.startsWith("/showcase");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
-  if (isAuthPage) {
+  if (isAuthPage || isPublicPage) {
     return <>{children}</>;
   }
 

@@ -60,7 +60,7 @@ export default function OrganizationsPage() {
       setLoading(true);
       setError(null);
       const data = await listOrganizations();
-      setOrganizations(data.organizations || []);
+      setOrganizations(data.items || data.organizations || []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load organizations");
     } finally {

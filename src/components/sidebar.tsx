@@ -13,6 +13,7 @@ import {
   Building2,
   ChevronDown,
   LogOut,
+  Kanban,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -20,6 +21,7 @@ import { useUser } from "@/lib/hooks/use-user";
 
 const navItems = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
+  { label: "Pipeline", href: "/pipeline", icon: Kanban },
   {
     label: "Outlets",
     href: "/outlets",

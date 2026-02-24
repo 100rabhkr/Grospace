@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { listPayments, updatePayment, generatePayments } from "@/lib/api";
+import { Pagination } from "@/components/pagination";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -118,6 +119,9 @@ export default function PaymentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const pageSize = 50;
 
   // Filters
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -130,8 +134,9 @@ export default function PaymentsPage() {
     try {
       setLoading(true);
       setError(null);
-      const data = await listPayments();
-      setPayments(data.payments || []);
+      const data = await listPayments({ page, page_size: pageSize });
+      setPayments(data.items || []);
+      setTotal(data.total || 0);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load payments");
     } finally {
@@ -141,7 +146,8 @@ export default function PaymentsPage() {
 
   useEffect(() => {
     fetchPayments();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page]);
 
   // ---------- Generate Payments ----------
 
@@ -253,7 +259,7 @@ export default function PaymentsPage() {
           <h1 className="text-xl font-semibold tracking-tight text-black">Payments</h1>
           {!loading && (
             <Badge variant="secondary" className="text-sm">
-              {payments.length}
+              {total}
             </Badge>
           )}
         </div>
@@ -486,6 +492,11 @@ export default function PaymentsPage() {
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* Pagination */}
+      {!loading && !error && (
+        <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} />
       )}
     </div>
   );

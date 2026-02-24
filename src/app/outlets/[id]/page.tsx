@@ -3,7 +3,8 @@
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { getOutlet } from "@/lib/api";
+import { getOutlet, updateOutlet, getActivityLog, listShowcases, createShowcase, updateShowcase } from "@/lib/api";
+import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,7 +25,23 @@ import {
   FileText,
   Clock,
   ShieldAlert,
+  IndianRupee,
+  Save,
+  History,
+  Share2,
+  Copy,
+  Check,
+  ExternalLink,
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Timeline } from "@/components/timeline";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -93,6 +110,8 @@ interface OutletDetail {
   covered_area_sqft: number;
   franchise_model: string;
   status: string;
+  monthly_net_revenue: number | null;
+  revenue_updated_at: string | null;
 }
 
 interface OutletResponse {
@@ -201,6 +220,21 @@ export default function OutletDetailPage() {
   const [data, setData] = useState<OutletResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [revenueInput, setRevenueInput] = useState<string>("");
+  const [revenueSaving, setRevenueSaving] = useState(false);
+  const [activityItems, setActivityItems] = useState<
+    { id: string; action: string; details: Record<string, unknown>; created_at: string; user_name: string }[]
+  >([]);
+  const [activityLoading, setActivityLoading] = useState(true);
+
+  // Showcase state
+  const [showShareDialog, setShowShareDialog] = useState(false);
+  const [showcases, setShowcases] = useState<
+    { id: string; token: string; title: string; is_active: boolean; include_financials: boolean; expires_at: string | null }[]
+  >([]);
+  const [showcaseLoading, setShowcaseLoading] = useState(false);
+  const [creatingShowcase, setCreatingShowcase] = useState(false);
+  const [copiedToken, setCopiedToken] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchOutlet() {
@@ -219,6 +253,95 @@ export default function OutletDetailPage() {
       fetchOutlet();
     }
   }, [outletId]);
+
+  // Initialize revenue input when data loads
+  useEffect(() => {
+    if (data?.outlet?.monthly_net_revenue != null) {
+      setRevenueInput(String(data.outlet.monthly_net_revenue));
+    }
+  }, [data]);
+
+  // Fetch activity log
+  useEffect(() => {
+    if (!outletId) return;
+    setActivityLoading(true);
+    getActivityLog("outlet", outletId, 30)
+      .then((res) => setActivityItems(res.items || []))
+      .catch(() => {})
+      .finally(() => setActivityLoading(false));
+  }, [outletId]);
+
+  async function handleSaveRevenue() {
+    const value = parseFloat(revenueInput);
+    if (isNaN(value) || value < 0) return;
+    setRevenueSaving(true);
+    try {
+      await updateOutlet(outletId, { monthly_net_revenue: value });
+      setData((prev) => prev ? {
+        ...prev,
+        outlet: { ...prev.outlet, monthly_net_revenue: value, revenue_updated_at: new Date().toISOString() },
+      } : prev);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save revenue");
+    } finally {
+      setRevenueSaving(false);
+    }
+  }
+
+  // Showcase handlers
+  async function fetchShowcases() {
+    setShowcaseLoading(true);
+    try {
+      const res = await listShowcases(outletId);
+      setShowcases(res.showcases || []);
+    } catch {
+      // ignore
+    } finally {
+      setShowcaseLoading(false);
+    }
+  }
+
+  async function handleCreateShowcase() {
+    setCreatingShowcase(true);
+    try {
+      await createShowcase({ outlet_id: outletId });
+      await fetchShowcases();
+    } catch {
+      // ignore
+    } finally {
+      setCreatingShowcase(false);
+    }
+  }
+
+  async function handleToggleShowcase(id: string, isActive: boolean) {
+    try {
+      await updateShowcase(id, { is_active: !isActive });
+      setShowcases((prev) => prev.map((s) => (s.id === id ? { ...s, is_active: !isActive } : s)));
+    } catch {
+      // ignore
+    }
+  }
+
+  async function handleToggleFinancials(id: string, current: boolean) {
+    try {
+      await updateShowcase(id, { include_financials: !current });
+      setShowcases((prev) => prev.map((s) => (s.id === id ? { ...s, include_financials: !current } : s)));
+    } catch {
+      // ignore
+    }
+  }
+
+  function copyShowcaseLink(token: string) {
+    const url = `${window.location.origin}/showcase/${token}`;
+    navigator.clipboard.writeText(url);
+    setCopiedToken(token);
+    setTimeout(() => setCopiedToken(null), 2000);
+  }
+
+  function openShareDialog() {
+    setShowShareDialog(true);
+    fetchShowcases();
+  }
 
   // ---------------------------------------------------------------------------
   // Loading State
@@ -309,7 +432,97 @@ export default function OutletDetailPage() {
             </div>
           </div>
         </div>
+        <Button variant="outline" size="sm" className="gap-1.5" onClick={openShareDialog}>
+          <Share2 className="h-3.5 w-3.5" />
+          Share
+        </Button>
       </div>
+
+      {/* Share Dialog */}
+      <Dialog open={showShareDialog} onOpenChange={setShowShareDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Share Outlet</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-neutral-500">
+              Create shareable links for this property. Anyone with the link can view outlet details.
+            </p>
+
+            {showcaseLoading ? (
+              <div className="flex items-center gap-2 text-neutral-400 py-4 justify-center">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span className="text-sm">Loading...</span>
+              </div>
+            ) : (
+              <>
+                {showcases.map((sc) => (
+                  <div key={sc.id} className="border border-neutral-200 rounded-lg p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium truncate">{sc.title || "Showcase Link"}</span>
+                      <div className="flex items-center gap-2">
+                        <Label htmlFor={`active-${sc.id}`} className="text-xs text-neutral-500">Active</Label>
+                        <Switch
+                          id={`active-${sc.id}`}
+                          checked={sc.is_active}
+                          onCheckedChange={() => handleToggleShowcase(sc.id, sc.is_active)}
+                        />
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor={`fin-${sc.id}`} className="text-xs text-neutral-500">Include financials</Label>
+                      <Switch
+                        id={`fin-${sc.id}`}
+                        checked={sc.include_financials}
+                        onCheckedChange={() => handleToggleFinancials(sc.id, sc.include_financials)}
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-1.5 text-xs flex-1"
+                        onClick={() => copyShowcaseLink(sc.token)}
+                      >
+                        {copiedToken === sc.token ? (
+                          <Check className="h-3 w-3" />
+                        ) : (
+                          <Copy className="h-3 w-3" />
+                        )}
+                        {copiedToken === sc.token ? "Copied!" : "Copy Link"}
+                      </Button>
+                      <a
+                        href={`/showcase/${sc.token}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <Button variant="outline" size="sm" className="gap-1.5 text-xs">
+                          <ExternalLink className="h-3 w-3" />
+                          Preview
+                        </Button>
+                      </a>
+                    </div>
+                  </div>
+                ))}
+
+                <Button
+                  onClick={handleCreateShowcase}
+                  disabled={creatingShowcase}
+                  className="w-full gap-1.5"
+                  variant={showcases.length > 0 ? "outline" : "default"}
+                >
+                  {creatingShowcase ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Share2 className="h-3.5 w-3.5" />
+                  )}
+                  {creatingShowcase ? "Creating..." : "Create New Share Link"}
+                </Button>
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* ----------------------------------------------------------------- */}
       {/* OUTLET DETAILS CARD                                               */}
@@ -375,6 +588,69 @@ export default function OutletDetailPage() {
               </div>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* ----------------------------------------------------------------- */}
+      {/* REVENUE INPUT                                                     */}
+      {/* ----------------------------------------------------------------- */}
+      <Card className="border-neutral-200">
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <IndianRupee className="h-4 w-4" />
+            Monthly Net Revenue
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-end gap-3">
+            <div className="flex-1 max-w-xs">
+              <label className="text-xs text-neutral-500 mb-1 block">Revenue (INR)</label>
+              <Input
+                type="number"
+                min="0"
+                step="1000"
+                placeholder="e.g. 500000"
+                value={revenueInput}
+                onChange={(e) => setRevenueInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleSaveRevenue(); }}
+              />
+            </div>
+            <Button
+              onClick={handleSaveRevenue}
+              disabled={revenueSaving || !revenueInput}
+              size="sm"
+              className="gap-1.5"
+            >
+              {revenueSaving ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Save className="h-3.5 w-3.5" />
+              )}
+              Save
+            </Button>
+          </div>
+          {outlet.monthly_net_revenue != null && outlet.monthly_net_revenue > 0 && (
+            <div className="mt-3 text-sm text-neutral-600">
+              Current: <span className="font-semibold">{formatCurrency(outlet.monthly_net_revenue)}</span>
+              {outlet.revenue_updated_at && (
+                <span className="text-xs text-neutral-400 ml-2">
+                  Updated {formatDate(outlet.revenue_updated_at)}
+                </span>
+              )}
+              {(() => {
+                const primaryRent = agreements?.[0]?.monthly_rent;
+                if (primaryRent && primaryRent > 0 && outlet.monthly_net_revenue > 0) {
+                  const ratio = ((primaryRent / outlet.monthly_net_revenue) * 100).toFixed(1);
+                  return (
+                    <span className="ml-3 text-xs">
+                      Rent-to-Revenue: <span className={`font-semibold ${Number(ratio) > 25 ? "text-red-600" : "text-emerald-600"}`}>{ratio}%</span>
+                    </span>
+                  );
+                }
+                return null;
+              })()}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -619,6 +895,28 @@ export default function OutletDetailPage() {
                 </div>
               ))}
             </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ----------------------------------------------------------------- */}
+      {/* ACTIVITY TIMELINE                                                 */}
+      {/* ----------------------------------------------------------------- */}
+      <Card className="border-neutral-200">
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <History className="h-4 w-4" />
+            Activity Timeline
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {activityLoading ? (
+            <div className="flex items-center gap-2 text-neutral-400 py-4 justify-center">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span className="text-sm">Loading activity...</span>
+            </div>
+          ) : (
+            <Timeline items={activityItems} />
           )}
         </CardContent>
       </Card>

@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { listOutlets } from "@/lib/api";
+import { Pagination } from "@/components/pagination";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -138,6 +139,9 @@ export default function OutletsPage() {
   const [outlets, setOutlets] = useState<Outlet[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const pageSize = 50;
 
   const [searchQuery, setSearchQuery] = useState("");
   const [cityFilter, setCityFilter] = useState("all");
@@ -151,8 +155,9 @@ export default function OutletsPage() {
       try {
         setLoading(true);
         setError(null);
-        const data = await listOutlets();
-        setOutlets(data.outlets || []);
+        const data = await listOutlets({ page, page_size: pageSize });
+        setOutlets(data.items || []);
+        setTotal(data.total || 0);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load outlets");
       } finally {
@@ -160,7 +165,7 @@ export default function OutletsPage() {
       }
     }
     fetchOutlets();
-  }, []);
+  }, [page]);
 
   // Derive unique filter options from fetched data
   const uniqueCities = useMemo(
@@ -588,6 +593,8 @@ export default function OutletsPage() {
             </Table>
           </div>
         )}
+        {/* Pagination */}
+        <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} />
       </div>
     </div>
   );
