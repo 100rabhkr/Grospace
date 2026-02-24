@@ -114,7 +114,7 @@ function DashboardSkeleton() {
       </div>
 
       {/* Row 1 - 4 stat cards */}
-      <div className="grid grid-cols-4 gap-5">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5">
         <StatCardSkeleton />
         <StatCardSkeleton />
         <StatCardSkeleton />
@@ -122,14 +122,14 @@ function DashboardSkeleton() {
       </div>
 
       {/* Row 2 - 3 stat cards */}
-      <div className="grid grid-cols-3 gap-5">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 lg:gap-5">
         <StatCardSkeleton />
         <StatCardSkeleton />
         <StatCardSkeleton />
       </div>
 
       {/* Row 3 - 2 cards */}
-      <div className="grid grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-5">
         <Card>
           <CardHeader className="p-4 pb-2">
             <SkeletonBlock className="h-4 w-28" />
@@ -312,7 +312,7 @@ export default function Dashboard() {
       {/* -------------------------------------------------------------- */}
       {/* Row 1 -- Primary stat cards (4 columns)                          */}
       {/* -------------------------------------------------------------- */}
-      <div className="grid grid-cols-4 gap-5">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5">
         {/* Total Outlets */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 p-4">
@@ -389,7 +389,7 @@ export default function Dashboard() {
       {/* -------------------------------------------------------------- */}
       {/* Row 2 -- Secondary stat cards (3 columns)                        */}
       {/* -------------------------------------------------------------- */}
-      <div className="grid grid-cols-3 gap-5">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 lg:gap-5">
         {/* Expiring Leases (90 days) */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 p-4">
@@ -448,7 +448,7 @@ export default function Dashboard() {
       {/* -------------------------------------------------------------- */}
       {/* Row 3 -- Outlets by City + Outlets by Status                     */}
       {/* -------------------------------------------------------------- */}
-      <div className="grid grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-5">
         {/* Outlets by City -- horizontal bar chart */}
         <Card className="flex flex-col">
           <CardHeader className="p-4 pb-2">
@@ -522,7 +522,7 @@ export default function Dashboard() {
           <CardTitle className="text-sm font-semibold">Quick Actions</CardTitle>
         </CardHeader>
         <CardContent className="p-4 pt-2">
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
             <Link href="/agreements/upload">
               <Button size="sm">
                 <Upload className="h-4 w-4" />

@@ -409,7 +409,7 @@ export default function SettingsPage() {
 
       {/* Tabs */}
       <Tabs defaultValue="organization" className="w-full">
-        <TabsList className="grid w-full max-w-2xl grid-cols-4">
+        <TabsList className="grid w-full max-w-2xl grid-cols-2 sm:grid-cols-4">
           <TabsTrigger value="organization" className="gap-1.5 text-xs sm:text-sm">
             <Settings className="w-3.5 h-3.5 hidden sm:inline-block" />
             Organization

@@ -481,7 +481,7 @@ export default function AgreementDetailPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col sm:flex-row items-start justify-between gap-4">
         <div className="flex items-start gap-3">
           <Link href="/agreements">
             <Button variant="ghost" size="sm" className="gap-1 mt-0.5">
@@ -513,7 +513,7 @@ export default function AgreementDetailPage() {
                 </Badge>
               )}
             </div>
-            <h1 className="text-2xl font-semibold tracking-tight">
+            <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">
               {outletName}
             </h1>
             <p className="text-sm text-muted-foreground mt-0.5">
@@ -536,7 +536,7 @@ export default function AgreementDetailPage() {
 
       {/* Tabs */}
       <Tabs defaultValue="extracted" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-5 max-w-2xl">
+        <TabsList className="grid w-full grid-cols-3 sm:grid-cols-5 max-w-2xl">
           <TabsTrigger
             value="extracted"
             className="gap-1.5 text-xs sm:text-sm"
@@ -856,7 +856,7 @@ export default function AgreementDetailPage() {
 
         {/* Q&A Tab */}
         <TabsContent value="qa">
-          <Card className="flex flex-col h-[calc(100vh-340px)] min-h-[500px]">
+          <Card className="flex flex-col h-[calc(100vh-280px)] sm:h-[calc(100vh-340px)] min-h-[500px]">
             {/* Chat Header */}
             <div className="flex items-center gap-2 px-4 py-3 border-b">
               <MessageSquare className="h-4 w-4" />

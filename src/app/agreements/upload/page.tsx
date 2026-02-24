@@ -147,27 +147,18 @@ type ExtractionResult = {
   filename: string;
 };
 
-const defaultProcessingSteps = [
+const processingSteps = [
   { label: "Uploading document", duration: 1500 },
-  { label: "Parsing document structure", duration: 2500 },
-  { label: "Classifying document type", duration: 2000 },
-  { label: "Extracting key terms & dates", duration: 4000 },
-  { label: "Analyzing financial data", duration: 3000 },
-  { label: "Detecting risk flags", duration: 2000 },
-];
-
-const imageProcessingSteps = [
-  { label: "Uploading document", duration: 1500 },
-  { label: "Scanning image content", duration: 4000 },
-  { label: "Running OCR & vision analysis", duration: 5000 },
+  { label: "Scanning document content", duration: 3000 },
+  { label: "Running AI analysis", duration: 5000 },
   { label: "Classifying document type", duration: 3000 },
   { label: "Extracting key terms & dates", duration: 5000 },
   { label: "Analyzing financial data", duration: 4000 },
   { label: "Detecting risk flags", duration: 3000 },
 ];
 
-function ProcessingStep({ isImageDoc }: { isImageDoc: boolean }) {
-  const steps = isImageDoc ? imageProcessingSteps : defaultProcessingSteps;
+function ProcessingStep() {
+  const steps = processingSteps;
   const [activeStep, setActiveStep] = useState(0);
 
   useEffect(() => {
@@ -200,11 +191,9 @@ function ProcessingStep({ isImageDoc }: { isImageDoc: boolean }) {
         <p className="text-sm text-muted-foreground mb-1">
           Powered by 360Labs AI Engine
         </p>
-        {isImageDoc && (
-          <p className="text-xs text-amber-600 bg-amber-50 px-3 py-1.5 rounded-full mb-4">
-            Scanned / image document detected — this may take a bit longer
-          </p>
-        )}
+        <p className="text-xs text-neutral-500 bg-neutral-100 px-3 py-1.5 rounded-full mb-4">
+          This may take 1–2 minutes depending on document complexity
+        </p>
 
         <div className="text-left w-full max-w-xs space-y-3">
           {steps.map((item, i) => (
@@ -761,14 +750,7 @@ export default function UploadAgreementPage() {
       )}
 
       {/* Step 2: Processing */}
-      {step === 2 && (
-        <ProcessingStep
-          isImageDoc={
-            selectedFile?.type?.startsWith("image/") ||
-            /\.(png|jpe?g|webp|gif|bmp|tiff?)$/i.test(selectedFile?.name || "")
-          }
-        />
-      )}
+      {step === 2 && <ProcessingStep />}
 
       {/* Step 3: Review */}
       {step === 3 && result && (
