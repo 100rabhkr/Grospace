@@ -34,6 +34,7 @@ import {
   Save,
   Check,
   Loader2,
+  MessageCircle,
 } from "lucide-react";
 import { useUser } from "@/lib/hooks/use-user";
 import {
@@ -46,6 +47,8 @@ import {
   updateProfile,
   getAlertPreferences,
   saveAlertPreferences,
+  getNotificationPreferences,
+  saveNotificationPreferences,
 } from "@/lib/api";
 
 // -------------------------------------------------------------------
@@ -65,6 +68,22 @@ type AlertPreference = {
   label: string;
   daysBefore: number;
 };
+
+const NOTIFICATION_ALERT_TYPES = [
+  { key: "rent_due", label: "Rent Due" },
+  { key: "cam_due", label: "CAM Due" },
+  { key: "escalation", label: "Escalation" },
+  { key: "lease_expiry", label: "Lease Expiry" },
+  { key: "license_expiry", label: "License Expiry" },
+  { key: "lock_in_expiry", label: "Lock-in Expiry" },
+  { key: "renewal_window", label: "Renewal Window" },
+  { key: "fit_out_deadline", label: "Fit-out Deadline" },
+  { key: "deposit_installment", label: "Deposit Installment" },
+  { key: "revenue_reconciliation", label: "Revenue Reconciliation" },
+  { key: "custom", label: "Custom Reminder" },
+];
+
+type NotifRoute = { email: boolean; whatsapp: boolean };
 
 const DEFAULT_ALERT_PREFS: AlertPreference[] = [
   { key: "rent_due", label: "Rent Due", daysBefore: 7 },
@@ -144,6 +163,15 @@ export default function SettingsPage() {
   const [alertsSaved, setAlertsSaved] = useState(false);
   const [alertsSaving, setAlertsSaving] = useState(false);
 
+  // Notification routing state
+  const [notifRoutes, setNotifRoutes] = useState<Record<string, NotifRoute>>({});
+  const [whatsappNumber, setWhatsappNumber] = useState("");
+  const [defaultHighSeverity, setDefaultHighSeverity] = useState<NotifRoute>({ email: true, whatsapp: true });
+  const [defaultNormal, setDefaultNormal] = useState<NotifRoute>({ email: true, whatsapp: false });
+  const [notifSaving, setNotifSaving] = useState(false);
+  const [notifSaved, setNotifSaved] = useState(false);
+  const [loadingNotif, setLoadingNotif] = useState(true);
+
   // Account state
   const [accountName, setAccountName] = useState("");
   const [accountEmail, setAccountEmail] = useState("");
@@ -203,6 +231,21 @@ export default function SettingsPage() {
       })
       .catch(() => {})
       .finally(() => setLoadingPrefs(false));
+  }, [orgId]);
+
+  // Fetch notification preferences
+  useEffect(() => {
+    if (!orgId) return;
+    setLoadingNotif(true);
+    getNotificationPreferences(orgId)
+      .then((notifPrefs) => {
+        if (notifPrefs.whatsapp_number) setWhatsappNumber(notifPrefs.whatsapp_number);
+        if (notifPrefs.routes) setNotifRoutes(notifPrefs.routes);
+        if (notifPrefs.default_high_severity) setDefaultHighSeverity(notifPrefs.default_high_severity);
+        if (notifPrefs.default_normal) setDefaultNormal(notifPrefs.default_normal);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingNotif(false));
   }, [orgId]);
 
   // Fetch profile
@@ -306,6 +349,32 @@ export default function SettingsPage() {
     } finally {
       setAccountSaving(false);
     }
+  }
+
+  async function handleNotifSave() {
+    if (!orgId) return;
+    setNotifSaving(true);
+    try {
+      await saveNotificationPreferences(orgId, {
+        whatsapp_number: whatsappNumber,
+        routes: notifRoutes,
+        default_high_severity: defaultHighSeverity,
+        default_normal: defaultNormal,
+      });
+      setNotifSaved(true);
+      setTimeout(() => setNotifSaved(false), 2000);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to save");
+    } finally {
+      setNotifSaving(false);
+    }
+  }
+
+  function toggleRoute(alertType: string, channel: "email" | "whatsapp") {
+    setNotifRoutes((prev) => {
+      const current = prev[alertType] || { email: true, whatsapp: false };
+      return { ...prev, [alertType]: { ...current, [channel]: !current[channel] } };
+    });
   }
 
   function updateAlertDays(key: string, days: number) {
@@ -694,7 +763,7 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
 
-          {/* Save */}
+          {/* Save Alert Prefs */}
           <div className="flex items-center gap-3">
             <Button onClick={handleAlertsSave} disabled={alertsSaving} className="gap-1.5">
               {alertsSaved ? (
@@ -712,6 +781,164 @@ export default function SettingsPage() {
               </span>
             )}
           </div>
+
+          <Separator className="my-4" />
+
+          {/* Notification Routing */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <MessageCircle className="w-4 h-4" />
+                Notification Routing
+              </CardTitle>
+              <p className="text-sm text-neutral-500 mt-1">
+                Choose how each alert type is delivered. WhatsApp integration via MSG91 coming soon.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {loadingNotif ? (
+                <div className="flex items-center gap-2 text-neutral-400 py-4">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span className="text-sm">Loading routing preferences...</span>
+                </div>
+              ) : (
+                <>
+                  {/* WhatsApp Number */}
+                  <div className="grid gap-2 max-w-md">
+                    <Label htmlFor="wa-number" className="flex items-center gap-1.5">
+                      <MessageCircle className="w-3.5 h-3.5" />
+                      WhatsApp Number
+                    </Label>
+                    <Input
+                      id="wa-number"
+                      placeholder="+91 98765 43210"
+                      value={whatsappNumber}
+                      onChange={(e) => setWhatsappNumber(e.target.value)}
+                    />
+                    <p className="text-xs text-neutral-400">
+                      Used for WhatsApp alerts via MSG91 (not yet active)
+                    </p>
+                  </div>
+
+                  <Separator />
+
+                  {/* Default Routing */}
+                  <div>
+                    <p className="text-sm font-medium mb-3">Default Routing</p>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm">High Severity Alerts</p>
+                          <p className="text-xs text-neutral-400">Defaults for high priority alerts</p>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <div className="flex items-center gap-2">
+                            <Switch
+                              checked={defaultHighSeverity.email}
+                              onCheckedChange={(v) => setDefaultHighSeverity((p) => ({ ...p, email: v }))}
+                            />
+                            <span className="text-xs text-neutral-500">Email</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Switch
+                              checked={defaultHighSeverity.whatsapp}
+                              onCheckedChange={(v) => setDefaultHighSeverity((p) => ({ ...p, whatsapp: v }))}
+                            />
+                            <span className="text-xs text-neutral-500">WhatsApp</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm">Normal Alerts</p>
+                          <p className="text-xs text-neutral-400">Defaults for medium/low alerts</p>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <div className="flex items-center gap-2">
+                            <Switch
+                              checked={defaultNormal.email}
+                              onCheckedChange={(v) => setDefaultNormal((p) => ({ ...p, email: v }))}
+                            />
+                            <span className="text-xs text-neutral-500">Email</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Switch
+                              checked={defaultNormal.whatsapp}
+                              onCheckedChange={(v) => setDefaultNormal((p) => ({ ...p, whatsapp: v }))}
+                            />
+                            <span className="text-xs text-neutral-500">WhatsApp</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  {/* Per-Type Routes */}
+                  <div>
+                    <p className="text-sm font-medium mb-3">Per-Type Overrides</p>
+                    <div className="space-y-0">
+                      {/* Header */}
+                      <div className="flex items-center justify-between py-2 px-2 bg-neutral-50 rounded-t-md border border-neutral-200">
+                        <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">Alert Type</span>
+                        <div className="flex items-center gap-6">
+                          <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wide w-14 text-center">Email</span>
+                          <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wide w-14 text-center">WhatsApp</span>
+                        </div>
+                      </div>
+                      {NOTIFICATION_ALERT_TYPES.map((at, idx) => {
+                        const route = notifRoutes[at.key] || { email: true, whatsapp: false };
+                        return (
+                          <div
+                            key={at.key}
+                            className={`flex items-center justify-between py-2.5 px-2 border-x border-neutral-200 ${
+                              idx === NOTIFICATION_ALERT_TYPES.length - 1 ? "border-b rounded-b-md" : "border-b"
+                            }`}
+                          >
+                            <span className="text-sm">{at.label}</span>
+                            <div className="flex items-center gap-6">
+                              <div className="w-14 flex justify-center">
+                                <Switch
+                                  checked={route.email}
+                                  onCheckedChange={() => toggleRoute(at.key, "email")}
+                                />
+                              </div>
+                              <div className="w-14 flex justify-center">
+                                <Switch
+                                  checked={route.whatsapp}
+                                  onCheckedChange={() => toggleRoute(at.key, "whatsapp")}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Save Notification Routing */}
+                  <div className="flex items-center gap-3 pt-2">
+                    <Button onClick={handleNotifSave} disabled={notifSaving} className="gap-1.5">
+                      {notifSaved ? (
+                        <Check className="w-3.5 h-3.5" />
+                      ) : notifSaving ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Save className="w-3.5 h-3.5" />
+                      )}
+                      {notifSaved ? "Saved" : notifSaving ? "Saving..." : "Save Routing"}
+                    </Button>
+                    {notifSaved && (
+                      <span className="text-sm text-emerald-600 font-medium">
+                        Notification routing saved successfully
+                      </span>
+                    )}
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* ============================================================= */}

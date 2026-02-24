@@ -7,8 +7,9 @@ import { TopBar } from "@/components/top-bar";
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isAuthPage = pathname?.startsWith("/auth");
+  const isPublicPage = pathname?.startsWith("/showcase");
 
-  if (isAuthPage) {
+  if (isAuthPage || isPublicPage) {
     return <>{children}</>;
   }
 

@@ -264,6 +264,110 @@ class UpdateReminderRequest(BaseModel):
     severity: Optional[str] = None
 
 
+class MovePipelineRequest(BaseModel):
+    outlet_id: str
+    new_stage: str
+    deal_notes: Optional[str] = None
+
+
+class UpdatePipelineDealRequest(BaseModel):
+    deal_priority: Optional[str] = None
+    deal_notes: Optional[str] = None
+
+
+class CreateShowcaseRequest(BaseModel):
+    outlet_id: str
+    title: Optional[str] = None
+    description: Optional[str] = None
+    include_financials: bool = False
+    expires_at: Optional[str] = None
+
+
+class UpdateShowcaseRequest(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    include_financials: Optional[bool] = None
+    is_active: Optional[bool] = None
+
+
+# ============================================
+# ACTIVITY LOG HELPER
+# ============================================
+
+def log_activity(org_id: str, user_id: str | None, entity_type: str, entity_id: str, action: str, details: dict | None = None):
+    """Insert an activity log entry. Non-blocking — failures are silently ignored."""
+    try:
+        supabase.table("activity_log").insert({
+            "org_id": org_id,
+            "user_id": user_id,
+            "entity_type": entity_type,
+            "entity_id": entity_id,
+            "action": action,
+            "details": details or {},
+        }).execute()
+    except Exception:
+        pass  # Activity logging should never break the main flow
+
+
+# ============================================
+# NOTIFICATION ROUTING HELPERS
+# ============================================
+
+ALERT_TYPES_LIST = [
+    "rent_due", "cam_due", "escalation", "lease_expiry", "license_expiry",
+    "lock_in_expiry", "renewal_window", "fit_out_deadline", "deposit_installment",
+    "revenue_reconciliation", "custom",
+]
+
+def get_notification_channels(org_id: str, alert_type: str, severity: str = "medium") -> dict:
+    """Determine which channels (email, whatsapp) to use for an alert.
+    Returns {"email": bool, "whatsapp": bool}."""
+    try:
+        result = supabase.table("organizations").select("alert_preferences").eq("id", org_id).single().execute()
+        prefs = (result.data or {}).get("alert_preferences") or {}
+        notif_prefs = prefs.get("notification_preferences") or {}
+        routes = notif_prefs.get("routes") or {}
+
+        # Check per-type route first
+        if alert_type in routes:
+            route = routes[alert_type]
+            return {
+                "email": route.get("email", True),
+                "whatsapp": route.get("whatsapp", False),
+            }
+
+        # Fall back to severity-based defaults
+        if severity == "high":
+            defaults = notif_prefs.get("default_high_severity", {"email": True, "whatsapp": True})
+        else:
+            defaults = notif_prefs.get("default_normal", {"email": True, "whatsapp": False})
+
+        return {
+            "email": defaults.get("email", True),
+            "whatsapp": defaults.get("whatsapp", False),
+        }
+    except Exception:
+        return {"email": True, "whatsapp": False}
+
+
+def dispatch_notification(org_id: str, alert: dict):
+    """Route an alert to the appropriate channels. Currently a stub — logs the routing decision."""
+    alert_type = alert.get("type", "custom")
+    severity = alert.get("severity", "medium")
+    channels = get_notification_channels(org_id, alert_type, severity)
+
+    # Log the routing decision
+    log_activity(org_id, None, "alert", alert.get("id", ""), "notification_routed", {
+        "alert_type": alert_type,
+        "severity": severity,
+        "channels": channels,
+        "title": alert.get("title", ""),
+    })
+
+    # TODO: Integrate with MSG91 for WhatsApp, Resend/SendGrid for email
+    return channels
+
+
 # ============================================
 # AUTH MIDDLEWARE
 # ============================================
@@ -1532,6 +1636,16 @@ async def update_agreement(agreement_id: str, body: UpdateAgreementRequest):
         update_payload["extracted_data"] = body.extracted_data
 
     result = supabase.table("agreements").update(update_payload).eq("id", agreement_id).execute()
+
+    # Log activity
+    if result.data and body.field_updates:
+        agr = result.data[0]
+        org_id = agr.get("org_id")
+        if org_id:
+            log_activity(org_id, None, "agreement", agreement_id, "fields_edited", {
+                "fields": list(body.field_updates.keys()),
+            })
+
     return {"agreement": result.data[0] if result.data else None}
 
 
@@ -1570,8 +1684,13 @@ async def get_outlet(outlet_id: str):
 
 
 @app.patch("/api/outlets/{outlet_id}")
-async def update_outlet(outlet_id: str, req: UpdateOutletRequest):
+async def update_outlet(outlet_id: str, req: UpdateOutletRequest, user: Optional[CurrentUser] = Depends(get_current_user)):
     """Update outlet fields (revenue, status)."""
+    # Fetch current outlet for change tracking
+    current = supabase.table("outlets").select("status, monthly_net_revenue, org_id").eq("id", outlet_id).single().execute()
+    if not current.data:
+        raise HTTPException(status_code=404, detail="Outlet not found")
+
     update_data: dict = {}
     if req.monthly_net_revenue is not None:
         update_data["monthly_net_revenue"] = req.monthly_net_revenue
@@ -1587,6 +1706,22 @@ async def update_outlet(outlet_id: str, req: UpdateOutletRequest):
     result = supabase.table("outlets").update(update_data).eq("id", outlet_id).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Outlet not found")
+
+    # Log activity
+    org_id = current.data.get("org_id")
+    user_id = user.user_id if user else None
+    if org_id:
+        if req.status is not None and req.status != current.data.get("status"):
+            log_activity(org_id, user_id, "outlet", outlet_id, "status_changed", {
+                "old_status": current.data.get("status"),
+                "new_status": req.status,
+            })
+        if req.monthly_net_revenue is not None:
+            log_activity(org_id, user_id, "outlet", outlet_id, "revenue_updated", {
+                "old_revenue": current.data.get("monthly_net_revenue"),
+                "new_revenue": req.monthly_net_revenue,
+            })
+
     return {"outlet": result.data[0]}
 
 
@@ -2236,13 +2371,25 @@ async def create_reminder(
         alert_data["agreement_id"] = req.agreement_id
 
     result = supabase.table("alerts").insert(alert_data).execute()
+
+    # Log activity
+    if result.data and org_id:
+        reminder = result.data[0]
+        entity_type = "outlet" if req.outlet_id else "agreement" if req.agreement_id else "organization"
+        entity_id = req.outlet_id or req.agreement_id or org_id
+        log_activity(org_id, user.user_id if user else None, entity_type, entity_id, "reminder_created", {
+            "reminder_id": reminder.get("id"),
+            "title": req.title,
+            "trigger_date": req.trigger_date,
+        })
+
     return {"reminder": result.data[0] if result.data else None}
 
 
 @app.patch("/api/reminders/{reminder_id}")
 async def update_reminder(reminder_id: str, req: UpdateReminderRequest):
     """Update a custom reminder. Only type='custom' alerts can be edited."""
-    existing = supabase.table("alerts").select("type").eq("id", reminder_id).single().execute()
+    existing = supabase.table("alerts").select("type, org_id, outlet_id").eq("id", reminder_id).single().execute()
     if not existing.data:
         raise HTTPException(status_code=404, detail="Reminder not found")
     if existing.data.get("type") != "custom":
@@ -2261,6 +2408,17 @@ async def update_reminder(reminder_id: str, req: UpdateReminderRequest):
         raise HTTPException(status_code=400, detail="No fields to update")
 
     result = supabase.table("alerts").update(update_data).eq("id", reminder_id).execute()
+
+    # Log activity
+    org_id = existing.data.get("org_id")
+    if org_id:
+        entity_id = existing.data.get("outlet_id") or org_id
+        entity_type = "outlet" if existing.data.get("outlet_id") else "organization"
+        log_activity(org_id, None, entity_type, entity_id, "reminder_updated", {
+            "reminder_id": reminder_id,
+            "updated_fields": list(update_data.keys()),
+        })
+
     return {"reminder": result.data[0] if result.data else None}
 
 
@@ -2275,6 +2433,119 @@ async def delete_reminder(reminder_id: str):
 
     supabase.table("alerts").delete().eq("id", reminder_id).execute()
     return {"deleted": True}
+
+
+# ============================================
+# ACTIVITY LOG ENDPOINT
+# ============================================
+
+@app.get("/api/activity-log")
+async def get_activity_log(
+    entity_type: str = Query(...),
+    entity_id: str = Query(...),
+    limit: int = Query(50, ge=1, le=200),
+):
+    """Get activity log for a specific entity (outlet, agreement, organization)."""
+    result = supabase.table("activity_log").select(
+        "id, action, details, created_at, user_id, profiles(full_name, email)"
+    ).eq("entity_type", entity_type).eq("entity_id", entity_id).order(
+        "created_at", desc=True
+    ).limit(limit).execute()
+
+    items = []
+    for row in result.data:
+        profile = row.get("profiles") or {}
+        items.append({
+            "id": row["id"],
+            "action": row["action"],
+            "details": row.get("details") or {},
+            "created_at": row["created_at"],
+            "user_name": profile.get("full_name") or profile.get("email") or "System",
+        })
+
+    return {"items": items}
+
+
+# ============================================
+# DEAL PIPELINE ENDPOINTS
+# ============================================
+
+DEAL_STAGES = ["lead", "site_visit", "negotiation", "loi_signed", "fit_out", "operational"]
+
+@app.get("/api/pipeline")
+async def get_pipeline(user: Optional[CurrentUser] = Depends(get_current_user)):
+    """Get all outlets grouped by deal_stage for the Kanban board."""
+    org_id = get_org_filter(user)
+
+    query = supabase.table("outlets").select(
+        "id, name, city, status, deal_stage, deal_stage_entered_at, deal_notes, deal_priority, "
+        "created_at, agreements(id, type, status, monthly_rent)"
+    )
+    if org_id:
+        query = query.eq("org_id", org_id)
+    result = query.order("deal_stage_entered_at", desc=False).execute()
+
+    stages: dict = {stage: [] for stage in DEAL_STAGES}
+    for outlet in result.data:
+        stage = outlet.get("deal_stage") or "lead"
+        if stage not in stages:
+            stage = "lead"
+        stages[stage].append(outlet)
+
+    return {"stages": stages}
+
+
+@app.patch("/api/pipeline/move")
+async def move_pipeline_card(req: MovePipelineRequest, user: Optional[CurrentUser] = Depends(get_current_user)):
+    """Move an outlet to a new deal stage."""
+    if req.new_stage not in DEAL_STAGES:
+        raise HTTPException(status_code=400, detail=f"Invalid stage. Must be one of: {', '.join(DEAL_STAGES)}")
+
+    # Get current outlet
+    current = supabase.table("outlets").select("deal_stage, org_id").eq("id", req.outlet_id).single().execute()
+    if not current.data:
+        raise HTTPException(status_code=404, detail="Outlet not found")
+
+    old_stage = current.data.get("deal_stage") or "lead"
+    update_data: dict = {
+        "deal_stage": req.new_stage,
+        "deal_stage_entered_at": datetime.utcnow().isoformat(),
+    }
+    if req.deal_notes is not None:
+        update_data["deal_notes"] = req.deal_notes
+
+    result = supabase.table("outlets").update(update_data).eq("id", req.outlet_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Outlet not found")
+
+    # Log activity
+    org_id = current.data.get("org_id")
+    if org_id:
+        log_activity(org_id, user.user_id if user else None, "outlet", req.outlet_id, "deal_stage_changed", {
+            "old_stage": old_stage,
+            "new_stage": req.new_stage,
+        })
+
+    return {"outlet": result.data[0]}
+
+
+@app.patch("/api/pipeline/{outlet_id}")
+async def update_pipeline_deal(outlet_id: str, req: UpdatePipelineDealRequest):
+    """Update deal priority or notes without changing stage."""
+    update_data: dict = {}
+    if req.deal_priority is not None:
+        if req.deal_priority not in ("low", "medium", "high"):
+            raise HTTPException(status_code=400, detail="Invalid priority. Must be low, medium, or high")
+        update_data["deal_priority"] = req.deal_priority
+    if req.deal_notes is not None:
+        update_data["deal_notes"] = req.deal_notes
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    result = supabase.table("outlets").update(update_data).eq("id", outlet_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Outlet not found")
+    return {"outlet": result.data[0]}
 
 
 # ============================================
@@ -2366,6 +2637,126 @@ async def get_reports(user: Optional[CurrentUser] = Depends(get_current_user)):
         })
 
     return {"report": report}
+
+
+# ============================================
+# SHOWCASE ENDPOINTS
+# ============================================
+
+@app.post("/api/showcase")
+async def create_showcase(req: CreateShowcaseRequest, user: Optional[CurrentUser] = Depends(get_current_user)):
+    """Create a shareable showcase token for an outlet."""
+    # Get outlet to determine org_id
+    outlet = supabase.table("outlets").select("org_id, name").eq("id", req.outlet_id).single().execute()
+    if not outlet.data:
+        raise HTTPException(status_code=404, detail="Outlet not found")
+
+    insert_data: dict = {
+        "org_id": outlet.data["org_id"],
+        "outlet_id": req.outlet_id,
+        "include_financials": req.include_financials,
+    }
+    if req.title:
+        insert_data["title"] = req.title
+    else:
+        insert_data["title"] = f"{outlet.data.get('name', 'Outlet')} Showcase"
+    if req.description:
+        insert_data["description"] = req.description
+    if req.expires_at:
+        insert_data["expires_at"] = req.expires_at
+    if user:
+        insert_data["created_by"] = user.user_id
+
+    result = supabase.table("showcase_tokens").insert(insert_data).execute()
+    return {"showcase": result.data[0] if result.data else None}
+
+
+@app.get("/api/showcase")
+async def list_showcases(
+    outlet_id: Optional[str] = Query(None),
+    user: Optional[CurrentUser] = Depends(get_current_user),
+):
+    """List showcase tokens for the org (optionally filtered by outlet)."""
+    org_id = get_org_filter(user)
+    query = supabase.table("showcase_tokens").select("*, outlets(name, city)")
+    if org_id:
+        query = query.eq("org_id", org_id)
+    if outlet_id:
+        query = query.eq("outlet_id", outlet_id)
+    result = query.order("created_at", desc=True).execute()
+    return {"showcases": result.data}
+
+
+@app.patch("/api/showcase/{token_id}")
+async def update_showcase(token_id: str, req: UpdateShowcaseRequest):
+    """Update a showcase token."""
+    update_data: dict = {}
+    if req.title is not None:
+        update_data["title"] = req.title
+    if req.description is not None:
+        update_data["description"] = req.description
+    if req.include_financials is not None:
+        update_data["include_financials"] = req.include_financials
+    if req.is_active is not None:
+        update_data["is_active"] = req.is_active
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    result = supabase.table("showcase_tokens").update(update_data).eq("id", token_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Showcase token not found")
+    return {"showcase": result.data[0]}
+
+
+@app.get("/api/showcase/public/{token}")
+async def get_public_showcase(token: str):
+    """Public endpoint — no auth required. Returns outlet info for a valid showcase token."""
+    result = supabase.table("showcase_tokens").select(
+        "*, outlets(id, name, brand_name, address, city, state, property_type, floor, unit_number, "
+        "super_area_sqft, covered_area_sqft, status, franchise_model)"
+    ).eq("token", token).eq("is_active", True).single().execute()
+
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Showcase not found or inactive")
+
+    showcase = result.data
+
+    # Check expiry
+    if showcase.get("expires_at"):
+        from datetime import datetime as dt
+        try:
+            exp = dt.fromisoformat(showcase["expires_at"].replace("Z", "+00:00"))
+            if exp < dt.now(exp.tzinfo):
+                raise HTTPException(status_code=404, detail="This showcase link has expired")
+        except (ValueError, TypeError):
+            pass
+
+    outlet = showcase.get("outlets") or {}
+    outlet_id = showcase.get("outlet_id")
+
+    # Get active agreement summary
+    agreements = supabase.table("agreements").select(
+        "type, status, lease_commencement_date, lease_expiry_date, monthly_rent, cam_monthly, "
+        "security_deposit, total_monthly_outflow"
+    ).eq("outlet_id", outlet_id).eq("status", "active").execute()
+
+    response: dict = {
+        "title": showcase.get("title"),
+        "description": showcase.get("description"),
+        "outlet": outlet,
+        "agreements": [],
+    }
+
+    if showcase.get("include_financials") and agreements.data:
+        response["agreements"] = agreements.data
+    elif agreements.data:
+        # Strip financial data
+        response["agreements"] = [
+            {k: v for k, v in a.items() if k not in ("monthly_rent", "cam_monthly", "security_deposit", "total_monthly_outflow")}
+            for a in agreements.data
+        ]
+
+    return response
 
 
 # ============================================

@@ -415,3 +415,114 @@ export async function deleteReminder(id: string) {
     method: "DELETE",
   });
 }
+
+// ============================================
+// ACTIVITY LOG
+// ============================================
+
+// ============================================
+// NOTIFICATION ROUTING
+// ============================================
+
+/** Get notification preferences (stored in alert_preferences.notification_preferences) */
+export async function getNotificationPreferences(orgId: string) {
+  const data = await getAlertPreferences(orgId);
+  return (data.preferences || {}).notification_preferences || {};
+}
+
+/** Save notification preferences */
+export async function saveNotificationPreferences(orgId: string, notifPrefs: Record<string, unknown>) {
+  // Merge into existing alert_preferences
+  const data = await getAlertPreferences(orgId);
+  const existing = data.preferences || {};
+  return saveAlertPreferences(orgId, {
+    ...existing,
+    notification_preferences: notifPrefs,
+  });
+}
+
+// ============================================
+// SHOWCASE (shareable public outlet pages)
+// ============================================
+
+/** Create a showcase token for an outlet */
+export async function createShowcase(data: {
+  outlet_id: string;
+  title?: string;
+  description?: string;
+  include_financials?: boolean;
+  expires_at?: string;
+}) {
+  return apiFetch("/api/showcase", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+/** List showcase tokens (optionally filtered by outlet) */
+export async function listShowcases(outletId?: string) {
+  const qs = outletId ? `?outlet_id=${outletId}` : "";
+  return apiFetch(`/api/showcase${qs}`);
+}
+
+/** Update a showcase token */
+export async function updateShowcase(tokenId: string, data: {
+  title?: string;
+  description?: string;
+  include_financials?: boolean;
+  is_active?: boolean;
+}) {
+  return apiFetch(`/api/showcase/${tokenId}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+/** Get public showcase data (no auth required) */
+export async function getPublicShowcase(token: string) {
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  const response = await fetch(`${API_URL}/api/showcase/public/${token}`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: "Not found" }));
+    throw new Error(error.detail || `Error: ${response.status}`);
+  }
+  return response.json();
+}
+
+// ============================================
+// DEAL PIPELINE
+// ============================================
+
+/** Get pipeline data (outlets grouped by deal_stage) */
+export async function getPipeline() {
+  return apiFetch("/api/pipeline");
+}
+
+/** Move an outlet to a new deal stage */
+export async function movePipelineCard(outletId: string, newStage: string, dealNotes?: string) {
+  return apiFetch("/api/pipeline/move", {
+    method: "PATCH",
+    body: JSON.stringify({ outlet_id: outletId, new_stage: newStage, deal_notes: dealNotes }),
+  });
+}
+
+/** Update deal priority or notes */
+export async function updatePipelineDeal(outletId: string, data: { deal_priority?: string; deal_notes?: string }) {
+  return apiFetch(`/api/pipeline/${outletId}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+// ============================================
+// ACTIVITY LOG
+// ============================================
+
+/** Get activity log for an entity */
+export async function getActivityLog(entityType: string, entityId: string, limit?: number) {
+  const sp = new URLSearchParams();
+  sp.set("entity_type", entityType);
+  sp.set("entity_id", entityId);
+  if (limit) sp.set("limit", String(limit));
+  return apiFetch(`/api/activity-log?${sp.toString()}`);
+}

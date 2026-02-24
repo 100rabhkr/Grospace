@@ -71,6 +71,10 @@ CREATE TABLE outlets (
   operating_hours text,
   monthly_net_revenue numeric,
   revenue_updated_at timestamptz,
+  deal_stage text DEFAULT 'lead' CHECK (deal_stage IN ('lead', 'site_visit', 'negotiation', 'loi_signed', 'fit_out', 'operational')),
+  deal_stage_entered_at timestamptz DEFAULT now(),
+  deal_notes text,
+  deal_priority text DEFAULT 'medium' CHECK (deal_priority IN ('low', 'medium', 'high')),
   created_at timestamptz DEFAULT now(),
   created_by uuid REFERENCES auth.users(id)
 );
@@ -224,6 +228,23 @@ CREATE TABLE activity_log (
 );
 
 -- ============================================
+-- SHOWCASE TOKENS (shareable public links)
+-- ============================================
+CREATE TABLE showcase_tokens (
+  id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+  org_id uuid REFERENCES organizations(id) NOT NULL,
+  outlet_id uuid REFERENCES outlets(id) NOT NULL,
+  token text UNIQUE NOT NULL DEFAULT encode(gen_random_bytes(16), 'hex'),
+  title text,
+  description text,
+  include_financials boolean DEFAULT false,
+  is_active boolean DEFAULT true,
+  expires_at timestamptz,
+  created_at timestamptz DEFAULT now(),
+  created_by uuid REFERENCES auth.users(id)
+);
+
+-- ============================================
 -- INDEXES
 -- ============================================
 CREATE INDEX idx_obligations_due ON obligations(due_day_of_month, is_active);
@@ -237,6 +258,8 @@ CREATE INDEX idx_agreements_expiry ON agreements(lease_expiry_date, status);
 CREATE INDEX idx_agreements_org ON agreements(org_id, status);
 CREATE INDEX idx_outlets_org ON outlets(org_id, status);
 CREATE INDEX idx_outlets_city ON outlets(city, org_id);
+CREATE INDEX idx_showcase_token ON showcase_tokens(token, is_active);
+CREATE INDEX idx_showcase_outlet ON showcase_tokens(outlet_id);
 
 -- ============================================
 -- ROW LEVEL SECURITY
@@ -355,6 +378,13 @@ CREATE POLICY "Platform admins full access to activity log" ON activity_log
 
 CREATE POLICY "Org users can view their activity log" ON activity_log
   FOR SELECT USING (
+    org_id IN (SELECT org_id FROM profiles WHERE id = auth.uid())
+  );
+
+ALTER TABLE showcase_tokens ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Org users can manage their showcase tokens" ON showcase_tokens
+  FOR ALL USING (
     org_id IN (SELECT org_id FROM profiles WHERE id = auth.uid())
   );
 
