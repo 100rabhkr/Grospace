@@ -57,10 +57,10 @@ export async function extractDocument(fileUrl: string, agreementId: string) {
 }
 
 /** Ask a question about a specific agreement document */
-export async function askDocumentQuestion(agreementId: string, question: string) {
+export async function askDocumentQuestion(agreementId: string, question: string, sessionId?: string) {
   return apiFetch("/api/qa", {
     method: "POST",
-    body: JSON.stringify({ agreement_id: agreementId, question }),
+    body: JSON.stringify({ agreement_id: agreementId, question, session_id: sessionId }),
   });
 }
 
@@ -525,4 +525,16 @@ export async function getActivityLog(entityType: string, entityId: string, limit
   sp.set("entity_id", entityId);
   if (limit) sp.set("limit", String(limit));
   return apiFetch(`/api/activity-log?${sp.toString()}`);
+}
+
+// ============================================
+// PORTFOLIO Q&A
+// ============================================
+
+/** Ask a natural language question about your portfolio */
+export async function askPortfolioQuestion(question: string) {
+  return apiFetch("/api/portfolio-qa", {
+    method: "POST",
+    body: JSON.stringify({ question }),
+  });
 }

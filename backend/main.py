@@ -21,6 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 import google.generativeai as genai
+from google.cloud import vision as cloud_vision
 from supabase import create_client, Client
 
 load_dotenv()
@@ -183,6 +184,7 @@ class QARequest(BaseModel):
     agreement_id: str
     question: str
     document_text: Optional[str] = None
+    session_id: Optional[str] = None
 
 class RiskFlagRequest(BaseModel):
     agreement_id: str
@@ -204,6 +206,11 @@ class PaymentUpdateRequest(BaseModel):
     status: str  # paid, partially_paid, overdue, upcoming, due
     paid_amount: Optional[float] = None
     notes: Optional[str] = None
+
+
+class PortfolioQARequest(BaseModel):
+    question: str
+    org_id: Optional[str] = None
 
 
 class GeneratePaymentsRequest(BaseModel):
@@ -456,6 +463,25 @@ def load_image_bytes(file_bytes: bytes) -> list:
         return []
 
 
+def extract_text_cloud_vision(images: list) -> str:
+    """Use Google Cloud Vision API for high-accuracy OCR on page images."""
+    try:
+        client = cloud_vision.ImageAnnotatorClient()
+        full_text = ""
+        for img in images:
+            buf = BytesIO()
+            img.save(buf, format="PNG")
+            image = cloud_vision.Image(content=buf.getvalue())
+            response = client.document_text_detection(image=image)
+            if response.error.message:
+                continue
+            if response.full_text_annotation:
+                full_text += response.full_text_annotation.text + "\n\n"
+        return full_text.strip()
+    except Exception:
+        return ""
+
+
 async def download_file(file_url: str) -> bytes:
     """Download a file from Supabase storage."""
     async with httpx.AsyncClient() as client:
@@ -687,13 +713,28 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
             else:
                 images = pdf_bytes_to_images(file_bytes)
                 if images:
-                    extraction_method = "vision"
+                    # Try Cloud Vision OCR first for scanned PDFs
+                    cloud_vision_text = extract_text_cloud_vision(images)
+                    if len(cloud_vision_text.strip()) >= 100:
+                        text = cloud_vision_text
+                        extraction_method = "cloud_vision"
+                    else:
+                        extraction_method = "vision"
                 else:
                     extraction_method = "text" if text.strip() else "failed"
 
         elif file_type == "image":
             images = load_image_bytes(file_bytes)
-            extraction_method = "vision" if images else "failed"
+            if images:
+                # Try Cloud Vision OCR first for images
+                cloud_vision_text = extract_text_cloud_vision(images)
+                if len(cloud_vision_text.strip()) >= 100:
+                    text = cloud_vision_text
+                    extraction_method = "cloud_vision"
+                else:
+                    extraction_method = "vision"
+            else:
+                extraction_method = "failed"
 
         else:
             # Unknown file type — try PDF parsing first, then image
@@ -703,19 +744,35 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
                     extraction_method = "text"
                 else:
                     images = pdf_bytes_to_images(file_bytes)
-                    extraction_method = "vision" if images else "failed"
+                    if images:
+                        cloud_vision_text = extract_text_cloud_vision(images)
+                        if len(cloud_vision_text.strip()) >= 100:
+                            text = cloud_vision_text
+                            extraction_method = "cloud_vision"
+                        else:
+                            extraction_method = "vision"
+                    else:
+                        extraction_method = "failed"
             except Exception:
                 images = load_image_bytes(file_bytes)
-                extraction_method = "vision" if images else "failed"
+                if images:
+                    cloud_vision_text = extract_text_cloud_vision(images)
+                    if len(cloud_vision_text.strip()) >= 100:
+                        text = cloud_vision_text
+                        extraction_method = "cloud_vision"
+                    else:
+                        extraction_method = "vision"
+                else:
+                    extraction_method = "failed"
 
         # --- Step 2: Classify ---
-        if extraction_method == "text":
+        if extraction_method in ("text", "cloud_vision"):
             doc_type = await classify_document(text)
         elif extraction_method == "vision":
             doc_type = await classify_document_vision(images)
 
         # --- Step 3: Extract structured data ---
-        if extraction_method == "text":
+        if extraction_method in ("text", "cloud_vision"):
             extraction = await extract_structured_data(text, doc_type)
         elif extraction_method == "vision":
             extraction = await extract_structured_data_vision(images, doc_type)
@@ -726,7 +783,7 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
         # --- Step 5: Detect risk flags ---
         if doc_type == "lease_loi":
             try:
-                if extraction_method == "text":
+                if extraction_method in ("text", "cloud_vision"):
                     risk_flags = await detect_risk_flags(text, extraction)
                 elif extraction_method == "vision":
                     risk_flags = await detect_risk_flags_vision(images, extraction)
@@ -1323,7 +1380,7 @@ async def extract_endpoint(req: ExtractRequest):
 
 @app.post("/api/qa")
 async def qa_endpoint(req: QARequest):
-    """Answer questions about a specific agreement document."""
+    """Answer questions about a specific agreement document with conversation history."""
     try:
         # Fetch agreement data from DB
         result = supabase.table("agreements").select("extracted_data, document_url").eq("id", req.agreement_id).single().execute()
@@ -1333,7 +1390,26 @@ async def qa_endpoint(req: QARequest):
         extracted_data = result.data.get("extracted_data", {})
         doc_url = result.data.get("document_url")
 
-        # Try to get document text
+        # --- Conversation history ---
+        session_id = req.session_id
+        conversation_history = []
+        if session_id:
+            try:
+                sess = supabase.table("document_qa_sessions").select("messages").eq("id", session_id).single().execute()
+                if sess.data:
+                    conversation_history = sess.data.get("messages", []) or []
+            except Exception:
+                pass
+
+        formatted_history = ""
+        if conversation_history:
+            last_messages = conversation_history[-10:]
+            for msg in last_messages:
+                role = msg.get("role", "user")
+                text_content = msg.get("content", "")
+                formatted_history += f"{'User' if role == 'user' else 'Assistant'}: {text_content}\n\n"
+
+        # --- Get document text ---
         document_text = req.document_text
         if not document_text and doc_url:
             try:
@@ -1342,50 +1418,65 @@ async def qa_endpoint(req: QARequest):
             except Exception:
                 document_text = None
 
-        # If text extraction failed (scanned doc), try vision-based QA
+        # If text extraction failed (scanned doc), try Cloud Vision OCR first, then Gemini vision
         if (not document_text or len(document_text.strip()) < 100) and doc_url:
             try:
-                pdf_bytes = await download_file(doc_url)
+                if not locals().get("pdf_bytes"):
+                    pdf_bytes = await download_file(doc_url)
                 images = pdf_bytes_to_images(pdf_bytes)
                 if images:
-                    qa_prompt = (
-                        "You are an AI assistant helping users understand their commercial lease documents. "
-                        "Look at these document page images carefully.\n\n"
-                        "Rules:\n"
-                        "- Only answer based on the document provided. Do not make assumptions.\n"
-                        "- If the answer is not in the document, say so clearly.\n"
-                        "- Keep answers concise but complete.\n\n"
-                        f"User question: {req.question}"
-                    )
-                    content = [qa_prompt] + images[:15]
-                    response = model.generate_content(
-                        content,
-                        generation_config=genai.GenerationConfig(temperature=0.1, max_output_tokens=1000),
-                    )
-                    return {"answer": response.text, "agreement_id": req.agreement_id}
+                    # Try Cloud Vision OCR first
+                    cloud_text = extract_text_cloud_vision(images)
+                    if len(cloud_text.strip()) >= 100:
+                        document_text = cloud_text
+                    else:
+                        # Fall back to Gemini vision Q&A
+                        history_block = f"\nConversation history:\n{formatted_history}\n" if formatted_history else ""
+                        qa_prompt = (
+                            "You are an AI assistant helping users understand their commercial lease documents. "
+                            "Look at these document page images carefully.\n\n"
+                            "Rules:\n"
+                            "- Only answer based on the document provided. Do not make assumptions.\n"
+                            "- ALWAYS quote the relevant clause text from the document in your answer using blockquotes.\n"
+                            "- Include the section/clause number if identifiable.\n"
+                            "- If the answer is not in the document, say so clearly.\n"
+                            "- Keep answers concise but complete.\n"
+                            f"{history_block}\n"
+                            f"User question: {req.question}"
+                        )
+                        content = [qa_prompt] + images[:15]
+                        response = model.generate_content(
+                            content,
+                            generation_config=genai.GenerationConfig(temperature=0.1, max_output_tokens=1500),
+                        )
+                        answer = response.text
+                        # Save to session
+                        session_id = _save_qa_session(session_id, req.agreement_id, req.question, answer, conversation_history)
+                        return {"answer": answer, "agreement_id": req.agreement_id, "session_id": session_id}
             except Exception:
                 pass
 
         # Build context from whatever we have
         extraction_summary = json.dumps(extracted_data, indent=2) if extracted_data else ""
+        history_block = f"\nConversation history:\n{formatted_history}\n" if formatted_history else ""
 
         if document_text and len(document_text.strip()) >= 100:
-            # Full document text available
             prompt = (
                 "You are an AI assistant helping users understand their commercial lease documents. "
                 "You have access to the full text of a specific lease/agreement document.\n\n"
                 "Rules:\n"
                 "- Only answer based on the document provided. Do not make assumptions.\n"
-                "- Quote relevant clause text when answering.\n"
+                "- ALWAYS quote the relevant clause text from the document in your answer using blockquotes (> quote).\n"
+                "- Include the section/clause number if identifiable.\n"
                 "- If the answer is not in the document, say so clearly.\n"
                 "- Keep answers concise but complete.\n"
-                "- Use simple language, avoid unnecessary legal jargon.\n\n"
+                "- Use simple language, avoid unnecessary legal jargon.\n"
+                f"{history_block}\n"
                 f"Document text:\n{document_text[:12000]}\n\n"
                 f"Extracted data summary:\n{extraction_summary[:4000]}\n\n"
                 f"User question: {req.question}"
             )
         elif extraction_summary and extraction_summary != "{}":
-            # No raw text but we have extracted structured data
             prompt = (
                 "You are an AI assistant helping users understand their commercial lease documents. "
                 "You have access to the AI-extracted structured data from this agreement.\n\n"
@@ -1393,7 +1484,8 @@ async def qa_endpoint(req: QARequest):
                 "- Only answer based on the extracted data provided. Do not make assumptions.\n"
                 "- If the specific information is not in the extracted data, say so clearly.\n"
                 "- Keep answers concise but complete.\n"
-                "- Use simple language, avoid unnecessary legal jargon.\n\n"
+                "- Use simple language, avoid unnecessary legal jargon.\n"
+                f"{history_block}\n"
                 f"Extracted agreement data:\n{extraction_summary[:12000]}\n\n"
                 f"User question: {req.question}"
             )
@@ -1404,17 +1496,48 @@ async def qa_endpoint(req: QARequest):
             prompt,
             generation_config=genai.GenerationConfig(
                 temperature=0.1,
-                max_output_tokens=1000,
+                max_output_tokens=1500,
             ),
         )
 
         answer = response.text
-        return {"answer": answer, "agreement_id": req.agreement_id}
+
+        # Save to conversation session
+        session_id = _save_qa_session(session_id, req.agreement_id, req.question, answer, conversation_history)
+
+        return {"answer": answer, "agreement_id": req.agreement_id, "session_id": session_id}
 
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _save_qa_session(session_id: Optional[str], agreement_id: str, question: str, answer: str, history: list) -> str:
+    """Save Q&A exchange to document_qa_sessions table. Returns session_id."""
+    new_messages = history + [
+        {"role": "user", "content": question},
+        {"role": "assistant", "content": answer},
+    ]
+    try:
+        if session_id:
+            supabase.table("document_qa_sessions").update({
+                "messages": new_messages,
+                "updated_at": datetime.utcnow().isoformat(),
+            }).eq("id", session_id).execute()
+            return session_id
+        else:
+            new_id = str(uuid.uuid4())
+            supabase.table("document_qa_sessions").insert({
+                "id": new_id,
+                "agreement_id": agreement_id,
+                "messages": new_messages,
+                "created_at": datetime.utcnow().isoformat(),
+                "updated_at": datetime.utcnow().isoformat(),
+            }).execute()
+            return new_id
+    except Exception:
+        return session_id or str(uuid.uuid4())
 
 
 @app.post("/api/risk-flags")
@@ -2961,6 +3084,130 @@ async def preview_digest(org_id: str = Query(...)):
     """
 
     return {"html": html, "org_name": org_name, "date": today.isoformat()}
+
+
+# ============================================
+# CROSS-PORTFOLIO Q&A
+# ============================================
+
+PORTFOLIO_QA_SCHEMA = """You have access to a PostgreSQL database with these tables:
+
+- outlets (id uuid, name text, brand_name text, address text, city text, state text, status text, property_type text, franchise_model text, monthly_net_revenue numeric, deal_stage text, org_id uuid)
+- agreements (id uuid, outlet_id uuid, org_id uuid, type text, status text, lease_commencement_date date, lease_expiry_date date, monthly_rent numeric, cam_monthly numeric, total_monthly_outflow numeric, security_deposit numeric, escalation_percentage numeric, rent_model text)
+- obligations (id uuid, outlet_id uuid, org_id uuid, type text, amount numeric, frequency text, next_escalation_date date, is_active boolean)
+- alerts (id uuid, outlet_id uuid, org_id uuid, type text, severity text, title text, trigger_date date, status text)
+- payment_records (id uuid, outlet_id uuid, org_id uuid, status text, due_amount numeric, paid_amount numeric, due_date date, period_year int, period_month int)
+
+Important notes:
+- All monetary values are in Indian Rupees (INR).
+- The current date is {current_date}.
+- Always filter by org_id = '{org_id}' for data security.
+- Only generate SELECT queries. Never INSERT, UPDATE, DELETE, DROP, or ALTER.
+- Return valid PostgreSQL SQL only, no markdown or explanation.
+- Join tables using outlet_id or id as appropriate.
+- For city/state/name filters, use ILIKE for case-insensitive matching.
+"""
+
+
+@app.post("/api/portfolio-qa")
+async def portfolio_qa_endpoint(req: PortfolioQARequest, authorization: Optional[str] = Header(None)):
+    """Answer natural language questions across the portfolio using SQL generation."""
+    try:
+        # Get user and org_id
+        org_id = req.org_id
+        if not org_id and authorization:
+            try:
+                token = authorization.replace("Bearer ", "")
+                user_resp = supabase.auth.get_user(token)
+                if user_resp and user_resp.user:
+                    profile = supabase.table("profiles").select("org_id").eq("id", user_resp.user.id).single().execute()
+                    if profile.data:
+                        org_id = profile.data.get("org_id")
+            except Exception:
+                pass
+
+        if not org_id:
+            raise HTTPException(status_code=400, detail="Organization context required")
+
+        current_date = date.today().isoformat()
+
+        # Step 1: Generate SQL from natural language
+        sql_prompt = (
+            "Convert this natural language question into a PostgreSQL SELECT query.\n\n"
+            + PORTFOLIO_QA_SCHEMA.format(current_date=current_date, org_id=org_id)
+            + f"\n\nUser question: {req.question}\n\n"
+            "Return ONLY the SQL query, nothing else. No markdown code blocks."
+        )
+
+        sql_response = model.generate_content(
+            sql_prompt,
+            generation_config=genai.GenerationConfig(temperature=0, max_output_tokens=500),
+        )
+        generated_sql = sql_response.text.strip()
+
+        # Clean up SQL (remove markdown code blocks if present)
+        if generated_sql.startswith("```"):
+            generated_sql = generated_sql.split("\n", 1)[1] if "\n" in generated_sql else generated_sql[3:]
+        if generated_sql.endswith("```"):
+            generated_sql = generated_sql[:-3].strip()
+        if generated_sql.lower().startswith("sql"):
+            generated_sql = generated_sql[3:].strip()
+
+        # Safety check: only SELECT queries allowed
+        sql_upper = generated_sql.upper().strip()
+        if not sql_upper.startswith("SELECT"):
+            raise HTTPException(status_code=400, detail="Only SELECT queries are allowed")
+        forbidden = ["INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "TRUNCATE", "CREATE", "GRANT", "REVOKE"]
+        for keyword in forbidden:
+            if keyword in sql_upper.split("SELECT", 1)[0] or f" {keyword} " in f" {sql_upper} ":
+                # Allow keywords appearing in WHERE clauses as values (e.g., status = 'active')
+                # but reject if they appear as SQL commands
+                if sql_upper.index(keyword) < sql_upper.index("FROM") if "FROM" in sql_upper else True:
+                    raise HTTPException(status_code=400, detail=f"Forbidden SQL operation: {keyword}")
+
+        # Step 2: Execute the query
+        try:
+            query_result = supabase.rpc("exec_readonly_sql", {"query_text": generated_sql}).execute()
+            rows = query_result.data if query_result.data else []
+        except Exception:
+            # If RPC not available, try direct table queries as fallback
+            rows = []
+            try:
+                # Simple fallback: run via postgrest if possible
+                query_result = supabase.postgrest.rpc("exec_readonly_sql", {"query_text": generated_sql}).execute()
+                rows = query_result.data if query_result.data else []
+            except Exception:
+                rows = []
+
+        # Step 3: Generate natural language answer from results
+        answer_prompt = (
+            "You are a helpful portfolio analytics assistant for a commercial real estate management platform.\n"
+            f"The user asked: \"{req.question}\"\n\n"
+            f"The database query returned these results:\n{json.dumps(rows[:50], indent=2, default=str)}\n\n"
+            "Rules:\n"
+            "- Provide a clear, concise answer summarizing the data.\n"
+            "- Format numbers as Indian currency (Rs) where applicable.\n"
+            "- If results are empty, say so clearly.\n"
+            "- Include specific outlet/agreement names when available.\n"
+            "- Use a professional but conversational tone.\n"
+        )
+
+        answer_response = model.generate_content(
+            answer_prompt,
+            generation_config=genai.GenerationConfig(temperature=0.2, max_output_tokens=1000),
+        )
+
+        return {
+            "answer": answer_response.text,
+            "data": rows[:50],
+            "sql_used": generated_sql,
+            "row_count": len(rows),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":

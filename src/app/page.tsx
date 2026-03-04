@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
-import { getDashboardStats } from "@/lib/api";
+import { getDashboardStats, askPortfolioQuestion } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Store,
   FileCheck,
@@ -18,6 +19,11 @@ import {
   AlertTriangle,
   BarChart3,
   Rocket,
+  Bot,
+  Send,
+  Loader2,
+  Sparkles,
+  User,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -199,6 +205,195 @@ function EmptyState() {
 }
 
 // ---------------------------------------------------------------------------
+// Portfolio Q&A Component
+// ---------------------------------------------------------------------------
+
+type PortfolioMessage = {
+  role: "user" | "assistant";
+  content: string;
+  data?: Record<string, unknown>[];
+};
+
+const SUGGESTED_QUESTIONS = [
+  "Leases expiring this year",
+  "Total rent exposure by city",
+  "Overdue payments",
+  "Outlets by deal stage",
+];
+
+function PortfolioQA() {
+  const [input, setInput] = useState("");
+  const [messages, setMessages] = useState<PortfolioMessage[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  async function handleAsk(questionOverride?: string) {
+    const question = (questionOverride || input).trim();
+    if (!question || loading) return;
+
+    setInput("");
+    setExpanded(true);
+    setMessages((prev) => [...prev, { role: "user", content: question }]);
+    setLoading(true);
+
+    try {
+      const res = await askPortfolioQuestion(question);
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: res.answer || "No answer received.",
+          data: res.data,
+        },
+      ]);
+    } catch (err) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: `Sorry, I encountered an error: ${err instanceof Error ? err.message : "Unknown error"}. Please try again.`,
+        },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="p-4 pb-2">
+        <div className="flex items-center gap-2">
+          <Bot className="h-4 w-4" />
+          <CardTitle className="text-sm font-semibold">
+            Ask about your portfolio
+          </CardTitle>
+          <Badge variant="secondary" className="text-[10px] ml-auto">
+            AI-Powered
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="p-4 pt-2">
+        {/* Suggested chips (shown when no messages) */}
+        {messages.length === 0 && (
+          <div className="flex flex-wrap gap-2 mb-3">
+            {SUGGESTED_QUESTIONS.map((q) => (
+              <button
+                key={q}
+                onClick={() => handleAsk(q)}
+                disabled={loading}
+                className="text-xs bg-neutral-50 border border-neutral-200 rounded-full px-3 py-1.5 text-neutral-600 hover:bg-neutral-100 hover:border-neutral-300 transition-colors flex items-center gap-1.5"
+              >
+                <Sparkles className="h-3 w-3 text-neutral-400" />
+                {q}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Messages (collapsible) */}
+        {expanded && messages.length > 0 && (
+          <div className="mb-3 max-h-[300px] overflow-y-auto space-y-3 border border-neutral-100 rounded-lg p-3">
+            {messages.map((msg, i) => (
+              <div key={i} className="flex items-start gap-2">
+                {msg.role === "assistant" ? (
+                  <div className="h-6 w-6 rounded-full bg-black flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <Bot className="h-3.5 w-3.5 text-white" />
+                  </div>
+                ) : (
+                  <div className="h-6 w-6 rounded-full bg-neutral-200 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <User className="h-3.5 w-3.5 text-neutral-600" />
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="text-[11px] text-neutral-400 mb-0.5">
+                    {msg.role === "assistant" ? "GroSpace AI" : "You"}
+                  </p>
+                  <div className={`text-sm whitespace-pre-wrap ${msg.role === "user" ? "font-medium" : ""}`}>
+                    {msg.content}
+                  </div>
+                  {msg.data && msg.data.length > 0 && (
+                    <div className="mt-2 border border-neutral-100 rounded-lg overflow-x-auto">
+                      <table className="min-w-full text-xs">
+                        <thead>
+                          <tr className="bg-neutral-50">
+                            {Object.keys(msg.data[0]).map((key) => (
+                              <th key={key} className="px-3 py-1.5 text-left font-medium text-neutral-500 whitespace-nowrap">
+                                {key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {msg.data.slice(0, 10).map((row, ri) => (
+                            <tr key={ri} className="border-t border-neutral-50">
+                              {Object.values(row).map((val, vi) => (
+                                <td key={vi} className="px-3 py-1.5 whitespace-nowrap">
+                                  {val == null ? "--" : String(val)}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {msg.data.length > 10 && (
+                        <p className="text-[10px] text-neutral-400 px-3 py-1">
+                          Showing 10 of {msg.data.length} results
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+            {loading && (
+              <div className="flex items-center gap-2 text-xs text-neutral-400 pl-8">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Analyzing your portfolio...
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+        )}
+
+        {/* Input */}
+        <div className="flex items-center gap-2">
+          <Input
+            placeholder="Ask about your portfolio..."
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handleAsk();
+              }
+            }}
+            disabled={loading}
+            className="flex-1 h-9 text-sm"
+          />
+          <Button
+            onClick={() => handleAsk()}
+            disabled={!input.trim() || loading}
+            size="sm"
+            className="gap-1.5 h-9 px-3"
+          >
+            {loading ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Send className="h-3.5 w-3.5" />
+            )}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Dashboard Component
 // ---------------------------------------------------------------------------
 
@@ -308,6 +503,11 @@ export default function Dashboard() {
           {stats?.total_agreements ?? 0} agreements
         </p>
       </div>
+
+      {/* -------------------------------------------------------------- */}
+      {/* Portfolio Q&A                                                    */}
+      {/* -------------------------------------------------------------- */}
+      <PortfolioQA />
 
       {/* -------------------------------------------------------------- */}
       {/* Row 1 -- Primary stat cards (4 columns)                          */}

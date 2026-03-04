@@ -21,6 +21,8 @@ import {
   Scale,
   Landmark,
   Users,
+  RotateCcw,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -319,6 +321,7 @@ export default function AgreementDetailPage() {
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
+  const [qaSessionId, setQaSessionId] = useState<string | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   // Inline editing state
@@ -389,10 +392,10 @@ export default function AgreementDetailPage() {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatMessages]);
 
-  async function handleSendMessage() {
-    if (!chatInput.trim() || chatLoading) return;
+  async function handleSendMessage(questionOverride?: string) {
+    const question = (questionOverride || chatInput).trim();
+    if (!question || chatLoading) return;
 
-    const question = chatInput.trim();
     setChatInput("");
     setChatMessages((prev) => [
       ...prev,
@@ -401,7 +404,10 @@ export default function AgreementDetailPage() {
     setChatLoading(true);
 
     try {
-      const response = await askDocumentQuestion(agreementId, question);
+      const response = await askDocumentQuestion(agreementId, question, qaSessionId || undefined);
+      if (response.session_id) {
+        setQaSessionId(response.session_id);
+      }
       setChatMessages((prev) => [
         ...prev,
         {
@@ -420,6 +426,11 @@ export default function AgreementDetailPage() {
     } finally {
       setChatLoading(false);
     }
+  }
+
+  function clearConversation() {
+    setChatMessages([]);
+    setQaSessionId(null);
   }
 
   // --- Loading State ---
@@ -866,6 +877,16 @@ export default function AgreementDetailPage() {
               <Badge variant="secondary" className="text-xs ml-auto">
                 AI-Powered
               </Badge>
+              {chatMessages.length > 0 && (
+                <button
+                  onClick={clearConversation}
+                  className="text-xs text-neutral-400 hover:text-neutral-600 flex items-center gap-1 transition-colors"
+                  title="Clear conversation"
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  Clear
+                </button>
+              )}
             </div>
 
             {/* Chat Messages */}
@@ -891,6 +912,28 @@ export default function AgreementDetailPage() {
                 </div>
               </div>
 
+              {/* Suggested questions (only show when no messages yet) */}
+              {chatMessages.length === 0 && (
+                <div className="flex flex-wrap gap-2 px-10">
+                  {[
+                    "What are the termination conditions?",
+                    "Summarize the escalation terms",
+                    "What is the security deposit refund policy?",
+                    "What are the key obligations?",
+                  ].map((q) => (
+                    <button
+                      key={q}
+                      onClick={() => handleSendMessage(q)}
+                      disabled={chatLoading}
+                      className="text-xs bg-white border border-neutral-200 rounded-full px-3 py-1.5 text-neutral-600 hover:bg-neutral-50 hover:border-neutral-300 transition-colors flex items-center gap-1.5"
+                    >
+                      <Sparkles className="h-3 w-3 text-neutral-400" />
+                      {q}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               {/* Conversation */}
               {chatMessages.map((msg, i) => (
                 <div key={i} className="flex items-start gap-3">
@@ -914,9 +957,27 @@ export default function AgreementDetailPage() {
                           : "bg-black text-white rounded-tr-none ml-auto"
                       }`}
                     >
-                      <p className="text-sm whitespace-pre-wrap">
-                        {msg.message}
-                      </p>
+                      {msg.role === "assistant" ? (
+                        <div className="text-sm whitespace-pre-wrap prose prose-sm prose-neutral max-w-none [&_blockquote]:border-l-2 [&_blockquote]:border-neutral-300 [&_blockquote]:pl-3 [&_blockquote]:italic [&_blockquote]:text-neutral-600 [&_blockquote]:my-2">
+                          {msg.message.split("\n").map((line, li) => {
+                            if (line.startsWith("> ")) {
+                              return (
+                                <blockquote key={li} className="border-l-2 border-neutral-300 pl-3 italic text-neutral-600 my-2 text-[13px]">
+                                  {line.slice(2)}
+                                </blockquote>
+                              );
+                            }
+                            if (line.startsWith("**") && line.endsWith("**")) {
+                              return <p key={li} className="font-semibold mt-1">{line.slice(2, -2)}</p>;
+                            }
+                            return line ? <p key={li}>{line}</p> : <br key={li} />;
+                          })}
+                        </div>
+                      ) : (
+                        <p className="text-sm whitespace-pre-wrap">
+                          {msg.message}
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -962,7 +1023,7 @@ export default function AgreementDetailPage() {
                   className="flex-1"
                 />
                 <Button
-                  onClick={handleSendMessage}
+                  onClick={() => handleSendMessage()}
                   disabled={!chatInput.trim() || chatLoading}
                   size="sm"
                   className="gap-1.5 h-9 px-4"
