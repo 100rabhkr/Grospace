@@ -259,18 +259,20 @@ export default function SettingsPage() {
       setAccountRole(user.role || "org_member");
       setLoadingProfile(false);
     }
-    // Also try to fetch from API for latest data
-    getProfile()
-      .then((data) => {
-        const profile = data.profile;
-        if (profile) {
-          setAccountName(profile.full_name || "");
-          setAccountEmail(profile.email || "");
-          setAccountRole(profile.role || "org_member");
-        }
-      })
-      .catch(() => {})
-      .finally(() => setLoadingProfile(false));
+    // Only fetch from API if real user (not demo)
+    if (user && user.id !== "demo-user") {
+      getProfile()
+        .then((data) => {
+          const profile = data.profile;
+          if (profile) {
+            setAccountName(profile.full_name || "");
+            setAccountEmail(profile.email || "");
+            setAccountRole(profile.role || "org_member");
+          }
+        })
+        .catch(() => {})
+        .finally(() => setLoadingProfile(false));
+    }
   }, [user, userLoading]);
 
   // Handlers

@@ -518,6 +518,18 @@ export async function updatePipelineDeal(outletId: string, data: { deal_priority
 // ACTIVITY LOG
 // ============================================
 
+// ============================================
+// SMART AI CHAT
+// ============================================
+
+/** Ask the AI assistant a question about your portfolio */
+export async function smartChat(question: string, orgId?: string) {
+  return apiFetch("/api/smart-chat", {
+    method: "POST",
+    body: JSON.stringify({ question, org_id: orgId }),
+  });
+}
+
 /** Get activity log for an entity */
 export async function getActivityLog(entityType: string, entityId: string, limit?: number) {
   const sp = new URLSearchParams();

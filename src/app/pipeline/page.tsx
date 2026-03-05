@@ -13,11 +13,19 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Loader2,
   MapPin,
   Search,
   ExternalLink,
   GripVertical,
+  ChevronRight,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -160,6 +168,28 @@ export default function PipelinePage() {
     }
   }
 
+  // Mobile stage move (via select dropdown)
+  async function handleMobileStageChange(outletId: string, currentStage: string, newStage: string) {
+    if (currentStage === newStage) return;
+    setStages((prev) => {
+      const next = { ...prev };
+      const sourceList = [...(next[currentStage] || [])];
+      const idx = sourceList.findIndex((o) => o.id === outletId);
+      if (idx === -1) return prev;
+      const [moved] = sourceList.splice(idx, 1);
+      moved.deal_stage = newStage;
+      moved.deal_stage_entered_at = new Date().toISOString();
+      next[currentStage] = sourceList;
+      next[newStage] = [...(next[newStage] || []), moved];
+      return next;
+    });
+    try {
+      await movePipelineCard(outletId, newStage);
+    } catch {
+      fetchPipeline();
+    }
+  }
+
   // Filter outlets
   function filterOutlets(outlets: PipelineOutlet[]): PipelineOutlet[] {
     return outlets.filter((o) => {
@@ -236,128 +266,225 @@ export default function PipelinePage() {
         </div>
       </div>
 
-      {/* Kanban Board */}
-      <DragDropContext onDragEnd={handleDragEnd}>
-        <div className="flex gap-3 overflow-x-auto pb-4 min-h-[calc(100vh-200px)]">
-          {STAGES.map((stage) => {
-            const outlets = filterOutlets(stages[stage.key] || []);
-            return (
-              <div
-                key={stage.key}
-                className="flex-shrink-0 w-[280px] bg-neutral-50 rounded-lg border border-neutral-200"
-              >
-                {/* Column Header */}
-                <div className="flex items-center justify-between p-3 border-b border-neutral-200">
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className={`text-xs font-medium ${stage.color}`}>
-                      {stage.label}
-                    </Badge>
-                    <span className="text-xs text-neutral-400 font-medium">{outlets.length}</span>
+      {/* Mobile List View — stacked cards grouped by stage */}
+      <div className="block lg:hidden space-y-4">
+        {STAGES.map((stage) => {
+          const outlets = filterOutlets(stages[stage.key] || []);
+          if (outlets.length === 0) return null;
+          return (
+            <div key={stage.key}>
+              <div className="flex items-center gap-2 mb-2">
+                <Badge variant="outline" className={`text-xs font-medium ${stage.color}`}>
+                  {stage.label}
+                </Badge>
+                <span className="text-xs text-neutral-400 font-medium">{outlets.length}</span>
+              </div>
+              <div className="space-y-2">
+                {outlets.map((outlet) => (
+                  <div
+                    key={outlet.id}
+                    className="bg-white rounded-lg border border-neutral-200 p-3"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <Link
+                          href={`/outlets/${outlet.id}`}
+                          className="text-sm font-medium hover:underline"
+                        >
+                          {outlet.name}
+                        </Link>
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <MapPin className="w-3 h-3 text-neutral-400" />
+                          <span className="text-xs text-neutral-500 truncate">
+                            {outlet.city || "Unknown"}
+                          </span>
+                        </div>
+                      </div>
+                      <Link
+                        href={`/outlets/${outlet.id}`}
+                        className="text-neutral-400 hover:text-neutral-600 mt-0.5"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </Link>
+                    </div>
+
+                    <div className="flex items-center gap-2 mt-2 flex-wrap">
+                      <button
+                        onClick={() => handlePriorityToggle(outlet.id, outlet.deal_priority)}
+                        className="focus:outline-none"
+                        title="Click to cycle priority"
+                      >
+                        <Badge
+                          variant="outline"
+                          className={`text-[10px] cursor-pointer ${
+                            PRIORITY_COLORS[outlet.deal_priority || "medium"]
+                          }`}
+                        >
+                          {(outlet.deal_priority || "medium").toUpperCase()}
+                        </Badge>
+                      </button>
+                      {daysInStage(outlet.deal_stage_entered_at) != null && (
+                        <span className="text-[10px] text-neutral-400">
+                          {daysInStage(outlet.deal_stage_entered_at)}d in stage
+                        </span>
+                      )}
+                      {outlet.agreements?.[0]?.monthly_rent > 0 && (
+                        <span className="text-[10px] text-neutral-400">
+                          {formatCurrency(outlet.agreements[0].monthly_rent)}/mo
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Mobile stage move */}
+                    <div className="mt-2">
+                      <Select
+                        value={outlet.deal_stage}
+                        onValueChange={(val) => handleMobileStageChange(outlet.id, outlet.deal_stage, val)}
+                      >
+                        <SelectTrigger className="h-7 text-xs w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {STAGES.map((s) => (
+                            <SelectItem key={s.key} value={s.key} className="text-xs">
+                              {s.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
-                </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
 
-                {/* Cards */}
-                <Droppable droppableId={stage.key}>
-                  {(provided, snapshot) => (
-                    <div
-                      ref={provided.innerRef}
-                      {...provided.droppableProps}
-                      className={`p-2 space-y-2 min-h-[100px] transition-colors ${
-                        snapshot.isDraggingOver ? "bg-blue-50/50" : ""
-                      }`}
-                    >
-                      {outlets.map((outlet, index) => (
-                        <Draggable key={outlet.id} draggableId={outlet.id} index={index}>
-                          {(dragProvided, dragSnapshot) => (
-                            <div
-                              ref={dragProvided.innerRef}
-                              {...dragProvided.draggableProps}
-                              className={`bg-white rounded-lg border p-3 transition-shadow ${
-                                dragSnapshot.isDragging
-                                  ? "shadow-lg border-blue-300"
-                                  : "border-neutral-200 hover:shadow-sm"
-                              }`}
-                            >
-                              <div className="flex items-start gap-2">
-                                <div
-                                  {...dragProvided.dragHandleProps}
-                                  className="mt-0.5 text-neutral-300 hover:text-neutral-500 cursor-grab"
-                                >
-                                  <GripVertical className="w-3.5 h-3.5" />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center justify-between gap-1">
-                                    <Link
-                                      href={`/outlets/${outlet.id}`}
-                                      className="text-sm font-medium truncate hover:underline"
-                                    >
-                                      {outlet.name}
-                                    </Link>
-                                    <Link
-                                      href={`/outlets/${outlet.id}`}
-                                      className="text-neutral-300 hover:text-neutral-500 flex-shrink-0"
-                                    >
-                                      <ExternalLink className="w-3 h-3" />
-                                    </Link>
-                                  </div>
-                                  <div className="flex items-center gap-1 mt-1">
-                                    <MapPin className="w-3 h-3 text-neutral-400" />
-                                    <span className="text-xs text-neutral-500 truncate">
-                                      {outlet.city || "Unknown"}
-                                    </span>
-                                  </div>
+      {/* Desktop Kanban Board — hidden on mobile */}
+      <div className="hidden lg:block">
+        <DragDropContext onDragEnd={handleDragEnd}>
+          <div className="flex gap-3 overflow-x-auto pb-4 min-h-[calc(100vh-200px)]">
+            {STAGES.map((stage) => {
+              const outlets = filterOutlets(stages[stage.key] || []);
+              return (
+                <div
+                  key={stage.key}
+                  className="flex-shrink-0 w-[280px] bg-neutral-50 rounded-lg border border-neutral-200"
+                >
+                  {/* Column Header */}
+                  <div className="flex items-center justify-between p-3 border-b border-neutral-200">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className={`text-xs font-medium ${stage.color}`}>
+                        {stage.label}
+                      </Badge>
+                      <span className="text-xs text-neutral-400 font-medium">{outlets.length}</span>
+                    </div>
+                  </div>
 
-                                  {/* Priority + Days */}
-                                  <div className="flex items-center gap-2 mt-2">
-                                    <button
-                                      onClick={() => handlePriorityToggle(outlet.id, outlet.deal_priority)}
-                                      className="focus:outline-none"
-                                      title="Click to cycle priority"
-                                    >
-                                      <Badge
-                                        variant="outline"
-                                        className={`text-[10px] cursor-pointer ${
-                                          PRIORITY_COLORS[outlet.deal_priority || "medium"]
-                                        }`}
+                  {/* Cards */}
+                  <Droppable droppableId={stage.key}>
+                    {(provided, snapshot) => (
+                      <div
+                        ref={provided.innerRef}
+                        {...provided.droppableProps}
+                        className={`p-2 space-y-2 min-h-[100px] transition-colors ${
+                          snapshot.isDraggingOver ? "bg-blue-50/50" : ""
+                        }`}
+                      >
+                        {outlets.map((outlet, index) => (
+                          <Draggable key={outlet.id} draggableId={outlet.id} index={index}>
+                            {(dragProvided, dragSnapshot) => (
+                              <div
+                                ref={dragProvided.innerRef}
+                                {...dragProvided.draggableProps}
+                                className={`bg-white rounded-lg border p-3 transition-shadow ${
+                                  dragSnapshot.isDragging
+                                    ? "shadow-lg border-blue-300"
+                                    : "border-neutral-200 hover:shadow-sm"
+                                }`}
+                              >
+                                <div className="flex items-start gap-2">
+                                  <div
+                                    {...dragProvided.dragHandleProps}
+                                    className="mt-0.5 text-neutral-300 hover:text-neutral-500 cursor-grab"
+                                  >
+                                    <GripVertical className="w-3.5 h-3.5" />
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center justify-between gap-1">
+                                      <Link
+                                        href={`/outlets/${outlet.id}`}
+                                        className="text-sm font-medium truncate hover:underline"
                                       >
-                                        {(outlet.deal_priority || "medium").toUpperCase()}
-                                      </Badge>
-                                    </button>
-                                    {daysInStage(outlet.deal_stage_entered_at) != null && (
-                                      <span className="text-[10px] text-neutral-400">
-                                        {daysInStage(outlet.deal_stage_entered_at)}d in stage
+                                        {outlet.name}
+                                      </Link>
+                                      <Link
+                                        href={`/outlets/${outlet.id}`}
+                                        className="text-neutral-300 hover:text-neutral-500 flex-shrink-0"
+                                      >
+                                        <ExternalLink className="w-3 h-3" />
+                                      </Link>
+                                    </div>
+                                    <div className="flex items-center gap-1 mt-1">
+                                      <MapPin className="w-3 h-3 text-neutral-400" />
+                                      <span className="text-xs text-neutral-500 truncate">
+                                        {outlet.city || "Unknown"}
                                       </span>
+                                    </div>
+
+                                    {/* Priority + Days */}
+                                    <div className="flex items-center gap-2 mt-2">
+                                      <button
+                                        onClick={() => handlePriorityToggle(outlet.id, outlet.deal_priority)}
+                                        className="focus:outline-none"
+                                        title="Click to cycle priority"
+                                      >
+                                        <Badge
+                                          variant="outline"
+                                          className={`text-[10px] cursor-pointer ${
+                                            PRIORITY_COLORS[outlet.deal_priority || "medium"]
+                                          }`}
+                                        >
+                                          {(outlet.deal_priority || "medium").toUpperCase()}
+                                        </Badge>
+                                      </button>
+                                      {daysInStage(outlet.deal_stage_entered_at) != null && (
+                                        <span className="text-[10px] text-neutral-400">
+                                          {daysInStage(outlet.deal_stage_entered_at)}d in stage
+                                        </span>
+                                      )}
+                                    </div>
+
+                                    {/* Rent info */}
+                                    {outlet.agreements?.[0]?.monthly_rent > 0 && (
+                                      <p className="text-[10px] text-neutral-400 mt-1">
+                                        {formatCurrency(outlet.agreements[0].monthly_rent)}/mo
+                                      </p>
+                                    )}
+
+                                    {/* Notes */}
+                                    {outlet.deal_notes && (
+                                      <p className="text-[10px] text-neutral-400 mt-1 truncate" title={outlet.deal_notes}>
+                                        {outlet.deal_notes}
+                                      </p>
                                     )}
                                   </div>
-
-                                  {/* Rent info */}
-                                  {outlet.agreements?.[0]?.monthly_rent > 0 && (
-                                    <p className="text-[10px] text-neutral-400 mt-1">
-                                      {formatCurrency(outlet.agreements[0].monthly_rent)}/mo
-                                    </p>
-                                  )}
-
-                                  {/* Notes */}
-                                  {outlet.deal_notes && (
-                                    <p className="text-[10px] text-neutral-400 mt-1 truncate" title={outlet.deal_notes}>
-                                      {outlet.deal_notes}
-                                    </p>
-                                  )}
                                 </div>
                               </div>
-                            </div>
-                          )}
-                        </Draggable>
-                      ))}
-                      {provided.placeholder}
-                    </div>
-                  )}
-                </Droppable>
-              </div>
-            );
-          })}
-        </div>
-      </DragDropContext>
+                            )}
+                          </Draggable>
+                        ))}
+                        {provided.placeholder}
+                      </div>
+                    )}
+                  </Droppable>
+                </div>
+              );
+            })}
+          </div>
+        </DragDropContext>
+      </div>
     </div>
   );
 }

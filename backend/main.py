@@ -297,6 +297,11 @@ class UpdateShowcaseRequest(BaseModel):
     is_active: Optional[bool] = None
 
 
+class SmartChatRequest(BaseModel):
+    question: str
+    org_id: Optional[str] = None
+
+
 # ============================================
 # ACTIVITY LOG HELPER
 # ============================================
@@ -357,11 +362,104 @@ def get_notification_channels(org_id: str, alert_type: str, severity: str = "med
         return {"email": True, "whatsapp": False}
 
 
+def send_email_via_resend(to_email: str, subject: str, html_body: str) -> bool:
+    """Send an email using the Resend API. Returns True on success."""
+    resend_api_key = os.getenv("RESEND_API_KEY")
+    if not resend_api_key:
+        return False
+    try:
+        import requests
+        resp = requests.post(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {resend_api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "from": os.getenv("RESEND_FROM_EMAIL", "GroSpace <notifications@grospace.app>"),
+                "to": [to_email],
+                "subject": subject,
+                "html": html_body,
+            },
+            timeout=10,
+        )
+        return resp.status_code in (200, 201)
+    except Exception:
+        return False
+
+
+def send_whatsapp_via_msg91(phone_number: str, template_name: str, variables: dict) -> bool:
+    """Send a WhatsApp message using MSG91 API. Returns True on success."""
+    msg91_auth_key = os.getenv("MSG91_AUTH_KEY")
+    msg91_template_id = os.getenv("MSG91_WHATSAPP_TEMPLATE_ID", "")
+    if not msg91_auth_key or not phone_number:
+        return False
+    try:
+        import requests
+        # MSG91 WhatsApp API
+        payload = {
+            "integrated_number": os.getenv("MSG91_INTEGRATED_NUMBER", ""),
+            "content_type": "template",
+            "payload": {
+                "messaging_product": "whatsapp",
+                "type": "template",
+                "template": {
+                    "name": template_name or msg91_template_id,
+                    "language": {"code": "en", "policy": "deterministic"},
+                    "components": [
+                        {
+                            "type": "body",
+                            "parameters": [
+                                {"type": "text", "text": str(v)} for v in variables.values()
+                            ],
+                        }
+                    ],
+                },
+                "to": phone_number,
+            },
+        }
+        resp = requests.post(
+            "https://api.msg91.com/api/v5/whatsapp/whatsapp-outbound-message/bulk/",
+            headers={
+                "authkey": msg91_auth_key,
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=10,
+        )
+        return resp.status_code in (200, 201)
+    except Exception:
+        return False
+
+
+def build_alert_email_html(alert: dict, org_name: str = "GroSpace") -> str:
+    """Build an HTML email body for an alert notification."""
+    severity = alert.get("severity", "medium")
+    severity_color = {"high": "#dc2626", "medium": "#f59e0b", "low": "#3b82f6", "info": "#6b7280"}.get(severity, "#6b7280")
+    return f"""
+    <html><body style="font-family:sans-serif;max-width:600px;margin:auto;padding:20px">
+    <div style="border-bottom:2px solid #000;padding-bottom:10px;margin-bottom:20px">
+        <h2 style="margin:0">GroSpace Alert</h2>
+        <p style="color:#666;margin:5px 0 0 0">{org_name}</p>
+    </div>
+    <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:16px;margin-bottom:16px">
+        <div style="display:inline-block;background:{severity_color};color:white;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:600;text-transform:uppercase;margin-bottom:8px">{severity}</div>
+        <h3 style="margin:8px 0 4px 0">{alert.get("title", "Alert")}</h3>
+        <p style="color:#666;margin:0">{alert.get("message", "")}</p>
+        <p style="color:#999;font-size:12px;margin:8px 0 0 0">Trigger date: {alert.get("trigger_date", "N/A")}</p>
+    </div>
+    <p style="color:#999;font-size:11px">This is an automated alert from GroSpace. Log in to manage your alerts.</p>
+    </body></html>
+    """
+
+
 def dispatch_notification(org_id: str, alert: dict):
-    """Route an alert to the appropriate channels. Currently a stub — logs the routing decision."""
+    """Route an alert to the appropriate channels and send via Resend/MSG91."""
     alert_type = alert.get("type", "custom")
     severity = alert.get("severity", "medium")
     channels = get_notification_channels(org_id, alert_type, severity)
+
+    results = {"email": None, "whatsapp": None}
 
     # Log the routing decision
     log_activity(org_id, None, "alert", alert.get("id", ""), "notification_routed", {
@@ -371,8 +469,55 @@ def dispatch_notification(org_id: str, alert: dict):
         "title": alert.get("title", ""),
     })
 
-    # TODO: Integrate with MSG91 for WhatsApp, Resend/SendGrid for email
-    return channels
+    # Get org info for email content
+    try:
+        org_result = supabase.table("organizations").select("name, alert_preferences").eq("id", org_id).single().execute()
+        org_name = org_result.data.get("name", "GroSpace") if org_result.data else "GroSpace"
+        alert_prefs = (org_result.data or {}).get("alert_preferences") or {}
+        notif_prefs = alert_prefs.get("notification_preferences") or {}
+    except Exception:
+        org_name = "GroSpace"
+        notif_prefs = {}
+
+    # Send email if configured
+    if channels.get("email"):
+        # Try to get org admin emails
+        try:
+            members = supabase.table("profiles").select("email").eq("org_id", org_id).in_("role", ["org_admin", "platform_admin"]).execute()
+            emails = [m["email"] for m in (members.data or []) if m.get("email")]
+        except Exception:
+            emails = []
+
+        if emails:
+            html_body = build_alert_email_html(alert, org_name)
+            subject = f"[GroSpace] {severity.upper()}: {alert.get('title', 'Alert')}"
+            for email in emails:
+                sent = send_email_via_resend(email, subject, html_body)
+                if results["email"] is None:
+                    results["email"] = sent
+
+    # Send WhatsApp if configured
+    if channels.get("whatsapp"):
+        whatsapp_number = notif_prefs.get("whatsapp_number", "")
+        if whatsapp_number:
+            sent = send_whatsapp_via_msg91(
+                whatsapp_number,
+                "grospace_alert",
+                {
+                    "title": alert.get("title", "Alert"),
+                    "severity": severity,
+                    "trigger_date": alert.get("trigger_date", "N/A"),
+                },
+            )
+            results["whatsapp"] = sent
+
+    # Log delivery results
+    log_activity(org_id, None, "alert", alert.get("id", ""), "notification_sent", {
+        "channels": channels,
+        "results": results,
+    })
+
+    return {**channels, "results": results}
 
 
 # ============================================
@@ -2921,7 +3066,7 @@ async def list_org_members(
 
 @app.post("/api/organizations/{org_id}/invite")
 async def invite_org_member(org_id: str, req: InviteMemberRequest):
-    """Stub invite — creates a profile entry with 'invited' status."""
+    """Invite a member — creates a profile entry and sends an invitation email via Resend."""
     profile_data = {
         "id": str(uuid.uuid4()),
         "email": req.email,
@@ -2932,9 +3077,39 @@ async def invite_org_member(org_id: str, req: InviteMemberRequest):
     }
     try:
         result = supabase.table("profiles").insert(profile_data).execute()
-        return {"member": result.data[0] if result.data else profile_data}
+        member = result.data[0] if result.data else profile_data
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    # Send invitation email
+    email_sent = False
+    try:
+        org_result = supabase.table("organizations").select("name").eq("id", org_id).single().execute()
+        org_name = org_result.data.get("name", "GroSpace") if org_result.data else "GroSpace"
+
+        invite_html = f"""
+        <html><body style="font-family:sans-serif;max-width:600px;margin:auto;padding:20px">
+        <div style="border-bottom:2px solid #000;padding-bottom:10px;margin-bottom:20px">
+            <h2 style="margin:0">GroSpace</h2>
+        </div>
+        <h3>You've been invited to {org_name}</h3>
+        <p>You've been invited to join <strong>{org_name}</strong> on GroSpace as a <strong>{req.role.replace('_', ' ').title()}</strong>.</p>
+        <p>GroSpace is a smart lease management platform for managing outlets, agreements, payments, and alerts across your property portfolio.</p>
+        <div style="margin:24px 0">
+            <a href="{os.getenv('NEXT_PUBLIC_APP_URL', 'https://grospace.app')}/auth/login" style="background:#000;color:#fff;padding:10px 24px;text-decoration:none;border-radius:6px;font-weight:600">Accept Invitation</a>
+        </div>
+        <p style="color:#999;font-size:12px">If you didn't expect this invitation, you can safely ignore this email.</p>
+        </body></html>
+        """
+        email_sent = send_email_via_resend(
+            req.email,
+            f"You've been invited to {org_name} on GroSpace",
+            invite_html,
+        )
+    except Exception:
+        pass  # Email failure should not break the invite
+
+    return {"member": member, "email_sent": email_sent}
 
 
 @app.delete("/api/organizations/{org_id}/members/{user_id}")
@@ -3033,10 +3208,34 @@ async def send_digest(cron_secret: Optional[str] = Header(None, alias="X-Cron-Se
             "overdue_count": len(overdue_payments.data),
         })
 
+    # Send emails if Resend is configured
+    resend_configured = bool(os.getenv("RESEND_API_KEY"))
+    emails_sent = 0
+    if resend_configured:
+        for d in digests:
+            if d["alert_count"] == 0 and d["overdue_count"] == 0:
+                continue
+            # Get org admins
+            try:
+                members = supabase.table("profiles").select("email").eq("org_id", d["org_id"]).in_("role", ["org_admin", "platform_admin"]).execute()
+                admin_emails = [m["email"] for m in (members.data or []) if m.get("email")]
+            except Exception:
+                admin_emails = []
+
+            if admin_emails:
+                # Build digest HTML
+                preview_result = await preview_digest(org_id=d["org_id"])
+                html_body = preview_result.get("html", "")
+                subject = f"[GroSpace] Daily Digest — {d['org_name']} — {today.strftime('%b %d')}"
+                for email in admin_emails:
+                    if send_email_via_resend(email, subject, html_body):
+                        emails_sent += 1
+
     return {
         "date": today.isoformat(),
         "digests": digests,
-        "message": "Digest data collected. Email sending not yet configured.",
+        "emails_sent": emails_sent,
+        "message": f"Digest sent to {emails_sent} recipients." if emails_sent > 0 else ("Digest data collected. Set RESEND_API_KEY to enable email delivery." if not resend_configured else "No digests required today."),
     }
 
 
@@ -3079,7 +3278,7 @@ async def preview_digest(org_id: str = Query(...)):
     {"<table border='1' cellpadding='8' cellspacing='0' width='100%'><tr><th>Alert</th><th>Severity</th><th>Date</th></tr>" + alert_rows + "</table>" if alert_rows else "<p style='color:#999'>No upcoming alerts this week.</p>"}
     <h3 style="margin-top:20px">Overdue Payments ({len(overdue_payments.data)})</h3>
     {"<table border='1' cellpadding='8' cellspacing='0' width='100%'><tr><th>Outlet</th><th>Amount</th><th>Due Date</th></tr>" + payment_rows + "</table>" if payment_rows else "<p style='color:#999'>No overdue payments.</p>"}
-    <hr style="margin-top:30px"><p style="color:#999;font-size:12px">This is a preview. Email sending is not yet configured.</p>
+    <hr style="margin-top:30px"><p style="color:#999;font-size:12px">This is an automated digest from GroSpace.</p>
     </body></html>
     """
 
@@ -3208,6 +3407,151 @@ async def portfolio_qa_endpoint(req: PortfolioQARequest, authorization: Optional
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================
+# SMART AI CHAT (Dashboard AI Assistant)
+# ============================================
+
+@app.post("/api/smart-chat")
+async def smart_chat(req: SmartChatRequest, user: Optional[CurrentUser] = Depends(get_current_user)):
+    """AI-powered dashboard chat — ask questions about your portfolio data.
+    Queries the database, builds context, and uses Gemini to answer."""
+    question = req.question.strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="Question is required")
+
+    # Determine org scope
+    org_id = req.org_id
+    if not org_id and user and user.org_id:
+        org_id = user.org_id
+
+    # Gather comprehensive portfolio data for AI context
+    try:
+        # Outlets summary
+        outlets_q = supabase.table("outlets").select("id, name, brand_name, city, status, property_type, franchise_model, monthly_net_revenue, deal_stage, deal_priority")
+        if org_id:
+            outlets_q = outlets_q.eq("org_id", org_id)
+        outlets_result = outlets_q.limit(200).execute()
+        outlets = outlets_result.data or []
+
+        # Agreements summary
+        agreements_q = supabase.table("agreements").select("id, outlet_id, type, status, monthly_rent, cam_monthly, total_monthly_outflow, security_deposit, lease_commencement_date, lease_expiry_date, lock_in_end_date, rent_model, risk_flags, lessor_name, lessee_name, brand_name")
+        if org_id:
+            agreements_q = agreements_q.eq("org_id", org_id)
+        agreements_result = agreements_q.limit(200).execute()
+        agreements = agreements_result.data or []
+
+        # Alerts summary
+        alerts_q = supabase.table("alerts").select("id, type, severity, title, trigger_date, status, outlet_id")
+        if org_id:
+            alerts_q = alerts_q.eq("org_id", org_id)
+        alerts_result = alerts_q.eq("status", "pending").limit(100).execute()
+        alerts = alerts_result.data or []
+
+        # Payments summary (overdue + upcoming)
+        payments_q = supabase.table("payment_records").select("id, outlet_id, due_amount, due_date, status, period_month, period_year")
+        if org_id:
+            payments_q = payments_q.eq("org_id", org_id)
+        payments_result = payments_q.in_("status", ["overdue", "due", "upcoming"]).limit(200).execute()
+        payments = payments_result.data or []
+
+        # Obligations summary
+        obligations_q = supabase.table("obligations").select("id, outlet_id, type, frequency, amount, escalation_pct, is_active")
+        if org_id:
+            obligations_q = obligations_q.eq("org_id", org_id)
+        obligations_result = obligations_q.eq("is_active", True).limit(200).execute()
+        obligations = obligations_result.data or []
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch portfolio data: {str(e)}")
+
+    # Build outlet name lookup
+    outlet_names = {o["id"]: o.get("name", "Unknown") for o in outlets}
+
+    # Compute summary stats
+    total_monthly_rent = sum(a.get("monthly_rent") or 0 for a in agreements if a.get("status") == "active")
+    total_monthly_outflow = sum(a.get("total_monthly_outflow") or 0 for a in agreements if a.get("status") == "active")
+    overdue_payments = [p for p in payments if p.get("status") == "overdue"]
+    total_overdue = sum(p.get("due_amount") or 0 for p in overdue_payments)
+
+    # Escalation data
+    escalation_obligations = [o for o in obligations if (o.get("escalation_pct") or 0) > 0]
+
+    # Risk flags
+    all_risk_flags = []
+    for a in agreements:
+        flags = a.get("risk_flags") or []
+        if isinstance(flags, list):
+            for f in flags:
+                all_risk_flags.append({
+                    "agreement": a.get("brand_name") or a.get("lessee_name") or a["id"][:8],
+                    "outlet": outlet_names.get(a.get("outlet_id"), "Unknown"),
+                    "flag": f if isinstance(f, str) else f.get("flag", str(f)),
+                })
+
+    # Build context for Gemini
+    context = f"""You are GroSpace AI, a smart assistant for commercial real estate lease management.
+The user manages a portfolio of {len(outlets)} outlet(s) with {len(agreements)} agreement(s).
+
+PORTFOLIO SUMMARY:
+- Total outlets: {len(outlets)}
+- Outlets by status: {json.dumps({s: len([o for o in outlets if o.get("status") == s]) for s in set(o.get("status", "unknown") for o in outlets)})}
+- Outlets by city: {json.dumps({c: len([o for o in outlets if o.get("city") == c]) for c in set(o.get("city", "Unknown") for o in outlets)})}
+- Deal pipeline: {json.dumps({s: len([o for o in outlets if o.get("deal_stage") == s]) for s in set(o.get("deal_stage", "lead") for o in outlets)})}
+- Total active monthly rent: Rs {total_monthly_rent:,.0f}
+- Total monthly outflow (rent+CAM+charges): Rs {total_monthly_outflow:,.0f}
+- Pending alerts: {len(alerts)}
+- Overdue payments: {len(overdue_payments)} totaling Rs {total_overdue:,.0f}
+
+OUTLETS:
+{json.dumps([{{"name": o.get("name"), "city": o.get("city"), "status": o.get("status"), "type": o.get("property_type"), "revenue": o.get("monthly_net_revenue"), "deal_stage": o.get("deal_stage"), "priority": o.get("deal_priority")}} for o in outlets[:20]])}
+
+AGREEMENTS (active):
+{json.dumps([{{"outlet": outlet_names.get(a.get("outlet_id"), "Unknown"), "type": a.get("type"), "monthly_rent": a.get("monthly_rent"), "total_outflow": a.get("total_monthly_outflow"), "rent_model": a.get("rent_model"), "expiry": a.get("lease_expiry_date"), "lock_in_end": a.get("lock_in_end_date")}} for a in agreements if a.get("status") == "active"][:20])}
+
+ESCALATION OBLIGATIONS:
+{json.dumps([{{"outlet": outlet_names.get(o.get("outlet_id"), "Unknown"), "type": o.get("type"), "amount": o.get("amount"), "escalation_pct": o.get("escalation_pct")}} for o in escalation_obligations[:15]])}
+
+RISK FLAGS:
+{json.dumps(all_risk_flags[:15])}
+
+PENDING ALERTS (top 15):
+{json.dumps([{{"title": a.get("title"), "type": a.get("type"), "severity": a.get("severity"), "outlet": outlet_names.get(a.get("outlet_id"), "Unknown")}} for a in alerts[:15]])}
+
+OVERDUE PAYMENTS:
+{json.dumps([{{"outlet": outlet_names.get(p.get("outlet_id"), "Unknown"), "amount": p.get("due_amount"), "due_date": p.get("due_date")}} for p in overdue_payments[:15]])}
+
+
+Answer the user's question based on this data. Be specific with numbers, outlet names, and dates.
+Format your response in clear, readable text. Use bullet points for lists.
+If the user asks about escalation struggles, focus on which outlets have high escalation rates and what their impact is.
+If asked for recommendations, be actionable and specific."""
+
+    try:
+        response = model.generate_content(
+            [context, f"User question: {question}"],
+            generation_config={"temperature": 0.3, "max_output_tokens": 4096},
+        )
+        # Handle cases where Gemini returns no valid parts (safety filter, empty response)
+        if not response.candidates or not response.candidates[0].content.parts:
+            finish_reason = response.candidates[0].finish_reason if response.candidates else "unknown"
+            answer = "I'm sorry, I couldn't generate a response for that question. Please try rephrasing your question."
+        else:
+            answer = response.text
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI generation failed: {str(e)}")
+
+    return {
+        "answer": answer,
+        "context_summary": {
+            "outlets": len(outlets),
+            "agreements": len(agreements),
+            "pending_alerts": len(alerts),
+            "overdue_payments": len(overdue_payments),
+            "total_monthly_rent": total_monthly_rent,
+        },
+    }
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
-import { getDashboardStats, askPortfolioQuestion } from "@/lib/api";
+import { getDashboardStats, askPortfolioQuestion, smartChat } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,7 @@ import {
   BarChart3,
   Rocket,
   Bot,
+  MessageSquare,
   Send,
   Loader2,
   Sparkles,
@@ -394,6 +395,179 @@ function PortfolioQA() {
 }
 
 // ---------------------------------------------------------------------------
+// AI Chat Message Type
+// ---------------------------------------------------------------------------
+
+interface ChatMessage {
+  role: "user" | "ai";
+  content: string;
+}
+
+// ---------------------------------------------------------------------------
+// Smart AI Chat Component
+// ---------------------------------------------------------------------------
+
+function SmartAIChat() {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  async function handleSend() {
+    const question = input.trim();
+    if (!question || loading) return;
+
+    setInput("");
+    setMessages((prev) => [...prev, { role: "user", content: question }]);
+    setLoading(true);
+
+    try {
+      const data = await smartChat(question);
+      setMessages((prev) => [...prev, { role: "ai", content: data.answer }]);
+    } catch (err) {
+      setMessages((prev) => [
+        ...prev,
+        { role: "ai", content: `Sorry, I couldn't process that. ${err instanceof Error ? err.message : "Please try again."}` },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const suggestions = [
+    "Where am I struggling with escalation?",
+    "Which outlets have the highest risk?",
+    "Show me overdue payments summary",
+    "What leases expire in the next 90 days?",
+  ];
+
+  return (
+    <Card>
+      <CardHeader
+        className="p-4 pb-2 cursor-pointer"
+        onClick={() => setIsOpen(!isOpen)}
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-neutral-600" />
+            <CardTitle className="text-sm font-semibold">AI Assistant</CardTitle>
+          </div>
+          <Badge variant="outline" className="text-[10px]">
+            {isOpen ? "Collapse" : "Expand"}
+          </Badge>
+        </div>
+        <p className="text-xs text-neutral-400 mt-0.5">
+          Ask anything about your portfolio — escalation, risk, payments, expiry
+        </p>
+      </CardHeader>
+
+      {isOpen && (
+        <CardContent className="p-4 pt-2">
+          {/* Chat Messages */}
+          <div className="border border-neutral-200 rounded-lg bg-neutral-50/50 h-[300px] overflow-y-auto p-3 mb-3 space-y-3">
+            {messages.length === 0 && (
+              <div className="flex flex-col items-center justify-center h-full text-center gap-3">
+                <MessageSquare className="h-8 w-8 text-neutral-300" />
+                <div>
+                  <p className="text-sm text-neutral-500 font-medium">Ask your portfolio a question</p>
+                  <p className="text-xs text-neutral-400 mt-1">Try one of the suggestions below</p>
+                </div>
+              </div>
+            )}
+
+            {messages.map((msg, i) => (
+              <div
+                key={i}
+                className={`flex gap-2 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+              >
+                {msg.role === "ai" && (
+                  <div className="w-6 h-6 rounded-full bg-black flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <Sparkles className="w-3 h-3 text-white" />
+                  </div>
+                )}
+                <div
+                  className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
+                    msg.role === "user"
+                      ? "bg-black text-white"
+                      : "bg-white border border-neutral-200 text-neutral-700"
+                  }`}
+                >
+                  <div className="whitespace-pre-wrap">{msg.content}</div>
+                </div>
+                {msg.role === "user" && (
+                  <div className="w-6 h-6 rounded-full bg-neutral-200 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <User className="w-3 h-3 text-neutral-600" />
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {loading && (
+              <div className="flex gap-2">
+                <div className="w-6 h-6 rounded-full bg-black flex items-center justify-center flex-shrink-0">
+                  <Sparkles className="w-3 h-3 text-white" />
+                </div>
+                <div className="bg-white border border-neutral-200 rounded-lg px-3 py-2">
+                  <Loader2 className="w-4 h-4 animate-spin text-neutral-400" />
+                </div>
+              </div>
+            )}
+            <div ref={chatEndRef} />
+          </div>
+
+          {/* Suggestions */}
+          {messages.length === 0 && (
+            <div className="flex flex-wrap gap-2 mb-3">
+              {suggestions.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => {
+                    setInput(s);
+                  }}
+                  className="text-xs bg-white border border-neutral-200 rounded-full px-3 py-1.5 text-neutral-600 hover:bg-neutral-50 hover:border-neutral-300 transition-colors"
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Input */}
+          <div className="flex gap-2">
+            <Input
+              placeholder="Ask about your portfolio..."
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSend();
+                }
+              }}
+              className="flex-1 text-sm"
+              disabled={loading}
+            />
+            <Button
+              size="sm"
+              onClick={handleSend}
+              disabled={!input.trim() || loading}
+              className="px-3"
+            >
+              <Send className="h-4 w-4" />
+            </Button>
+          </div>
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main Dashboard Component
 // ---------------------------------------------------------------------------
 
@@ -744,6 +918,11 @@ export default function Dashboard() {
           </div>
         </CardContent>
       </Card>
+
+      {/* -------------------------------------------------------------- */}
+      {/* Row 5 -- Smart AI Chat                                          */}
+      {/* -------------------------------------------------------------- */}
+      <SmartAIChat />
     </div>
   );
 }

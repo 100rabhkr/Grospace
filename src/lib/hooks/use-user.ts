@@ -12,15 +12,6 @@ type UserData = {
   initials: string;
 };
 
-const DEMO_USER: UserData = {
-  id: "demo-user",
-  email: "admin@grospace.com",
-  fullName: "Demo Admin",
-  role: "platform_admin",
-  orgId: null,
-  initials: "DA",
-};
-
 function getInitials(name: string): string {
   return name
     .split(" ")
@@ -28,6 +19,20 @@ function getInitials(name: string): string {
     .join("")
     .toUpperCase()
     .slice(0, 2);
+}
+
+async function fetchFirstOrgId(): Promise<string | null> {
+  try {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+    const res = await fetch(`${apiUrl}/api/organizations?page_size=1`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.items && data.items.length > 0) {
+        return data.items[0].id;
+      }
+    }
+  } catch {}
+  return null;
 }
 
 export function useUser() {
@@ -41,9 +46,21 @@ export function useUser() {
       supabaseUrl !== "your-supabase-project-url" &&
       supabaseUrl.startsWith("http");
 
-    if (!isConfigured) {
-      setUser(DEMO_USER);
+    async function setDemoUser() {
+      const orgId = await fetchFirstOrgId();
+      setUser({
+        id: "demo-user",
+        email: "admin@grospace.com",
+        fullName: "Demo Admin",
+        role: "platform_admin",
+        orgId,
+        initials: "DA",
+      });
       setLoading(false);
+    }
+
+    if (!isConfigured) {
+      setDemoUser();
       return;
     }
 
@@ -55,8 +72,7 @@ export function useUser() {
         } = await supabase.auth.getUser();
 
         if (!authUser) {
-          setUser(DEMO_USER);
-          setLoading(false);
+          await setDemoUser();
           return;
         }
 
@@ -71,16 +87,21 @@ export function useUser() {
           authUser.email?.split("@")[0] ||
           "User";
 
+        let orgId = profile?.org_id || null;
+        if (!orgId) {
+          orgId = await fetchFirstOrgId();
+        }
+
         setUser({
           id: authUser.id,
           email: authUser.email || "",
           fullName,
           role: (profile?.role as UserData["role"]) || "org_member",
-          orgId: profile?.org_id || null,
+          orgId,
           initials: getInitials(fullName),
         });
       } catch {
-        setUser(DEMO_USER);
+        await setDemoUser();
       } finally {
         setLoading(false);
       }

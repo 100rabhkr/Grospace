@@ -12,6 +12,7 @@ import {
   Settings,
   Building2,
   LogOut,
+  Kanban,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -23,6 +24,7 @@ import {
 
 const navItems = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
+  { label: "Pipeline", href: "/pipeline", icon: Kanban },
   { label: "Outlets", href: "/outlets", icon: Store },
   { label: "Agreements", href: "/agreements", icon: FileText },
   { label: "Upload Agreement", href: "/agreements/upload", icon: FileText },

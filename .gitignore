@@ -29,6 +29,12 @@ yarn-error.log*
 .env*.local
 backend/.env
 
+# python
+backend/venv/
+backend/__pycache__/
+__pycache__/
+*.pyc
+
 # credentials / deployment secrets
 DEPLOYMENT.md
 
