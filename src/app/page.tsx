@@ -3,6 +3,9 @@
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { getDashboardStats, askPortfolioQuestion, smartChat } from "@/lib/api";
+import dynamic from "next/dynamic";
+
+const IndiaMap = dynamic(() => import("@/components/india-map"), { ssr: false });
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,6 +28,7 @@ import {
   Loader2,
   Sparkles,
   User,
+  MapPin,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -42,6 +46,7 @@ interface DashboardStats {
   expiring_leases_90d: number;
   outlets_by_city: Record<string, number>;
   outlets_by_status: Record<string, number>;
+  outlet_details_by_city?: Record<string, { name: string; status: string; rent?: number }[]>;
 }
 
 // ---------------------------------------------------------------------------
@@ -820,72 +825,100 @@ export default function Dashboard() {
       </div>
 
       {/* -------------------------------------------------------------- */}
-      {/* Row 3 -- Outlets by City + Outlets by Status                     */}
+      {/* Row 3 -- India Map + Outlets by City & Status                    */}
       {/* -------------------------------------------------------------- */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-5">
-        {/* Outlets by City -- horizontal bar chart */}
-        <Card className="flex flex-col">
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 lg:gap-5">
+        {/* India Map -- 3 columns */}
+        <Card className="flex flex-col lg:col-span-3">
           <CardHeader className="p-4 pb-2">
-            <CardTitle className="text-sm font-semibold">
-              Outlets by City
-            </CardTitle>
+            <div className="flex items-center gap-2">
+              <MapPin className="h-4 w-4 text-neutral-500" />
+              <CardTitle className="text-sm font-semibold">
+                Outlet Locations
+              </CardTitle>
+              <Badge variant="secondary" className="text-[10px] ml-auto">
+                {stats?.total_outlets ?? 0} outlets
+              </Badge>
+            </div>
           </CardHeader>
-          <CardContent className="p-4 pt-2 flex-1">
+          <CardContent className="p-4 pt-0">
             {outletsByCity.length === 0 ? (
               <p className="text-xs text-neutral-400">No outlet data yet.</p>
             ) : (
-              <div className="space-y-3">
-                {outletsByCity.map(({ city, count }) => (
-                  <div key={city}>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm text-neutral-700">{city}</span>
-                      <span className="text-sm font-semibold">{count}</span>
-                    </div>
-                    <div className="h-2 w-full rounded-full bg-neutral-100 overflow-hidden">
-                      <div
-                        className="h-full rounded-full bg-neutral-800 transition-all"
-                        style={{
-                          width: `${(count / maxCityCount) * 100}%`,
-                        }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <IndiaMap
+                outletsByCity={stats?.outlets_by_city || {}}
+                outletDetails={stats?.outlet_details_by_city}
+              />
             )}
           </CardContent>
         </Card>
 
-        {/* Outlets by Status -- card grid with badges */}
-        <Card className="flex flex-col">
-          <CardHeader className="p-4 pb-2">
-            <CardTitle className="text-sm font-semibold">
-              Outlets by Status
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="p-4 pt-2 flex-1">
-            {outletsByStatus.length === 0 ? (
-              <p className="text-xs text-neutral-400">No outlet data yet.</p>
-            ) : (
-              <div className="grid grid-cols-2 gap-3">
-                {outletsByStatus.map(({ status, count }) => (
-                  <div
-                    key={status}
-                    className="rounded-lg border border-neutral-100 p-3 flex items-center justify-between"
-                  >
-                    <Badge
-                      variant="outline"
-                      className={`text-[11px] ${statusBadgeClasses(status)}`}
+        {/* Right side -- City list + Status */}
+        <div className="lg:col-span-2 space-y-4 lg:space-y-5">
+          {/* Outlets by City -- compact bar chart */}
+          <Card className="flex flex-col">
+            <CardHeader className="p-4 pb-2">
+              <CardTitle className="text-sm font-semibold">
+                Outlets by City
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-4 pt-2">
+              {outletsByCity.length === 0 ? (
+                <p className="text-xs text-neutral-400">No outlet data yet.</p>
+              ) : (
+                <div className="space-y-2.5">
+                  {outletsByCity.map(({ city, count }) => (
+                    <div key={city}>
+                      <div className="flex items-center justify-between mb-0.5">
+                        <span className="text-xs text-neutral-700">{city}</span>
+                        <span className="text-xs font-semibold">{count}</span>
+                      </div>
+                      <div className="h-1.5 w-full rounded-full bg-neutral-100 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-neutral-800 transition-all"
+                          style={{
+                            width: `${(count / maxCityCount) * 100}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Outlets by Status */}
+          <Card className="flex flex-col">
+            <CardHeader className="p-4 pb-2">
+              <CardTitle className="text-sm font-semibold">
+                Outlets by Status
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-4 pt-2">
+              {outletsByStatus.length === 0 ? (
+                <p className="text-xs text-neutral-400">No outlet data yet.</p>
+              ) : (
+                <div className="grid grid-cols-2 gap-2.5">
+                  {outletsByStatus.map(({ status, count }) => (
+                    <div
+                      key={status}
+                      className="rounded-lg border border-neutral-100 p-2.5 flex items-center justify-between"
                     >
-                      {statusLabel(status)}
-                    </Badge>
-                    <span className="text-lg font-bold">{count}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                      <Badge
+                        variant="outline"
+                        className={`text-[10px] ${statusBadgeClasses(status)}`}
+                      >
+                        {statusLabel(status)}
+                      </Badge>
+                      <span className="text-base font-bold">{count}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
       {/* -------------------------------------------------------------- */}

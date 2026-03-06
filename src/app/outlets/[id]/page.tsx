@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { getOutlet, updateOutlet, getActivityLog, listShowcases, createShowcase, updateShowcase } from "@/lib/api";
+import { getOutlet, updateOutlet, getActivityLog, listShowcases, createShowcase, updateShowcase, uploadOutletDocument, deleteDocument } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -32,6 +32,11 @@ import {
   Copy,
   Check,
   ExternalLink,
+  Upload,
+  Trash2,
+  FolderOpen,
+  File,
+  Download,
 } from "lucide-react";
 import {
   Dialog,
@@ -114,11 +119,21 @@ interface OutletDetail {
   revenue_updated_at: string | null;
 }
 
+interface OutletDocument {
+  id: string;
+  filename: string;
+  file_url: string;
+  file_type: string;
+  file_size_bytes: number;
+  uploaded_at: string;
+}
+
 interface OutletResponse {
   outlet: OutletDetail;
   agreements: Agreement[];
   obligations: Obligation[];
   alerts: AlertItem[];
+  documents?: OutletDocument[];
 }
 
 // ---------------------------------------------------------------------------
@@ -235,6 +250,7 @@ export default function OutletDetailPage() {
   const [showcaseLoading, setShowcaseLoading] = useState(false);
   const [creatingShowcase, setCreatingShowcase] = useState(false);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
+  const [docUploading, setDocUploading] = useState(false);
 
   useEffect(() => {
     async function fetchOutlet() {
@@ -891,6 +907,147 @@ export default function OutletDetailPage() {
                     <p className="text-xs text-neutral-400 mt-1">
                       Trigger: {formatDate(alert.trigger_date)}
                     </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ----------------------------------------------------------------- */}
+      {/* DOCUMENTS (Drive-like multi-doc)                                  */}
+      {/* ----------------------------------------------------------------- */}
+      <Card className="border-neutral-200">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base flex items-center gap-2">
+              <FolderOpen className="h-4 w-4" />
+              Documents
+              <Badge variant="secondary" className="text-[10px]">
+                {(data.documents || []).length}
+              </Badge>
+            </CardTitle>
+            <label className="cursor-pointer">
+              <input
+                type="file"
+                className="hidden"
+                accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  setDocUploading(true);
+                  try {
+                    const res = await uploadOutletDocument(outlet.id, file, "other");
+                    setData((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            documents: [res.document, ...(prev.documents || [])],
+                          }
+                        : prev
+                    );
+                  } catch {
+                    // handle silently
+                  } finally {
+                    setDocUploading(false);
+                    e.target.value = "";
+                  }
+                }}
+                disabled={docUploading}
+              />
+              <Button size="sm" variant="outline" className="gap-1.5" asChild>
+                <span>
+                  {docUploading ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Upload className="h-3.5 w-3.5" />
+                  )}
+                  Upload
+                </span>
+              </Button>
+            </label>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {(data.documents || []).length === 0 ? (
+            <div className="text-center py-8 text-neutral-400">
+              <File className="h-8 w-8 mx-auto mb-2 opacity-50" />
+              <p className="text-sm">No documents uploaded yet</p>
+              <p className="text-xs mt-1">Upload lease agreements, bills, licenses, and more</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {(data.documents || []).map((doc) => (
+                <div
+                  key={doc.id}
+                  className="flex items-center gap-3 p-2.5 rounded-lg border border-neutral-100 hover:bg-neutral-50 transition-colors group"
+                >
+                  <div className="h-8 w-8 rounded bg-neutral-100 flex items-center justify-center flex-shrink-0">
+                    <FileText className="h-4 w-4 text-neutral-500" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">
+                      {doc.filename || "Untitled"}
+                    </p>
+                    <div className="flex items-center gap-2 text-[11px] text-neutral-400">
+                      <span>
+                        {doc.file_type?.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()) || "Document"}
+                      </span>
+                      <span>·</span>
+                      <span>
+                        {doc.file_size_bytes
+                          ? `${(doc.file_size_bytes / 1024).toFixed(0)} KB`
+                          : "—"}
+                      </span>
+                      <span>·</span>
+                      <span>
+                        {doc.uploaded_at
+                          ? new Date(doc.uploaded_at).toLocaleDateString("en-IN", {
+                              day: "numeric",
+                              month: "short",
+                              year: "numeric",
+                            })
+                          : "—"}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {doc.file_url && !doc.file_url.startsWith("storage://") && (
+                      <a
+                        href={doc.file_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="p-1.5 rounded hover:bg-neutral-200 transition-colors"
+                        title="Download"
+                      >
+                        <Download className="h-3.5 w-3.5 text-neutral-500" />
+                      </a>
+                    )}
+                    <button
+                      onClick={async () => {
+                        if (!confirm("Delete this document?")) return;
+                        try {
+                          await deleteDocument(doc.id);
+                          setData((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  documents: (prev.documents || []).filter(
+                                    (d) => d.id !== doc.id
+                                  ),
+                                }
+                              : prev
+                          );
+                        } catch {
+                          // handle silently
+                        }
+                      }}
+                      className="p-1.5 rounded hover:bg-red-100 transition-colors"
+                      title="Delete"
+                    >
+                      <Trash2 className="h-3.5 w-3.5 text-neutral-400 hover:text-red-500" />
+                    </button>
                   </div>
                 </div>
               ))}

@@ -157,6 +157,62 @@ LICENSE_EXTRACTION_SCHEMA = {
     "signatory_designation": "string",
 }
 
+BILL_EXTRACTION_SCHEMA = {
+    "bill_type": "enum: electricity/water/property_tax/gas/internet/maintenance/rental_invoice/other",
+    "provider_name": "string",
+    "provider_account_number": "string",
+    "consumer_name": "string",
+    "consumer_address": "string",
+    "bill_number": "string",
+    "bill_date": "date",
+    "billing_period_from": "date",
+    "billing_period_to": "date",
+    "due_date": "date",
+    "total_amount": "number",
+    "previous_balance": "number",
+    "current_charges": "number",
+    "taxes_and_surcharges": "number",
+    "late_fee": "number",
+    "units_consumed": "number (for electricity/water/gas)",
+    "rate_per_unit": "number",
+    "meter_number": "string",
+    "payment_status": "enum: paid/unpaid/overdue/partial",
+    "payment_mode": "string",
+    "property_name": "string",
+    "city": "string",
+}
+
+SUPPLEMENTARY_AGREEMENT_SCHEMA = {
+    "amendment_type": "enum: rent_revision/term_extension/area_change/party_change/addendum/side_letter/noc/other",
+    "reference_agreement_date": "date",
+    "reference_agreement_number": "string",
+    "parties": {
+        "party_a_name": "string",
+        "party_b_name": "string",
+    },
+    "premises": {
+        "property_name": "string",
+        "full_address": "string",
+        "city": "string",
+    },
+    "effective_date": "date",
+    "changes": {
+        "revised_rent": "number",
+        "revised_escalation_pct": "number",
+        "revised_lock_in_months": "number",
+        "revised_lease_expiry": "date",
+        "revised_area_sqft": "number",
+        "revised_cam": "number",
+        "revised_security_deposit": "number",
+        "other_changes": "string (AI summary of changes not captured above)",
+    },
+    "reason_for_amendment": "string",
+    "mutual_consent": "boolean",
+    "key_conditions_summary": "string (3-5 line AI summary)",
+    "signatory_names": "list of strings",
+    "execution_date": "date",
+}
+
 RISK_FLAGS = [
     {"id": 1, "name": "No lessor lock-in", "condition": "Lessor can terminate but lessee is locked in", "severity": "high"},
     {"id": 2, "name": "High escalation", "condition": "Escalation > 15% per cycle", "severity": "high"},
@@ -577,6 +633,83 @@ def extract_text_from_pdf(pdf_bytes: bytes) -> str:
     return text
 
 
+def clean_ocr_text(raw_text: str) -> str:
+    """Post-process OCR output for better formatting and readability.
+
+    Fixes common OCR artifacts:
+    - Broken lines mid-word/mid-sentence
+    - Excessive whitespace and blank lines
+    - Common character misreads (|/l/1, 0/O)
+    - Header/footer repetition removal
+    - Table-like alignment preservation
+    """
+    import re
+    if not raw_text or not raw_text.strip():
+        return raw_text
+
+    lines = raw_text.split("\n")
+    cleaned_lines = []
+    prev_line = ""
+
+    for line in lines:
+        # Strip trailing whitespace but preserve leading (indentation)
+        line = line.rstrip()
+
+        # Skip empty lines if previous was also empty (collapse multiple blanks)
+        if not line.strip():
+            if not prev_line.strip():
+                continue
+            cleaned_lines.append("")
+            prev_line = line
+            continue
+
+        # Remove common header/footer patterns (page numbers, repeated headers)
+        stripped = line.strip()
+        if re.match(r"^(page\s*\d+\s*(of\s*\d+)?|^\d+\s*$)", stripped, re.IGNORECASE):
+            prev_line = line
+            continue
+
+        # Fix broken lines: if previous line doesn't end with sentence-ending punctuation
+        # or a colon, and current line starts with lowercase, join them
+        if (
+            prev_line.strip()
+            and cleaned_lines
+            and not prev_line.strip().endswith((".", ":", ";", "!", "?", "-", "—", "|"))
+            and not stripped.startswith(("•", "-", "–", "■", "●", "(", "[", "ARTICLE", "Section", "Clause"))
+            and stripped[0:1].islower()
+            and len(prev_line.strip()) > 20
+        ):
+            # Join with previous line
+            cleaned_lines[-1] = cleaned_lines[-1].rstrip() + " " + stripped
+            prev_line = cleaned_lines[-1]
+            continue
+
+        # Normalize multiple spaces within a line (but preserve table-like columns)
+        # If line has 3+ segments separated by 3+ spaces, it's likely a table row — preserve
+        segments = re.split(r"\s{3,}", stripped)
+        if len(segments) >= 3:
+            # Table-like row: normalize to tab-separated
+            line = "    ".join(s.strip() for s in segments if s.strip())
+        else:
+            # Normal text: collapse multiple spaces to single
+            line = re.sub(r"  +", " ", line)
+
+        # Fix common OCR character substitutions in monetary contexts
+        line = re.sub(r"(?<=Rs\s?)O(?=\d)", "0", line)
+        line = re.sub(r"(?<=₹\s?)O(?=\d)", "0", line)
+        line = re.sub(r"(?<=\d),(?=\d{3})", ",", line)  # already correct, but normalize
+
+        cleaned_lines.append(line)
+        prev_line = line
+
+    result = "\n".join(cleaned_lines)
+
+    # Final cleanup: remove more than 2 consecutive newlines
+    result = re.sub(r"\n{3,}", "\n\n", result)
+
+    return result.strip()
+
+
 def get_file_type(filename: str) -> str:
     """Determine file type from filename extension. Returns 'pdf', 'image', or 'unknown'."""
     if not filename:
@@ -636,26 +769,47 @@ async def download_file(file_url: str) -> bytes:
 
 
 async def classify_document(text: str) -> str:
-    """Classify a document as lease_loi, license_certificate, or franchise_agreement."""
+    """Classify a document into one of the supported types."""
     prompt = (
-        "Classify this document as one of: lease_loi, license_certificate, franchise_agreement. "
+        "Classify this document as one of: lease_loi, license_certificate, franchise_agreement, bill, supplementary_agreement. "
+        "Guidelines:\n"
+        "- lease_loi: Lease agreements, Letters of Intent, rent agreements, leave & license for commercial property\n"
+        "- license_certificate: Compliance certificates (CTO, CTE, FSSAI, trade license, fire NOC, health license)\n"
+        "- franchise_agreement: FOFO/FOCO/COCO franchise contracts\n"
+        "- bill: Utility bills (electricity, water, gas), property tax receipts, maintenance invoices, rental invoices\n"
+        "- supplementary_agreement: Addendums, amendments, side letters, rent revision letters, NOCs, supplementary deeds\n"
         "Return only the classification label, nothing else.\n\n"
         f"Document text (first 2000 characters):\n{text[:2000]}"
     )
 
     response = model.generate_content(prompt)
     label = response.text.strip().lower()
-    valid = {"lease_loi", "license_certificate", "franchise_agreement"}
+    valid = {"lease_loi", "license_certificate", "franchise_agreement", "bill", "supplementary_agreement"}
     return label if label in valid else "lease_loi"
 
 
 async def extract_structured_data(text: str, doc_type: str) -> dict:
     """Extract structured data from document text using LLM."""
-    schema = LEASE_EXTRACTION_SCHEMA if doc_type == "lease_loi" else LICENSE_EXTRACTION_SCHEMA
+    schema_map = {
+        "lease_loi": LEASE_EXTRACTION_SCHEMA,
+        "license_certificate": LICENSE_EXTRACTION_SCHEMA,
+        "franchise_agreement": LEASE_EXTRACTION_SCHEMA,
+        "bill": BILL_EXTRACTION_SCHEMA,
+        "supplementary_agreement": SUPPLEMENTARY_AGREEMENT_SCHEMA,
+    }
+    schema = schema_map.get(doc_type, LEASE_EXTRACTION_SCHEMA)
+
+    doc_type_label = {
+        "lease_loi": "lease/LOI document",
+        "license_certificate": "compliance certificate or license",
+        "franchise_agreement": "franchise agreement",
+        "bill": "utility bill, tax receipt, or invoice",
+        "supplementary_agreement": "supplementary agreement, addendum, or amendment",
+    }.get(doc_type, "document")
 
     prompt = (
-        "You are a lease abstraction specialist for Indian commercial real estate. "
-        "Extract the following fields from this lease/LOI document. "
+        f"You are a document extraction specialist for Indian commercial real estate. "
+        f"Extract the following fields from this {doc_type_label}. "
         "Return valid JSON matching the schema below. "
         "For each field, also return a confidence score: 'high', 'medium', 'low', or 'not_found'. "
         "If a field's value is calculated from a formula (e.g., '60 days from handover'), "
@@ -739,13 +893,19 @@ async def classify_document_vision(images: list) -> str:
     try:
         prompt = (
             "Look at these document page images. "
-            "Classify this document as one of: lease_loi, license_certificate, franchise_agreement. "
+            "Classify this document as one of: lease_loi, license_certificate, franchise_agreement, bill, supplementary_agreement. "
+            "Guidelines:\n"
+            "- lease_loi: Lease agreements, Letters of Intent, rent agreements\n"
+            "- license_certificate: Compliance certificates (CTO, CTE, FSSAI, trade license, fire NOC)\n"
+            "- franchise_agreement: FOFO/FOCO/COCO franchise contracts\n"
+            "- bill: Utility bills (electricity, water, gas), property tax receipts, invoices\n"
+            "- supplementary_agreement: Addendums, amendments, side letters, rent revision letters\n"
             "Return only the classification label, nothing else."
         )
         content = [prompt] + images[:3]
         response = model.generate_content(content)
         label = response.text.strip().lower()
-        valid = {"lease_loi", "license_certificate", "franchise_agreement"}
+        valid = {"lease_loi", "license_certificate", "franchise_agreement", "bill", "supplementary_agreement"}
         return label if label in valid else "lease_loi"
     except Exception:
         return "lease_loi"
@@ -753,12 +913,27 @@ async def classify_document_vision(images: list) -> str:
 
 async def extract_structured_data_vision(images: list, doc_type: str) -> dict:
     """Extract structured data from document page images using Gemini vision."""
-    schema = LEASE_EXTRACTION_SCHEMA if doc_type == "lease_loi" else LICENSE_EXTRACTION_SCHEMA
+    schema_map = {
+        "lease_loi": LEASE_EXTRACTION_SCHEMA,
+        "license_certificate": LICENSE_EXTRACTION_SCHEMA,
+        "franchise_agreement": LEASE_EXTRACTION_SCHEMA,
+        "bill": BILL_EXTRACTION_SCHEMA,
+        "supplementary_agreement": SUPPLEMENTARY_AGREEMENT_SCHEMA,
+    }
+    schema = schema_map.get(doc_type, LEASE_EXTRACTION_SCHEMA)
+
+    doc_type_label = {
+        "lease_loi": "lease/LOI document",
+        "license_certificate": "compliance certificate or license",
+        "franchise_agreement": "franchise agreement",
+        "bill": "utility bill, tax receipt, or invoice",
+        "supplementary_agreement": "supplementary agreement, addendum, or amendment",
+    }.get(doc_type, "document")
 
     prompt = (
-        "You are a lease abstraction specialist for Indian commercial real estate. "
-        "Look at these document page images carefully. "
-        "Extract the following fields from this lease/LOI document. "
+        f"You are a document extraction specialist for Indian commercial real estate. "
+        f"Look at these document page images carefully. "
+        f"Extract the following fields from this {doc_type_label}. "
         "Return valid JSON matching the schema below. "
         "For each field, also return a confidence score: 'high', 'medium', 'low', or 'not_found'. "
         "If a field's value is calculated from a formula (e.g., '60 days from handover'), "
@@ -909,6 +1084,10 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
                         extraction_method = "vision"
                 else:
                     extraction_method = "failed"
+
+        # --- Step 1.5: Clean OCR text ---
+        if extraction_method in ("text", "cloud_vision") and text:
+            text = clean_ocr_text(text)
 
         # --- Step 2: Classify ---
         if extraction_method in ("text", "cloud_vision"):
@@ -1573,7 +1752,7 @@ async def qa_endpoint(req: QARequest):
                     # Try Cloud Vision OCR first
                     cloud_text = extract_text_cloud_vision(images)
                     if len(cloud_text.strip()) >= 100:
-                        document_text = cloud_text
+                        document_text = clean_ocr_text(cloud_text)
                     else:
                         # Fall back to Gemini vision Q&A
                         history_block = f"\nConversation history:\n{formatted_history}\n" if formatted_history else ""
@@ -1934,7 +2113,7 @@ async def list_outlets(
 
 @app.get("/api/outlets/{outlet_id}")
 async def get_outlet(outlet_id: str):
-    """Get a single outlet with agreements, obligations, and alerts."""
+    """Get a single outlet with agreements, obligations, alerts, and documents."""
     result = supabase.table("outlets").select("*").eq("id", outlet_id).single().execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Outlet not found")
@@ -1942,12 +2121,14 @@ async def get_outlet(outlet_id: str):
     agreements = supabase.table("agreements").select("*").eq("outlet_id", outlet_id).execute()
     obligations = supabase.table("obligations").select("*").eq("outlet_id", outlet_id).execute()
     alerts = supabase.table("alerts").select("*").eq("outlet_id", outlet_id).order("trigger_date").execute()
+    documents = supabase.table("documents").select("*").eq("outlet_id", outlet_id).order("uploaded_at", desc=True).execute()
 
     return {
         "outlet": result.data,
         "agreements": agreements.data,
         "obligations": obligations.data,
         "alerts": alerts.data,
+        "documents": documents.data if documents.data else [],
     }
 
 
@@ -1993,6 +2174,109 @@ async def update_outlet(outlet_id: str, req: UpdateOutletRequest, user: Optional
     return {"outlet": result.data[0]}
 
 
+# ============================================
+# DOCUMENT MANAGEMENT (Drive-like multi-doc per outlet)
+# ============================================
+
+@app.get("/api/outlets/{outlet_id}/documents")
+async def list_outlet_documents(outlet_id: str):
+    """List all documents for an outlet."""
+    result = supabase.table("documents").select("*").eq("outlet_id", outlet_id).order("uploaded_at", desc=True).execute()
+    return {"documents": result.data if result.data else []}
+
+
+@app.post("/api/outlets/{outlet_id}/documents")
+async def upload_outlet_document(
+    outlet_id: str,
+    file: UploadFile = File(...),
+    category: str = Form("other"),
+    user: Optional[CurrentUser] = Depends(get_current_user),
+):
+    """Upload a document to an outlet (Drive-like multi-doc support)."""
+    # Validate outlet exists
+    outlet = supabase.table("outlets").select("id, org_id").eq("id", outlet_id).single().execute()
+    if not outlet.data:
+        raise HTTPException(status_code=404, detail="Outlet not found")
+
+    org_id = outlet.data.get("org_id")
+
+    # Read file
+    file_bytes = await file.read()
+    file_size = len(file_bytes)
+    if file_size > 50 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large. Maximum 50MB allowed.")
+
+    # Determine file type
+    filename = file.filename or "document"
+    ext = os.path.splitext(filename.lower())[1]
+    file_type = "pdf" if ext == ".pdf" else ("image" if ext in {".jpg", ".jpeg", ".png"} else "other")
+
+    # Upload to Supabase storage
+    storage_path = f"documents/{org_id}/{outlet_id}/{uuid.uuid4()}{ext}"
+    try:
+        supabase.storage.from_("documents").upload(storage_path, file_bytes, {
+            "content-type": file.content_type or "application/octet-stream"
+        })
+        file_url = supabase.storage.from_("documents").get_public_url(storage_path)
+    except Exception:
+        # Fallback — store reference without actual upload
+        file_url = f"storage://{storage_path}"
+
+    # Save document record
+    doc_data = {
+        "id": str(uuid.uuid4()),
+        "org_id": org_id,
+        "outlet_id": outlet_id,
+        "file_url": file_url,
+        "filename": filename,
+        "file_type": category or file_type,
+        "file_size_bytes": file_size,
+        "uploaded_by": user.user_id if user else None,
+    }
+
+    result = supabase.table("documents").insert(doc_data).execute()
+
+    # Log activity
+    if org_id:
+        log_activity(org_id, user.user_id if user else None, "document", doc_data["id"], "uploaded", {
+            "filename": filename,
+            "outlet_id": outlet_id,
+            "category": category,
+        })
+
+    return {"document": result.data[0] if result.data else doc_data}
+
+
+@app.delete("/api/documents/{document_id}")
+async def delete_document(document_id: str, user: Optional[CurrentUser] = Depends(get_current_user)):
+    """Delete a document."""
+    doc = supabase.table("documents").select("id, org_id, file_url, filename, outlet_id").eq("id", document_id).single().execute()
+    if not doc.data:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # Delete from storage if possible
+    try:
+        file_url = doc.data.get("file_url", "")
+        if "storage://" in file_url:
+            path = file_url.replace("storage://", "")
+            supabase.storage.from_("documents").remove([path])
+    except Exception:
+        pass
+
+    # Delete record
+    supabase.table("documents").delete().eq("id", document_id).execute()
+
+    # Log
+    org_id = doc.data.get("org_id")
+    if org_id:
+        log_activity(org_id, user.user_id if user else None, "document", document_id, "deleted", {
+            "filename": doc.data.get("filename"),
+            "outlet_id": doc.data.get("outlet_id"),
+        })
+
+    return {"deleted": True}
+
+
 @app.get("/api/alerts")
 async def list_alerts(
     page: int = Query(1, ge=1),
@@ -2011,8 +2295,8 @@ async def list_alerts(
 @app.get("/api/dashboard")
 async def dashboard_stats():
     """Get dashboard statistics."""
-    outlets = supabase.table("outlets").select("id, status, city, property_type, franchise_model").execute()
-    agreements = supabase.table("agreements").select("id, status, monthly_rent, cam_monthly, total_monthly_outflow, lease_expiry_date, risk_flags").execute()
+    outlets = supabase.table("outlets").select("id, name, status, city, property_type, franchise_model, monthly_net_revenue").execute()
+    agreements = supabase.table("agreements").select("id, outlet_id, status, monthly_rent, cam_monthly, total_monthly_outflow, lease_expiry_date, risk_flags").execute()
     obligations = supabase.table("obligations").select("id, type, amount, is_active").execute()
     alerts = supabase.table("alerts").select("id, type, severity, status, trigger_date").execute()
 
@@ -2042,6 +2326,24 @@ async def dashboard_stats():
         s = o.get("status") or "unknown"
         statuses[s] = statuses.get(s, 0) + 1
 
+    # Outlet details by city (for map hover cards)
+    rent_by_outlet = {}
+    for a in agreements.data:
+        oid = a.get("outlet_id")
+        if oid:
+            rent_by_outlet[oid] = a.get("monthly_rent") or 0
+
+    outlet_details_by_city = {}
+    for o in outlets.data:
+        city = o.get("city") or "Unknown"
+        if city not in outlet_details_by_city:
+            outlet_details_by_city[city] = []
+        outlet_details_by_city[city].append({
+            "name": o.get("name", ""),
+            "status": o.get("status", "unknown"),
+            "rent": rent_by_outlet.get(o["id"], 0),
+        })
+
     return {
         "total_outlets": total_outlets,
         "total_agreements": total_agreements,
@@ -2053,6 +2355,7 @@ async def dashboard_stats():
         "expiring_leases_90d": len(expiring),
         "outlets_by_city": cities,
         "outlets_by_status": statuses,
+        "outlet_details_by_city": outlet_details_by_city,
     }
 
 

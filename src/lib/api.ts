@@ -540,6 +540,48 @@ export async function getActivityLog(entityType: string, entityId: string, limit
 }
 
 // ============================================
+// OUTLET DOCUMENTS (Drive-like multi-doc)
+// ============================================
+
+/** List all documents for an outlet */
+export async function listOutletDocuments(outletId: string) {
+  return apiFetch(`/api/outlets/${outletId}/documents`);
+}
+
+/** Upload a document to an outlet */
+export async function uploadOutletDocument(outletId: string, file: File, category: string = "other") {
+  const token = await getAuthToken();
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("category", category);
+
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(`${API_URL}/api/outlets/${outletId}/documents`, {
+    method: "POST",
+    headers,
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: "Upload failed" }));
+    throw new Error(error.detail || `API error: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/** Delete a document */
+export async function deleteDocument(documentId: string) {
+  return apiFetch(`/api/documents/${documentId}`, {
+    method: "DELETE",
+  });
+}
+
+// ============================================
 // PORTFOLIO Q&A
 // ============================================
 
