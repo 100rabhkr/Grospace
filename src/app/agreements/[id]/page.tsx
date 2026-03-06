@@ -40,6 +40,7 @@ import {
 import { getAgreement, askDocumentQuestion, updateAgreement } from "@/lib/api";
 import { PdfViewer } from "@/components/pdf-viewer";
 import { EditableField } from "@/components/editable-field";
+import AgreementTimeline from "@/components/agreement-timeline";
 
 // --- Types ---
 
@@ -489,6 +490,60 @@ export default function AgreementDetailPage() {
   const riskFlags = agreement.risk_flags || [];
   const extractedData = agreement.extracted_data;
 
+  // Build timeline dates from extracted data
+  const timelineDates: { label: string; date: string; type: "past" | "current" | "future" | "warning" }[] = [];
+  const now = new Date();
+  const warningThreshold = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
+
+  function classifyDate(dateStr: string): "past" | "current" | "future" | "warning" {
+    const d = new Date(dateStr);
+    if (d < now) return "past";
+    if (d <= warningThreshold) return "warning";
+    return "future";
+  }
+
+  // Helper to extract date value from extracted data fields
+  function getExtractedDate(sectionKey: string, fieldKey: string): string | null {
+    if (!extractedData || !extractedData[sectionKey]) return null;
+    const field = (extractedData[sectionKey] as Record<string, unknown>)[fieldKey];
+    if (!field) return null;
+    if (typeof field === "string" && field !== "not_found" && field !== "N/A") return field;
+    if (typeof field === "object" && field !== null && "value" in (field as Record<string, unknown>)) {
+      const val = (field as Record<string, unknown>).value;
+      if (typeof val === "string" && val !== "not_found" && val !== "N/A" && val !== "") return val;
+    }
+    return null;
+  }
+
+  // Add dates from top-level agreement fields
+  if (agreement.lease_commencement_date) {
+    timelineDates.push({ label: "Lease Start", date: agreement.lease_commencement_date, type: classifyDate(agreement.lease_commencement_date) });
+  }
+  if (agreement.lease_expiry_date) {
+    timelineDates.push({ label: "Lease Expiry", date: agreement.lease_expiry_date, type: classifyDate(agreement.lease_expiry_date) });
+  }
+
+  // Try to get additional dates from extracted data
+  const loiDate = getExtractedDate("lease_term", "loi_date");
+  if (loiDate) timelineDates.push({ label: "LOI Date", date: loiDate, type: classifyDate(loiDate) });
+
+  const rentCommencement = getExtractedDate("lease_term", "rent_commencement_date");
+  if (rentCommencement) timelineDates.push({ label: "Rent Start", date: rentCommencement, type: classifyDate(rentCommencement) });
+
+  const lockInEnd = getExtractedDate("lease_term", "lock_in_end_date");
+  if (lockInEnd) timelineDates.push({ label: "Lock-in End", date: lockInEnd, type: classifyDate(lockInEnd) });
+
+  // Check for escalation dates in rent section
+  const rentSection = extractedData?.rent as Record<string, unknown> | undefined;
+  if (rentSection?.rent_schedule && Array.isArray(rentSection.rent_schedule)) {
+    (rentSection.rent_schedule as Array<Record<string, unknown>>).forEach((item, idx) => {
+      const period = item.year || item.period || item.years;
+      if (typeof period === "string" && /^\d{4}-\d{2}-\d{2}/.test(period)) {
+        timelineDates.push({ label: `Escalation ${idx + 1}`, date: period, type: classifyDate(period) });
+      }
+    });
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -544,6 +599,19 @@ export default function AgreementDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* Agreement Timeline */}
+      {timelineDates.length >= 2 && (
+        <Card>
+          <CardContent className="pt-4 pb-3">
+            <div className="flex items-center gap-2 mb-2">
+              <CalendarClock className="h-4 w-4 text-neutral-500" />
+              <h3 className="text-sm font-semibold">Lease Timeline</h3>
+            </div>
+            <AgreementTimeline dates={timelineDates} />
+          </CardContent>
+        </Card>
+      )}
 
       {/* Tabs */}
       <Tabs defaultValue="extracted" className="space-y-4">

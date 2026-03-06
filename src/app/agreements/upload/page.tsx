@@ -157,22 +157,63 @@ const processingSteps = [
   { label: "Detecting risk flags", duration: 3000 },
 ];
 
-function ProcessingStep() {
+function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileName?: string }) {
   const steps = processingSteps;
   const [activeStep, setActiveStep] = useState(0);
+  const [elapsedMs, setElapsedMs] = useState(0);
+
+  // Smarter time estimation:
+  // - Small text PDFs (<2MB): ~45s (text extraction is fast)
+  // - Medium PDFs (2-10MB): ~90s (likely has images, needs OCR)
+  // - Large/scanned PDFs (>10MB): ~150s (full vision pipeline)
+  // - Images: ~60s (direct vision)
+  const isImage = fileName ? /\.(png|jpe?g|webp|gif|bmp|tiff?)$/i.test(fileName) : false;
+  const estimatedTotalSec = isImage
+    ? 60
+    : fileSizeMB
+      ? fileSizeMB < 2 ? 45
+        : fileSizeMB < 10 ? 90
+        : fileSizeMB < 30 ? 150
+        : 200
+      : 90;
 
   useEffect(() => {
     let timeout: NodeJS.Timeout;
     function advance(index: number) {
       if (index >= steps.length) return;
+      // Scale step durations proportionally to total estimate
+      const totalStepDuration = steps.reduce((s, st) => s + st.duration, 0);
+      const scaledDuration = (steps[index].duration / totalStepDuration) * estimatedTotalSec * 1000;
       timeout = setTimeout(() => {
         setActiveStep(index + 1);
         advance(index + 1);
-      }, steps[index].duration);
+      }, scaledDuration);
     }
     advance(0);
     return () => clearTimeout(timeout);
-  }, [steps]);
+  }, [steps, estimatedTotalSec]);
+
+  // Track elapsed time
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setElapsedMs((prev) => prev + 1000);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const elapsedSec = Math.floor(elapsedMs / 1000);
+  // After estimate is exceeded, show "Taking longer than expected" instead of negative
+  const isOverEstimate = elapsedSec > estimatedTotalSec;
+  const remainingSec = Math.max(0, estimatedTotalSec - elapsedSec);
+  const progressPct = Math.min(
+    Math.max((activeStep / steps.length) * 100, (elapsedSec / estimatedTotalSec) * 95),
+    99
+  );
+
+  // Stage labels for the progress
+  const stageLabels = ["Uploading...", "Analyzing document type...", "Extracting data...", "Checking risk flags...", "Done!"];
+  const currentStageIdx = activeStep < 2 ? 0 : activeStep < 4 ? 1 : activeStep < 6 ? 2 : activeStep < 7 ? 3 : 4;
+  const currentStageLabel = stageLabels[currentStageIdx];
 
   return (
     <Card className="max-w-lg mx-auto">
@@ -184,16 +225,34 @@ function ProcessingStep() {
         </div>
 
         <h2 className="text-lg font-semibold mb-1">
-          {activeStep < steps.length
-            ? steps[activeStep].label + "..."
-            : "Finalizing extraction..."}
+          {currentStageLabel}
         </h2>
         <p className="text-sm text-muted-foreground mb-1">
           Powered by 360Labs AI Engine
         </p>
+
+        {/* Time estimate badge */}
         <p className="text-xs text-neutral-500 bg-neutral-100 px-3 py-1.5 rounded-full mb-4">
-          This may take 1–2 minutes depending on document complexity
+          {isOverEstimate
+            ? `${elapsedSec}s elapsed — taking longer than expected, please wait...`
+            : remainingSec > 0
+              ? `~${Math.ceil(remainingSec / 5) * 5}s remaining · ${elapsedSec}s elapsed`
+              : "Almost done..."}
         </p>
+
+        {/* Progress bar with percentage */}
+        <div className="w-full max-w-xs mb-5">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-xs font-medium text-neutral-700">{currentStageLabel}</span>
+            <span className="text-xs font-semibold tabular-nums">{Math.round(progressPct)}%</span>
+          </div>
+          <div className="h-2 bg-neutral-100 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-black rounded-full transition-all duration-700 ease-out"
+              style={{ width: `${progressPct}%` }}
+            />
+          </div>
+        </div>
 
         <div className="text-left w-full max-w-xs space-y-3">
           {steps.map((item, i) => (
@@ -220,13 +279,7 @@ function ProcessingStep() {
         </div>
 
         <div className="mt-6 w-full max-w-xs">
-          <div className="h-1.5 bg-neutral-100 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-black rounded-full transition-all duration-500 ease-out"
-              style={{ width: `${Math.min((activeStep / steps.length) * 100, 100)}%` }}
-            />
-          </div>
-          <p className="text-xs text-muted-foreground mt-2">
+          <p className="text-xs text-muted-foreground">
             Step {Math.min(activeStep + 1, steps.length)} of {steps.length}
           </p>
         </div>
@@ -277,7 +330,10 @@ export default function UploadAgreementPage() {
     "image/gif", "image/bmp", "image/tiff",
   ];
 
+  const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+
   function isValidFile(file: File): boolean {
+    if (file.size > MAX_FILE_SIZE) return false;
     return validMimeTypes.includes(file.type) || validExtRegex.test(file.name);
   }
 
@@ -304,6 +360,8 @@ export default function UploadAgreementPage() {
     if (file && isValidFile(file)) {
       setSelectedFile(file);
       setError(null);
+    } else if (file && file.size > MAX_FILE_SIZE) {
+      setError(`File is too large (${formatFileSize(file.size)}). Maximum size is 50MB.`);
     } else {
       setError("Please upload a PDF or image file (PDF, PNG, JPG, WEBP, TIFF).");
     }
@@ -383,18 +441,8 @@ export default function UploadAgreementPage() {
           continue;
         }
 
-        // Mark as extracted, then auto-activate
-        setBulkFiles((prev) => prev.map((f, idx) => idx === i ? { ...f, status: "activating", result: data } : f));
-
-        const activation = await confirmAndActivate({
-          extraction: data.extraction,
-          document_type: data.document_type,
-          risk_flags: data.risk_flags,
-          confidence: data.confidence,
-          filename: data.filename,
-        });
-
-        setBulkFiles((prev) => prev.map((f, idx) => idx === i ? { ...f, status: "done", activationResult: activation } : f));
+        // Stop at "extracted" — let user review before activating
+        setBulkFiles((prev) => prev.map((f, idx) => idx === i ? { ...f, status: "extracted", result: data } : f));
       } catch (err) {
         setBulkFiles((prev) => prev.map((f, idx) => idx === i ? {
           ...f,
@@ -405,6 +453,62 @@ export default function UploadAgreementPage() {
     }
 
     setBulkProcessing(false);
+  }
+
+  async function handleBulkActivate(index: number) {
+    const item = bulkFiles[index];
+    if (!item?.result || item.status !== "extracted") return;
+
+    setBulkFiles((prev) => prev.map((f, idx) => idx === index ? { ...f, status: "activating" } : f));
+
+    try {
+      const activation = await confirmAndActivate({
+        extraction: item.result.extraction,
+        document_type: item.result.document_type,
+        risk_flags: item.result.risk_flags,
+        confidence: item.result.confidence,
+        filename: item.result.filename,
+      });
+      setBulkFiles((prev) => prev.map((f, idx) => idx === index ? { ...f, status: "done", activationResult: activation } : f));
+    } catch (err) {
+      setBulkFiles((prev) => prev.map((f, idx) => idx === index ? {
+        ...f,
+        status: "error",
+        error: err instanceof Error ? err.message : "Activation failed",
+      } : f));
+    }
+  }
+
+  async function handleBulkActivateAll() {
+    const extractedIndices = bulkFiles
+      .map((f, i) => f.status === "extracted" ? i : -1)
+      .filter((i) => i !== -1);
+
+    for (const idx of extractedIndices) {
+      await handleBulkActivate(idx);
+    }
+  }
+
+  async function handleBulkRetry(index: number) {
+    const item = bulkFiles[index];
+    if (!item || item.status !== "error") return;
+
+    setBulkFiles((prev) => prev.map((f, idx) => idx === index ? { ...f, status: "extracting", error: undefined } : f));
+
+    try {
+      const data = await uploadAndExtract(item.file);
+      if (data.error && data.status === "partial" && Object.keys(data.extraction || {}).length === 0) {
+        setBulkFiles((prev) => prev.map((f, idx) => idx === index ? { ...f, status: "error", error: data.error } : f));
+        return;
+      }
+      setBulkFiles((prev) => prev.map((f, idx) => idx === index ? { ...f, status: "extracted", result: data } : f));
+    } catch (err) {
+      setBulkFiles((prev) => prev.map((f, idx) => idx === index ? {
+        ...f,
+        status: "error",
+        error: err instanceof Error ? err.message : "Failed",
+      } : f));
+    }
   }
 
   function formatFileSize(bytes: number): string {
@@ -610,7 +714,7 @@ export default function UploadAgreementPage() {
                 <CardContent className="pt-6">
                   <h2 className="text-base font-semibold mb-2">Bulk Upload</h2>
                   <p className="text-sm text-muted-foreground mb-4">
-                    Select multiple files to extract and activate them all automatically.
+                    Select multiple files to extract. Review results before activating.
                   </p>
                   <input
                     ref={bulkFileInputRef}
@@ -657,6 +761,8 @@ export default function UploadAgreementPage() {
                               ? "bg-emerald-50 border-emerald-200"
                               : item.status === "error"
                               ? "bg-red-50 border-red-200"
+                              : item.status === "extracted"
+                              ? "bg-amber-50 border-amber-200"
                               : item.status === "extracting" || item.status === "activating"
                               ? "bg-blue-50 border-blue-200"
                               : "bg-neutral-50 border-neutral-200"
@@ -668,6 +774,8 @@ export default function UploadAgreementPage() {
                             <Check className="h-4 w-4 text-emerald-600 flex-shrink-0" />
                           ) : item.status === "error" ? (
                             <AlertTriangle className="h-4 w-4 text-red-500 flex-shrink-0" />
+                          ) : item.status === "extracted" ? (
+                            <FileText className="h-4 w-4 text-amber-600 flex-shrink-0" />
                           ) : (
                             <FileText className="h-4 w-4 text-neutral-400 flex-shrink-0" />
                           )}
@@ -677,30 +785,62 @@ export default function UploadAgreementPage() {
                               {formatFileSize(item.file.size)}
                               {item.status === "extracting" && " — Extracting..."}
                               {item.status === "activating" && " — Activating..."}
-                              {item.status === "done" && " — Done"}
+                              {item.status === "extracted" && item.result && (() => {
+                                const fields = Object.values(item.result.extraction).reduce((acc, section) => {
+                                  if (typeof section === "object" && section !== null) {
+                                    return acc + Object.keys(section as Record<string, unknown>).length;
+                                  }
+                                  return acc;
+                                }, 0);
+                                return ` — ${fields} fields extracted · Ready for review`;
+                              })()}
+                              {item.status === "done" && " — Activated"}
                               {item.status === "error" && ` — ${item.error || "Failed"}`}
                             </p>
                           </div>
-                          {item.status === "pending" && !bulkProcessing && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => removeBulkFile(i)}
-                              className="h-7 w-7 p-0 text-muted-foreground hover:text-red-600"
-                            >
-                              <X className="h-3.5 w-3.5" />
-                            </Button>
-                          )}
-                          {item.status === "done" && item.activationResult && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="text-xs h-7"
-                              onClick={() => router.push(`/agreements/${item.activationResult!.agreement_id}`)}
-                            >
-                              View
-                            </Button>
-                          )}
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                            {item.status === "pending" && !bulkProcessing && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => removeBulkFile(i)}
+                                className="h-7 w-7 p-0 text-muted-foreground hover:text-red-600"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                            {item.status === "extracted" && (
+                              <Button
+                                variant="default"
+                                size="sm"
+                                className="text-xs h-7 gap-1"
+                                onClick={() => handleBulkActivate(i)}
+                              >
+                                <Rocket className="h-3 w-3" />
+                                Activate
+                              </Button>
+                            )}
+                            {item.status === "error" && !bulkProcessing && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-xs h-7"
+                                onClick={() => handleBulkRetry(i)}
+                              >
+                                Retry
+                              </Button>
+                            )}
+                            {item.status === "done" && item.activationResult && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-xs h-7"
+                                onClick={() => router.push(`/agreements/${item.activationResult!.agreement_id}`)}
+                              >
+                                View
+                              </Button>
+                            )}
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -721,24 +861,35 @@ export default function UploadAgreementPage() {
                 )}
                 {bulkProcessing && (
                   <p className="text-sm text-muted-foreground">
-                    Processing {bulkFiles.filter((f) => f.status === "done").length + 1} of {bulkFiles.length}...
+                    Extracting {bulkFiles.filter((f) => f.status === "extracted" || f.status === "done" || f.status === "error").length + 1} of {bulkFiles.length}...
                   </p>
                 )}
-                <div className="ml-auto">
+                <div className="ml-auto flex items-center gap-2">
+                  {bulkFiles.some((f) => f.status === "extracted") && !bulkProcessing && (
+                    <Button
+                      variant="default"
+                      onClick={handleBulkActivateAll}
+                      className="gap-2 px-6"
+                    >
+                      <Rocket className="h-4 w-4" />
+                      Activate All ({bulkFiles.filter((f) => f.status === "extracted").length})
+                    </Button>
+                  )}
                   <Button
                     onClick={handleBulkProcess}
                     disabled={bulkFiles.filter((f) => f.status === "pending").length === 0 || bulkProcessing}
+                    variant={bulkFiles.some((f) => f.status === "extracted") ? "outline" : "default"}
                     className="gap-2 px-6"
                   >
                     {bulkProcessing ? (
                       <>
                         <Loader2 className="h-4 w-4 animate-spin" />
-                        Processing...
+                        Extracting...
                       </>
                     ) : (
                       <>
-                        <Rocket className="h-4 w-4" />
-                        Extract &amp; Activate All
+                        <CloudUpload className="h-4 w-4" />
+                        Extract All
                       </>
                     )}
                   </Button>
@@ -750,7 +901,7 @@ export default function UploadAgreementPage() {
       )}
 
       {/* Step 2: Processing */}
-      {step === 2 && <ProcessingStep />}
+      {step === 2 && <ProcessingStep fileSizeMB={selectedFile ? selectedFile.size / (1024 * 1024) : undefined} fileName={selectedFile?.name} />}
 
       {/* Step 3: Review */}
       {step === 3 && result && (

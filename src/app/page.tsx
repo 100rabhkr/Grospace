@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
-import { getDashboardStats, askPortfolioQuestion, smartChat } from "@/lib/api";
+import { getDashboardStats, smartChat } from "@/lib/api";
 import dynamic from "next/dynamic";
 
 const IndiaMap = dynamic(() => import("@/components/india-map"), { ssr: false });
@@ -22,7 +22,6 @@ import {
   AlertTriangle,
   BarChart3,
   Rocket,
-  Bot,
   MessageSquare,
   Send,
   Loader2,
@@ -47,6 +46,9 @@ interface DashboardStats {
   outlets_by_city: Record<string, number>;
   outlets_by_status: Record<string, number>;
   outlet_details_by_city?: Record<string, { name: string; status: string; rent?: number }[]>;
+  overdue_payments_count?: number;
+  overdue_amount?: number;
+  pipeline_stages?: Record<string, number>;
 }
 
 // ---------------------------------------------------------------------------
@@ -87,6 +89,55 @@ function statusBadgeClasses(status: string): string {
     default:
       return "border-neutral-200 text-neutral-600 bg-neutral-50";
   }
+}
+
+/** Return hex color for outlet status (for pie chart) */
+function statusColor(status: string): string {
+  switch (status) {
+    case "operational": return "#10b981";
+    case "fit_out": return "#f59e0b";
+    case "closed": return "#ef4444";
+    case "under_construction": return "#3b82f6";
+    default: return "#a3a3a3";
+  }
+}
+
+/** Simple SVG donut chart */
+function DonutChart({ data, size = 140 }: { data: { label: string; value: number; color: string }[]; size?: number }) {
+  const total = data.reduce((s, d) => s + d.value, 0);
+  if (total === 0) return null;
+
+  const radius = size / 2 - 10;
+  const circumference = 2 * Math.PI * radius;
+  let accumulated = 0;
+
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="mx-auto">
+      {data.map((d, i) => {
+        const pct = d.value / total;
+        const offset = circumference * (1 - accumulated);
+        accumulated += pct;
+        return (
+          <circle
+            key={i}
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            fill="none"
+            stroke={d.color}
+            strokeWidth={20}
+            strokeDasharray={`${circumference * pct} ${circumference * (1 - pct)}`}
+            strokeDashoffset={offset}
+            transform={`rotate(-90 ${size / 2} ${size / 2})`}
+            className="transition-all duration-500"
+          />
+        );
+      })}
+      <text x="50%" y="50%" textAnchor="middle" dominantBaseline="central" className="text-2xl font-bold" fill="#171717">
+        {total}
+      </text>
+    </svg>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -207,195 +258,6 @@ function EmptyState() {
         </CardContent>
       </Card>
     </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Portfolio Q&A Component
-// ---------------------------------------------------------------------------
-
-type PortfolioMessage = {
-  role: "user" | "assistant";
-  content: string;
-  data?: Record<string, unknown>[];
-};
-
-const SUGGESTED_QUESTIONS = [
-  "Leases expiring this year",
-  "Total rent exposure by city",
-  "Overdue payments",
-  "Outlets by deal stage",
-];
-
-function PortfolioQA() {
-  const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<PortfolioMessage[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [expanded, setExpanded] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
-  async function handleAsk(questionOverride?: string) {
-    const question = (questionOverride || input).trim();
-    if (!question || loading) return;
-
-    setInput("");
-    setExpanded(true);
-    setMessages((prev) => [...prev, { role: "user", content: question }]);
-    setLoading(true);
-
-    try {
-      const res = await askPortfolioQuestion(question);
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: res.answer || "No answer received.",
-          data: res.data,
-        },
-      ]);
-    } catch (err) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: `Sorry, I encountered an error: ${err instanceof Error ? err.message : "Unknown error"}. Please try again.`,
-        },
-      ]);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  return (
-    <Card>
-      <CardHeader className="p-4 pb-2">
-        <div className="flex items-center gap-2">
-          <Bot className="h-4 w-4" />
-          <CardTitle className="text-sm font-semibold">
-            Ask about your portfolio
-          </CardTitle>
-          <Badge variant="secondary" className="text-[10px] ml-auto">
-            AI-Powered
-          </Badge>
-        </div>
-      </CardHeader>
-      <CardContent className="p-4 pt-2">
-        {/* Suggested chips (shown when no messages) */}
-        {messages.length === 0 && (
-          <div className="flex flex-wrap gap-2 mb-3">
-            {SUGGESTED_QUESTIONS.map((q) => (
-              <button
-                key={q}
-                onClick={() => handleAsk(q)}
-                disabled={loading}
-                className="text-xs bg-neutral-50 border border-neutral-200 rounded-full px-3 py-1.5 text-neutral-600 hover:bg-neutral-100 hover:border-neutral-300 transition-colors flex items-center gap-1.5"
-              >
-                <Sparkles className="h-3 w-3 text-neutral-400" />
-                {q}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Messages (collapsible) */}
-        {expanded && messages.length > 0 && (
-          <div className="mb-3 max-h-[300px] overflow-y-auto space-y-3 border border-neutral-100 rounded-lg p-3">
-            {messages.map((msg, i) => (
-              <div key={i} className="flex items-start gap-2">
-                {msg.role === "assistant" ? (
-                  <div className="h-6 w-6 rounded-full bg-black flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <Bot className="h-3.5 w-3.5 text-white" />
-                  </div>
-                ) : (
-                  <div className="h-6 w-6 rounded-full bg-neutral-200 flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <User className="h-3.5 w-3.5 text-neutral-600" />
-                  </div>
-                )}
-                <div className="flex-1 min-w-0">
-                  <p className="text-[11px] text-neutral-400 mb-0.5">
-                    {msg.role === "assistant" ? "GroSpace AI" : "You"}
-                  </p>
-                  <div className={`text-sm whitespace-pre-wrap ${msg.role === "user" ? "font-medium" : ""}`}>
-                    {msg.content}
-                  </div>
-                  {msg.data && msg.data.length > 0 && (
-                    <div className="mt-2 border border-neutral-100 rounded-lg overflow-x-auto">
-                      <table className="min-w-full text-xs">
-                        <thead>
-                          <tr className="bg-neutral-50">
-                            {Object.keys(msg.data[0]).map((key) => (
-                              <th key={key} className="px-3 py-1.5 text-left font-medium text-neutral-500 whitespace-nowrap">
-                                {key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {msg.data.slice(0, 10).map((row, ri) => (
-                            <tr key={ri} className="border-t border-neutral-50">
-                              {Object.values(row).map((val, vi) => (
-                                <td key={vi} className="px-3 py-1.5 whitespace-nowrap">
-                                  {val == null ? "--" : String(val)}
-                                </td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                      {msg.data.length > 10 && (
-                        <p className="text-[10px] text-neutral-400 px-3 py-1">
-                          Showing 10 of {msg.data.length} results
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
-            {loading && (
-              <div className="flex items-center gap-2 text-xs text-neutral-400 pl-8">
-                <Loader2 className="h-3 w-3 animate-spin" />
-                Analyzing your portfolio...
-              </div>
-            )}
-            <div ref={messagesEndRef} />
-          </div>
-        )}
-
-        {/* Input */}
-        <div className="flex items-center gap-2">
-          <Input
-            placeholder="Ask about your portfolio..."
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                handleAsk();
-              }
-            }}
-            disabled={loading}
-            className="flex-1 h-9 text-sm"
-          />
-          <Button
-            onClick={() => handleAsk()}
-            disabled={!input.trim() || loading}
-            size="sm"
-            className="gap-1.5 h-9 px-3"
-          >
-            {loading ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Send className="h-3.5 w-3.5" />
-            )}
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
   );
 }
 
@@ -580,6 +442,12 @@ export default function Dashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [mapCluster, setMapCluster] = useState<{
+    label: string;
+    cities: string[];
+    count: number;
+    outlets: { name: string; status: string; rent?: number }[];
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -682,11 +550,6 @@ export default function Dashboard() {
           {stats?.total_agreements ?? 0} agreements
         </p>
       </div>
-
-      {/* -------------------------------------------------------------- */}
-      {/* Portfolio Q&A                                                    */}
-      {/* -------------------------------------------------------------- */}
-      <PortfolioQA />
 
       {/* -------------------------------------------------------------- */}
       {/* Row 1 -- Primary stat cards (4 columns)                          */}
@@ -825,6 +688,111 @@ export default function Dashboard() {
       </div>
 
       {/* -------------------------------------------------------------- */}
+      {/* Row 2.5 -- Expiring Leases + Risk Flags + Overdue inline badges  */}
+      {/* -------------------------------------------------------------- */}
+      <div className="flex flex-wrap items-center gap-3">
+        {/* Overdue payments badge */}
+        {(stats?.overdue_payments_count ?? 0) > 0 && (
+          <Link href="/payments">
+            <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-red-200 bg-red-50/80 hover:bg-red-50 transition-colors cursor-pointer">
+              <IndianRupee className="h-4 w-4 text-red-600 flex-shrink-0" />
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm font-semibold text-red-700">
+                  {stats?.overdue_payments_count ?? 0}
+                </span>
+                <span className="text-xs text-red-600">
+                  overdue ({formatINR(stats?.overdue_amount ?? 0)})
+                </span>
+              </div>
+            </div>
+          </Link>
+        )}
+
+        {/* Expiring Leases mini-widget */}
+        {(stats?.expiring_leases_90d ?? 0) > 0 && (
+          <Link href="/alerts">
+            <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-amber-200 bg-amber-50/80 hover:bg-amber-50 transition-colors cursor-pointer">
+              <CalendarClock className="h-4 w-4 text-amber-600 flex-shrink-0" />
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm font-semibold text-amber-700">
+                  {stats?.expiring_leases_90d ?? 0}
+                </span>
+                <span className="text-xs text-amber-600">
+                  lease{(stats?.expiring_leases_90d ?? 0) !== 1 ? "s" : ""} expiring in 90 days
+                </span>
+              </div>
+            </div>
+          </Link>
+        )}
+
+        {/* Risk Flags summary badge */}
+        {(stats?.total_risk_flags ?? 0) > 0 && (
+          <Link href="/agreements">
+            <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-red-200 bg-red-50/80 hover:bg-red-50 transition-colors cursor-pointer">
+              <ShieldAlert className="h-4 w-4 text-red-500 flex-shrink-0" />
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm font-semibold text-red-700">
+                  {stats?.total_risk_flags ?? 0}
+                </span>
+                <span className="text-xs text-red-600">
+                  risk flag{(stats?.total_risk_flags ?? 0) !== 1 ? "s" : ""} across agreements
+                </span>
+              </div>
+            </div>
+          </Link>
+        )}
+
+        {/* Pending alerts badge */}
+        {(stats?.pending_alerts ?? 0) > 0 && (
+          <Link href="/alerts">
+            <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-neutral-200 bg-neutral-50 hover:bg-neutral-100 transition-colors cursor-pointer">
+              <Bell className="h-4 w-4 text-neutral-500 flex-shrink-0" />
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm font-semibold text-neutral-700">
+                  {stats?.pending_alerts ?? 0}
+                </span>
+                <span className="text-xs text-neutral-500">
+                  pending alert{(stats?.pending_alerts ?? 0) !== 1 ? "s" : ""}
+                </span>
+              </div>
+            </div>
+          </Link>
+        )}
+      </div>
+
+      {/* -------------------------------------------------------------- */}
+      {/* Row 2.7 -- Pipeline Summary                                     */}
+      {/* -------------------------------------------------------------- */}
+      {stats?.pipeline_stages && Object.keys(stats.pipeline_stages).length > 0 && (
+        <Card>
+          <CardHeader className="p-4 pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-semibold">Deal Pipeline</CardTitle>
+              <Link href="/pipeline">
+                <Badge variant="outline" className="text-[10px] cursor-pointer hover:bg-neutral-100">
+                  View Pipeline
+                </Badge>
+              </Link>
+            </div>
+          </CardHeader>
+          <CardContent className="p-4 pt-2">
+            <div className="flex gap-2 overflow-x-auto">
+              {["lead", "site_visit", "negotiation", "loi_sent", "agreement_signed", "fit_out", "operational"].map((stage) => {
+                const count = stats.pipeline_stages?.[stage] ?? 0;
+                if (count === 0) return null;
+                return (
+                  <div key={stage} className="flex flex-col items-center min-w-[80px] rounded-lg border border-neutral-100 p-2.5">
+                    <span className="text-lg font-bold">{count}</span>
+                    <span className="text-[10px] text-neutral-500 text-center">{statusLabel(stage)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* -------------------------------------------------------------- */}
       {/* Row 3 -- India Map + Outlets by City & Status                    */}
       {/* -------------------------------------------------------------- */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 lg:gap-5">
@@ -848,22 +816,90 @@ export default function Dashboard() {
               <IndiaMap
                 outletsByCity={stats?.outlets_by_city || {}}
                 outletDetails={stats?.outlet_details_by_city}
+                selectedCluster={mapCluster?.label ?? null}
+                onSelectCluster={setMapCluster}
               />
             )}
           </CardContent>
         </Card>
 
-        {/* Right side -- City list + Status */}
+        {/* Right side -- City list (or selected cluster outlets) + Status */}
         <div className="lg:col-span-2 space-y-4 lg:space-y-5">
-          {/* Outlets by City -- compact bar chart */}
+          {/* Outlets by City / Selected cluster detail */}
           <Card className="flex flex-col">
             <CardHeader className="p-4 pb-2">
-              <CardTitle className="text-sm font-semibold">
-                Outlets by City
-              </CardTitle>
+              {mapCluster ? (
+                <div className="flex items-center gap-2">
+                  <div className="w-5 h-5 rounded-full bg-neutral-900 flex items-center justify-center flex-shrink-0">
+                    <MapPin className="h-3 w-3 text-white" />
+                  </div>
+                  <CardTitle className="text-sm font-semibold truncate">
+                    {mapCluster.label}
+                  </CardTitle>
+                  <Badge variant="secondary" className="text-[10px] ml-auto font-semibold">
+                    {mapCluster.count}
+                  </Badge>
+                  <button
+                    onClick={() => setMapCluster(null)}
+                    className="ml-1 text-neutral-400 hover:text-neutral-700 transition-colors"
+                  >
+                    <span className="text-xs">&times;</span>
+                  </button>
+                </div>
+              ) : (
+                <CardTitle className="text-sm font-semibold">
+                  Outlets by City
+                </CardTitle>
+              )}
             </CardHeader>
             <CardContent className="p-4 pt-2">
-              {outletsByCity.length === 0 ? (
+              {mapCluster ? (
+                <>
+                  {mapCluster.cities.length > 1 && (
+                    <p className="text-[10px] text-neutral-400 mb-3">
+                      {mapCluster.cities.join(" / ")}
+                    </p>
+                  )}
+                  {mapCluster.outlets.length > 0 ? (
+                    <div className="space-y-0.5 max-h-[320px] overflow-y-auto pr-1">
+                      {mapCluster.outlets.map((outlet, i) => (
+                        <div
+                          key={i}
+                          className="group flex items-center gap-2.5 py-2 px-2.5 rounded-lg border border-transparent hover:border-neutral-100 hover:bg-neutral-50 hover:shadow-sm transition-all duration-150 cursor-default"
+                        >
+                          <div
+                            className="w-1 h-6 rounded-full flex-shrink-0 transition-colors"
+                            style={{
+                              backgroundColor:
+                                outlet.status === "operational" ? "#10b981" :
+                                outlet.status === "closed" ? "#ef4444" :
+                                outlet.status === "up_for_renewal" ? "#f59e0b" : "#d4d4d4",
+                            }}
+                          />
+                          <Store className="h-3.5 w-3.5 text-neutral-300 group-hover:text-neutral-500 flex-shrink-0 transition-colors" />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs text-neutral-700 group-hover:text-neutral-900 truncate transition-colors font-medium">
+                              {outlet.name}
+                            </p>
+                            <p className="text-[10px] text-neutral-400 capitalize">
+                              {outlet.status === "up_for_renewal" ? "Renewal" : outlet.status}
+                            </p>
+                          </div>
+                          {outlet.rent ? (
+                            <span className="text-[11px] text-neutral-500 group-hover:text-neutral-700 tabular-nums flex-shrink-0 font-medium transition-colors">
+                              {`\u20B9${Math.round(outlet.rent).toLocaleString("en-IN")}`}
+                            </span>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-neutral-400">
+                      {mapCluster.count} outlet{mapCluster.count > 1 ? "s" : ""} in this area
+                    </p>
+                  )}
+                </>
+              ) : outletsByCity.length === 0 ? (
                 <p className="text-xs text-neutral-400">No outlet data yet.</p>
               ) : (
                 <div className="space-y-2.5">
@@ -888,7 +924,7 @@ export default function Dashboard() {
             </CardContent>
           </Card>
 
-          {/* Outlets by Status */}
+          {/* Outlets by Status -- Donut Chart */}
           <Card className="flex flex-col">
             <CardHeader className="p-4 pb-2">
               <CardTitle className="text-sm font-semibold">
@@ -899,21 +935,28 @@ export default function Dashboard() {
               {outletsByStatus.length === 0 ? (
                 <p className="text-xs text-neutral-400">No outlet data yet.</p>
               ) : (
-                <div className="grid grid-cols-2 gap-2.5">
-                  {outletsByStatus.map(({ status, count }) => (
-                    <div
-                      key={status}
-                      className="rounded-lg border border-neutral-100 p-2.5 flex items-center justify-between"
-                    >
-                      <Badge
-                        variant="outline"
-                        className={`text-[10px] ${statusBadgeClasses(status)}`}
-                      >
-                        {statusLabel(status)}
-                      </Badge>
-                      <span className="text-base font-bold">{count}</span>
-                    </div>
-                  ))}
+                <div className="flex flex-col items-center gap-3">
+                  <DonutChart
+                    data={outletsByStatus.map(({ status, count }) => ({
+                      label: statusLabel(status),
+                      value: count,
+                      color: statusColor(status),
+                    }))}
+                  />
+                  <div className="w-full space-y-1.5">
+                    {outletsByStatus.map(({ status, count }) => (
+                      <div key={status} className="flex items-center gap-2">
+                        <span
+                          className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: statusColor(status) }}
+                        />
+                        <span className="text-xs text-neutral-600 flex-1">
+                          {statusLabel(status)}
+                        </span>
+                        <span className="text-xs font-semibold tabular-nums">{count}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </CardContent>

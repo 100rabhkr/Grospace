@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { listPayments, updatePayment, generatePayments } from "@/lib/api";
+import { listPayments, updatePayment, generatePayments, bulkMarkPaid } from "@/lib/api";
 import { Pagination } from "@/components/pagination";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -118,6 +118,7 @@ export default function PaymentsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [bulkMarking, setBulkMarking] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -202,6 +203,31 @@ export default function PaymentsPage() {
     }
   }
 
+  // ---------- Bulk Mark Paid ----------
+
+  async function handleBulkMarkPaid() {
+    const unpaidIds = filteredPayments
+      .filter((p) => p.status === "pending" || p.status === "due" || p.status === "overdue" || p.status === "upcoming")
+      .map((p) => p.id);
+
+    if (unpaidIds.length === 0) return;
+
+    const confirmed = window.confirm(
+      `Mark ${unpaidIds.length} payment(s) as paid for the current filter?\n\nThis will mark all pending/due/overdue payments in your current view as paid.`
+    );
+    if (!confirmed) return;
+
+    try {
+      setBulkMarking(true);
+      await bulkMarkPaid({ payment_ids: unpaidIds });
+      await fetchPayments();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to bulk update");
+    } finally {
+      setBulkMarking(false);
+    }
+  }
+
   // ---------- Filter logic ----------
 
   const uniqueOutlets = useMemo(() => {
@@ -263,14 +289,29 @@ export default function PaymentsPage() {
             </Badge>
           )}
         </div>
-        <Button onClick={handleGenerate} disabled={generating} variant="outline">
-          {generating ? (
-            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-          ) : (
-            <RefreshCw className="h-4 w-4 mr-2" />
-          )}
-          {generating ? "Generating..." : "Generate Payments"}
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            onClick={handleBulkMarkPaid}
+            disabled={bulkMarking || loading}
+            variant="default"
+            size="sm"
+          >
+            {bulkMarking ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <CheckCircle2 className="h-4 w-4 mr-2" />
+            )}
+            {bulkMarking ? "Marking..." : "Mark All as Paid"}
+          </Button>
+          <Button onClick={handleGenerate} disabled={generating} variant="outline" size="sm">
+            {generating ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4 mr-2" />
+            )}
+            {generating ? "Generating..." : "Generate Payments"}
+          </Button>
+        </div>
       </div>
 
       {/* Error */}

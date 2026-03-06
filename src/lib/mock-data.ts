@@ -423,7 +423,7 @@ export function formatDate(dateStr: string): string {
 
 export function daysUntil(dateStr: string): number {
   const target = new Date(dateStr);
-  const today = new Date("2026-02-22");
+  const today = new Date();
   return Math.ceil((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 }
 

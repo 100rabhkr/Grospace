@@ -62,6 +62,7 @@ interface Outlet {
   covered_area_sqft: number;
   franchise_model: string;
   status: string;
+  monthly_net_revenue: number | null;
   agreements: OutletAgreement[];
 }
 
@@ -129,6 +130,38 @@ function formatDate(dateStr: string): string {
     month: "short",
     year: "numeric",
   });
+}
+
+function getRentToRevenue(rent: number | undefined, revenue: number | null | undefined): number | null {
+  if (!rent || rent <= 0 || !revenue || revenue <= 0) return null;
+  return (rent / revenue) * 100;
+}
+
+function RentToRevenueBadge({ ratio }: { ratio: number | null }) {
+  if (ratio === null) {
+    return (
+      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium bg-neutral-100 text-neutral-400">
+        N/A
+      </span>
+    );
+  }
+  const color =
+    ratio < 15
+      ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+      : ratio <= 30
+      ? "bg-amber-50 text-amber-700 border-amber-200"
+      : "bg-red-50 text-red-700 border-red-200";
+  const label =
+    ratio < 15
+      ? "Healthy"
+      : ratio <= 30
+      ? "Medium"
+      : "High";
+  return (
+    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[11px] font-semibold tabular-nums ${color}`}>
+      {ratio.toFixed(1)}% {label}
+    </span>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -475,8 +508,22 @@ export default function OutletsPage() {
                               </div>
                             </>
                           )}
+                          {/* Rent-to-Revenue Ratio */}
+                          <div>
+                            <p className="text-xs text-neutral-400 font-medium uppercase tracking-wide">
+                              Rent/Revenue
+                            </p>
+                            <div className="mt-0.5">
+                              <RentToRevenueBadge
+                                ratio={getRentToRevenue(
+                                  primaryAgreement?.monthly_rent,
+                                  outlet.monthly_net_revenue
+                                )}
+                              />
+                            </div>
+                          </div>
                           {primaryAgreement && primaryAgreement.risk_flags && primaryAgreement.risk_flags.length > 0 && (
-                            <div className="col-span-2">
+                            <div>
                               <p className="text-xs text-neutral-400 font-medium uppercase tracking-wide">
                                 Risk Flags
                               </p>
@@ -524,6 +571,9 @@ export default function OutletsPage() {
                   </TableHead>
                   <TableHead className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">
                     Lease Expiry
+                  </TableHead>
+                  <TableHead className="text-xs font-semibold text-neutral-500 uppercase tracking-wide text-center">
+                    Rent/Revenue
                   </TableHead>
                   <TableHead className="text-xs font-semibold text-neutral-500 uppercase tracking-wide text-center">
                     Risk Flags
@@ -576,6 +626,14 @@ export default function OutletsPage() {
                         {primaryAgreement
                           ? formatDate(primaryAgreement.lease_expiry_date)
                           : "--"}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <RentToRevenueBadge
+                          ratio={getRentToRevenue(
+                            primaryAgreement?.monthly_rent,
+                            outlet.monthly_net_revenue
+                          )}
+                        />
                       </TableCell>
                       <TableCell className="text-center">
                         {primaryAgreement && primaryAgreement.risk_flags && primaryAgreement.risk_flags.length > 0 ? (

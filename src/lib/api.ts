@@ -480,7 +480,6 @@ export async function updateShowcase(tokenId: string, data: {
 
 /** Get public showcase data (no auth required) */
 export async function getPublicShowcase(token: string) {
-  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
   const response = await fetch(`${API_URL}/api/showcase/public/${token}`);
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: "Not found" }));
@@ -591,4 +590,71 @@ export async function askPortfolioQuestion(question: string) {
     method: "POST",
     body: JSON.stringify({ question }),
   });
+}
+
+// ============================================
+// SAVE AS DRAFT
+// ============================================
+
+/** Save extraction as draft (without creating obligations/alerts) */
+export async function saveAsDraft(agreementId: string, data: {
+  extracted_data: Record<string, unknown>;
+  risk_flags?: unknown[];
+}) {
+  return apiFetch(`/api/agreements/${agreementId}/save-draft`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+// ============================================
+// BULK PAYMENTS
+// ============================================
+
+/** Bulk mark payments as paid */
+export async function bulkMarkPaid(data: {
+  payment_ids?: string[];
+  month?: number;
+  year?: number;
+  org_id?: string;
+}) {
+  return apiFetch("/api/payments/bulk-mark-paid", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+// ============================================
+// MGLR CALCULATION
+// ============================================
+
+/** Calculate hybrid MGLR rent */
+export async function calculateMGLR(data: {
+  outlet_id: string;
+  dine_in_revenue: number;
+  delivery_revenue: number;
+}) {
+  return apiFetch("/api/calculate-mglr", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+// ============================================
+// CRON TRIGGERS (manual)
+// ============================================
+
+/** Trigger agreement status transitions */
+export async function triggerAgreementTransitions() {
+  return apiFetch("/api/cron/agreement-transitions", { method: "POST" });
+}
+
+/** Trigger payment status updates */
+export async function triggerPaymentStatusUpdate() {
+  return apiFetch("/api/cron/payment-status-update", { method: "POST" });
+}
+
+/** Trigger escalation calculator */
+export async function triggerEscalationCalculator() {
+  return apiFetch("/api/cron/escalation-calculator", { method: "POST" });
 }

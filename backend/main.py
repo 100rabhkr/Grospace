@@ -23,6 +23,10 @@ from dotenv import load_dotenv
 import google.generativeai as genai
 from google.cloud import vision as cloud_vision
 from supabase import create_client, Client
+from starlette.requests import Request
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 load_dotenv()
 
@@ -33,10 +37,22 @@ SUPPORTED_EXTENSIONS = SUPPORTED_PDF_EXTENSIONS | SUPPORTED_IMAGE_EXTENSIONS
 
 app = FastAPI(title="GroSpace AI Service", version="1.0.0")
 
-# CORS - allow Vercel and localhost
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# CORS - allow Vercel deployment, localhost, and configured frontend
+ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://localhost:3001",
+    os.getenv("FRONTEND_URL", ""),
+]
+# Filter out empty strings
+ALLOWED_ORIGINS = [o for o in ALLOWED_ORIGINS if o]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS or ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -49,7 +65,7 @@ supabase: Client = create_client(
 )
 
 genai.configure(api_key=os.getenv("GEMINI_API_KEY", ""))
-model = genai.GenerativeModel("gemini-2.5-pro")
+model = genai.GenerativeModel("gemini-2.5-flash")
 
 
 # ============================================
@@ -695,9 +711,8 @@ def clean_ocr_text(raw_text: str) -> str:
             line = re.sub(r"  +", " ", line)
 
         # Fix common OCR character substitutions in monetary contexts
-        line = re.sub(r"(?<=Rs\s?)O(?=\d)", "0", line)
-        line = re.sub(r"(?<=₹\s?)O(?=\d)", "0", line)
-        line = re.sub(r"(?<=\d),(?=\d{3})", ",", line)  # already correct, but normalize
+        line = re.sub(r"(Rs\.?\s?)O(\d)", r"\g<1>0\2", line)
+        line = re.sub(r"(₹\s?)O(\d)", r"\g<1>0\2", line)
 
         cleaned_lines.append(line)
         prev_line = line
@@ -756,7 +771,8 @@ def extract_text_cloud_vision(images: list) -> str:
             if response.full_text_annotation:
                 full_text += response.full_text_annotation.text + "\n\n"
         return full_text.strip()
-    except Exception:
+    except Exception as e:
+        print(f"[CLOUD VISION] OCR failed: {type(e).__name__}: {e}")
         return ""
 
 
@@ -943,19 +959,90 @@ async def extract_structured_data_vision(images: list, doc_type: str) -> dict:
     )
 
     try:
-        content = [prompt] + images
-        response = model.generate_content(
-            content,
-            generation_config=genai.GenerationConfig(
-                response_mime_type="application/json",
-                temperature=0,
-            ),
-        )
-        result = json.loads(response.text)
+        # Limit pages to avoid token overflow
+        page_images = images[:8]
+        print(f"[VISION EXTRACT] Starting extraction with {len(page_images)} page images for doc_type={doc_type}")
+
+        # --- Attempt 1: JSON mode ---
+        result = None
+        try:
+            content = [prompt] + page_images
+            response = model.generate_content(
+                content,
+                generation_config=genai.GenerationConfig(
+                    response_mime_type="application/json",
+                    temperature=0,
+                ),
+            )
+            # Check if response has content
+            if response.candidates and response.candidates[0].content.parts:
+                raw_text = response.text.strip()
+                print(f"[VISION EXTRACT] JSON mode response length: {len(raw_text)}")
+                if raw_text:
+                    result = json.loads(raw_text)
+            else:
+                finish_reason = response.candidates[0].finish_reason if response.candidates else "no candidates"
+                print(f"[VISION EXTRACT] JSON mode empty response. Finish reason: {finish_reason}")
+        except Exception as e1:
+            print(f"[VISION EXTRACT] JSON mode failed: {type(e1).__name__}: {e1}")
+
+        # --- Attempt 2: Plain text mode (no response_mime_type) ---
+        if result is None:
+            print("[VISION EXTRACT] Retrying without JSON mode...")
+            try:
+                response2 = model.generate_content(
+                    [prompt + "\n\nIMPORTANT: Return ONLY valid JSON. No markdown fences, no explanation."] + page_images,
+                    generation_config=genai.GenerationConfig(temperature=0),
+                )
+                raw = response2.text.strip()
+                print(f"[VISION EXTRACT] Plain mode response length: {len(raw)}")
+                # Strip markdown fences if present
+                if raw.startswith("```"):
+                    raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+                if raw:
+                    result = json.loads(raw)
+            except Exception as e2:
+                print(f"[VISION EXTRACT] Plain mode also failed: {type(e2).__name__}: {e2}")
+
+        # --- Attempt 3: Gemini OCR then text extraction ---
+        if result is None:
+            print("[VISION EXTRACT] Attempting Gemini OCR fallback...")
+            try:
+                ocr_prompt = (
+                    "Read all the text in these document page images. "
+                    "Transcribe everything you can see, preserving the structure. "
+                    "Include all names, dates, numbers, addresses, and terms."
+                )
+                ocr_response = model.generate_content(
+                    [ocr_prompt] + page_images,
+                    generation_config=genai.GenerationConfig(temperature=0),
+                )
+                ocr_text = ocr_response.text.strip()
+                print(f"[VISION EXTRACT] Gemini OCR produced {len(ocr_text)} chars")
+                if len(ocr_text) >= 50:
+                    # Now use text-based extraction on the OCR output
+                    result = await extract_structured_data(ocr_text, doc_type)
+                    print(f"[VISION EXTRACT] OCR fallback extracted {len(result)} top-level keys")
+            except Exception as e3:
+                print(f"[VISION EXTRACT] OCR fallback failed: {type(e3).__name__}: {e3}")
+
+        if result is None:
+            print("[VISION EXTRACT] All attempts failed, returning empty dict")
+            return {}
+
         if isinstance(result, list) and len(result) > 0:
             result = result[0]
-        return result if isinstance(result, dict) else {}
-    except Exception:
+        if not isinstance(result, dict):
+            print(f"[VISION EXTRACT] Unexpected result type: {type(result)}")
+            return {}
+
+        field_count = sum(1 for v in result.values() if v is not None and v != "" and v != "not_found")
+        print(f"[VISION EXTRACT] Success! {field_count} non-empty fields from {len(page_images)} pages")
+        return result
+    except Exception as e:
+        print(f"[VISION EXTRACT] Unexpected error: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
         return {}
 
 
@@ -1028,13 +1115,17 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
             except Exception:
                 text = ""
 
+            print(f"[PROCESS] PDF text extraction: {len(text.strip())} chars")
+
             if len(text.strip()) >= 100:
                 extraction_method = "text"
             else:
                 images = pdf_bytes_to_images(file_bytes)
+                print(f"[PROCESS] Converted PDF to {len(images)} page images")
                 if images:
                     # Try Cloud Vision OCR first for scanned PDFs
                     cloud_vision_text = extract_text_cloud_vision(images)
+                    print(f"[PROCESS] Cloud Vision OCR: {len(cloud_vision_text.strip())} chars")
                     if len(cloud_vision_text.strip()) >= 100:
                         text = cloud_vision_text
                         extraction_method = "cloud_vision"
@@ -1096,10 +1187,12 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
             doc_type = await classify_document_vision(images)
 
         # --- Step 3: Extract structured data ---
+        print(f"[PROCESS] Using extraction method: {extraction_method}, doc_type: {doc_type}")
         if extraction_method in ("text", "cloud_vision"):
             extraction = await extract_structured_data(text, doc_type)
         elif extraction_method == "vision":
             extraction = await extract_structured_data_vision(images, doc_type)
+        print(f"[PROCESS] Extraction result: {len(extraction)} top-level keys")
 
         # --- Step 4: Calculate confidence ---
         confidence = calculate_confidence(extraction)
@@ -1593,11 +1686,16 @@ def generate_alerts(extraction: dict, agreement_id: str, outlet_id: str, org_id:
         except (ValueError, TypeError):
             pass
 
-    # Insert alerts
+    # Insert alerts and dispatch notifications
     created = []
     for alert in alerts:
         result = supabase.table("alerts").insert(alert).execute()
-        created.append(result.data[0])
+        inserted = result.data[0]
+        created.append(inserted)
+        try:
+            dispatch_notification(org_id, inserted)
+        except Exception:
+            pass  # Notification failure should not break alert creation
     return created
 
 
@@ -1611,11 +1709,28 @@ async def health_check():
 
 
 @app.post("/api/upload-and-extract")
-async def upload_and_extract(file: UploadFile = File(...)):
+@limiter.limit("5/minute")
+async def upload_and_extract(request: Request, file: UploadFile = File(...)):
     """Upload a document (PDF or image) and extract structured data."""
+    MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+    ALLOWED_TYPES = {
+        "application/pdf", "image/png", "image/jpeg", "image/webp",
+        "image/gif", "image/bmp", "image/tiff",
+    }
+    ALLOWED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff", ".tif"}
+
     try:
         filename = file.filename or "unknown"
+        file_ext = ("." + filename.rsplit(".", 1)[-1]).lower() if "." in filename else ""
+        content_type = file.content_type or ""
+
+        if content_type not in ALLOWED_TYPES and file_ext not in ALLOWED_EXTENSIONS:
+            raise HTTPException(status_code=400, detail=f"Unsupported file type: {content_type or file_ext}. Upload a PDF or image.")
+
         file_bytes = await file.read()
+
+        if len(file_bytes) > MAX_FILE_SIZE:
+            raise HTTPException(status_code=413, detail=f"File too large ({len(file_bytes) / (1024*1024):.1f}MB). Maximum is 50MB.")
 
         if not file_bytes or len(file_bytes) == 0:
             return {
@@ -1658,7 +1773,8 @@ async def classify_endpoint(req: ClassifyRequest):
 
 
 @app.post("/api/extract")
-async def extract_endpoint(req: ExtractRequest):
+@limiter.limit("10/minute")
+async def extract_endpoint(request: Request, req: ExtractRequest):
     """Process an uploaded document from Supabase URL. Handles PDFs, scanned docs, and images."""
     try:
         file_bytes = await download_file(req.file_url)
@@ -1703,7 +1819,8 @@ async def extract_endpoint(req: ExtractRequest):
 
 
 @app.post("/api/qa")
-async def qa_endpoint(req: QARequest):
+@limiter.limit("20/minute")
+async def qa_endpoint(request: Request, req: QARequest):
     """Answer questions about a specific agreement document with conversation history."""
     try:
         # Fetch agreement data from DB
@@ -1865,7 +1982,8 @@ def _save_qa_session(session_id: Optional[str], agreement_id: str, question: str
 
 
 @app.post("/api/risk-flags")
-async def risk_flags_endpoint(req: RiskFlagRequest):
+@limiter.limit("10/minute")
+async def risk_flags_endpoint(request: Request, req: RiskFlagRequest):
     """Analyze document for risk flags."""
     try:
         document_text = req.document_text or ""
@@ -1889,7 +2007,8 @@ async def risk_flags_endpoint(req: RiskFlagRequest):
 
 
 @app.post("/api/confirm-and-activate")
-async def confirm_and_activate(req: ConfirmActivateRequest):
+@limiter.limit("10/minute")
+async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
     """
     Confirm extraction and create outlet + agreement + obligations + alerts.
     This is the core "Confirm & Activate" flow from PRD Journey 2 steps 7-12.
@@ -2295,10 +2414,11 @@ async def list_alerts(
 @app.get("/api/dashboard")
 async def dashboard_stats():
     """Get dashboard statistics."""
-    outlets = supabase.table("outlets").select("id, name, status, city, property_type, franchise_model, monthly_net_revenue").execute()
+    outlets = supabase.table("outlets").select("id, name, status, city, property_type, franchise_model, monthly_net_revenue, deal_stage").execute()
     agreements = supabase.table("agreements").select("id, outlet_id, status, monthly_rent, cam_monthly, total_monthly_outflow, lease_expiry_date, risk_flags").execute()
     obligations = supabase.table("obligations").select("id, type, amount, is_active").execute()
     alerts = supabase.table("alerts").select("id, type, severity, status, trigger_date").execute()
+    payments = supabase.table("payment_records").select("id, status, due_amount").execute()
 
     # Calculate stats
     total_outlets = len(outlets.data)
@@ -2309,10 +2429,27 @@ async def dashboard_stats():
     total_risk_flags = sum(len(a.get("risk_flags") or []) for a in agreements.data)
     pending_alerts = len([a for a in alerts.data if a.get("status") == "pending"])
 
+    # Payment stats
+    overdue_payments = [p for p in (payments.data or []) if p.get("status") == "overdue"]
+    overdue_amount = sum(p.get("due_amount") or 0 for p in overdue_payments)
+
+    # Pipeline stats
+    pipeline_stages = {}
+    for o in outlets.data:
+        stage = o.get("deal_stage") or "lead"
+        pipeline_stages[stage] = pipeline_stages.get(stage, 0) + 1
+
     # Expiring leases (next 90 days)
     today = date.today()
-    expiring = [a for a in agreements.data if a.get("lease_expiry_date") and
-                0 <= (date.fromisoformat(a["lease_expiry_date"]) - today).days <= 90]
+    expiring = []
+    for a in agreements.data:
+        try:
+            if a.get("lease_expiry_date"):
+                days_left = (date.fromisoformat(a["lease_expiry_date"]) - today).days
+                if 0 <= days_left <= 90:
+                    expiring.append(a)
+        except (ValueError, TypeError):
+            pass
 
     # Outlets by city
     cities = {}
@@ -2356,6 +2493,9 @@ async def dashboard_stats():
         "outlets_by_city": cities,
         "outlets_by_status": statuses,
         "outlet_details_by_city": outlet_details_by_city,
+        "overdue_payments_count": len(overdue_payments),
+        "overdue_amount": overdue_amount,
+        "pipeline_stages": pipeline_stages,
     }
 
 
@@ -2943,6 +3083,13 @@ async def create_reminder(
 
     result = supabase.table("alerts").insert(alert_data).execute()
 
+    # Dispatch notification for the new reminder
+    if result.data and org_id:
+        try:
+            dispatch_notification(org_id, result.data[0])
+        except Exception:
+            pass
+
     # Log activity
     if result.data and org_id:
         reminder = result.data[0]
@@ -3369,18 +3516,38 @@ async def list_org_members(
 
 @app.post("/api/organizations/{org_id}/invite")
 async def invite_org_member(org_id: str, req: InviteMemberRequest):
-    """Invite a member — creates a profile entry and sends an invitation email via Resend."""
-    profile_data = {
-        "id": str(uuid.uuid4()),
-        "email": req.email,
-        "role": req.role,
-        "org_id": org_id,
-        "full_name": req.email.split("@")[0].title(),
-        "status": "invited",
-    }
+    """Invite a member — uses Supabase Auth admin invite, then updates profile with org/role."""
     try:
-        result = supabase.table("profiles").insert(profile_data).execute()
-        member = result.data[0] if result.data else profile_data
+        # Check if user already exists in profiles
+        existing = supabase.table("profiles").select("id, org_id").eq("email", req.email).execute()
+        if existing.data and len(existing.data) > 0:
+            # User exists — update their org_id and role
+            user_id = existing.data[0]["id"]
+            supabase.table("profiles").update({
+                "org_id": org_id,
+                "role": req.role,
+            }).eq("id", user_id).execute()
+            member = {**existing.data[0], "org_id": org_id, "role": req.role, "email": req.email}
+        else:
+            # New user — use Supabase Auth admin invite (creates auth.users entry + sends magic link)
+            try:
+                invite_result = supabase.auth.admin.invite_user_by_email(req.email)
+                user_id = invite_result.user.id if invite_result and invite_result.user else None
+            except Exception:
+                user_id = None
+
+            if user_id:
+                # The trigger auto-creates a profile; update it with org/role
+                supabase.table("profiles").update({
+                    "org_id": org_id,
+                    "role": req.role,
+                    "full_name": req.email.split("@")[0].title(),
+                }).eq("id", user_id).execute()
+                member = {"id": user_id, "email": req.email, "role": req.role, "org_id": org_id}
+            else:
+                raise HTTPException(status_code=500, detail="Failed to invite user via auth system")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -3612,7 +3779,8 @@ Important notes:
 
 
 @app.post("/api/portfolio-qa")
-async def portfolio_qa_endpoint(req: PortfolioQARequest, authorization: Optional[str] = Header(None)):
+@limiter.limit("15/minute")
+async def portfolio_qa_endpoint(request: Request, req: PortfolioQARequest, authorization: Optional[str] = Header(None)):
     """Answer natural language questions across the portfolio using SQL generation."""
     try:
         # Get user and org_id
@@ -3717,7 +3885,8 @@ async def portfolio_qa_endpoint(req: PortfolioQARequest, authorization: Optional
 # ============================================
 
 @app.post("/api/smart-chat")
-async def smart_chat(req: SmartChatRequest, user: Optional[CurrentUser] = Depends(get_current_user)):
+@limiter.limit("15/minute")
+async def smart_chat(request: Request, req: SmartChatRequest, user: Optional[CurrentUser] = Depends(get_current_user)):
     """AI-powered dashboard chat — ask questions about your portfolio data.
     Queries the database, builds context, and uses Gemini to answer."""
     question = req.question.strip()
@@ -3728,6 +3897,12 @@ async def smart_chat(req: SmartChatRequest, user: Optional[CurrentUser] = Depend
     org_id = req.org_id
     if not org_id and user and user.org_id:
         org_id = user.org_id
+    if not org_id:
+        # Fallback: try to get first org
+        orgs = supabase.table("organizations").select("id").limit(1).execute()
+        org_id = orgs.data[0]["id"] if orgs.data else None
+    if not org_id:
+        raise HTTPException(status_code=400, detail="Organization context required")
 
     # Gather comprehensive portfolio data for AI context
     try:
@@ -3855,6 +4030,232 @@ If asked for recommendations, be actionable and specific."""
             "total_monthly_rent": total_monthly_rent,
         },
     }
+
+
+# ============================================
+# SAVE AS DRAFT
+# ============================================
+
+class SaveDraftRequest(BaseModel):
+    extracted_data: dict
+    risk_flags: list = []
+
+@app.patch("/api/agreements/{agreement_id}/save-draft")
+async def save_as_draft(agreement_id: str, body: SaveDraftRequest):
+    """Save extraction as draft without creating obligations/alerts."""
+    current = supabase.table("agreements").select("id").eq("id", agreement_id).single().execute()
+    if not current.data:
+        raise HTTPException(status_code=404, detail="Agreement not found")
+
+    update_data = {
+        "extracted_data": body.extracted_data,
+        "risk_flags": body.risk_flags,
+        "status": "draft",
+    }
+    result = supabase.table("agreements").update(update_data).eq("id", agreement_id).execute()
+    return {"status": "ok", "agreement_id": agreement_id, "message": "Saved as draft"}
+
+
+# ============================================
+# BULK MARK PAID
+# ============================================
+
+class BulkMarkPaidRequest(BaseModel):
+    payment_ids: Optional[List[str]] = None
+    month: Optional[int] = None
+    year: Optional[int] = None
+    org_id: Optional[str] = None
+
+@app.post("/api/payments/bulk-mark-paid")
+async def bulk_mark_paid(body: BulkMarkPaidRequest):
+    """Bulk mark payments as paid — by IDs or by month/year."""
+    updated = 0
+
+    if body.payment_ids:
+        for pid in body.payment_ids:
+            supabase.table("payment_records").update({
+                "status": "paid",
+                "paid_amount": supabase.table("payment_records").select("due_amount").eq("id", pid).single().execute().data.get("due_amount", 0),
+            }).eq("id", pid).execute()
+            updated += 1
+    elif body.month and body.year:
+        # Fetch all pending/due/overdue payments for that month
+        query = supabase.table("payment_records").select("id, due_amount").in_("status", ["pending", "due", "overdue", "upcoming"])
+        if body.org_id:
+            query = query.eq("org_id", body.org_id)
+        payments = query.execute().data or []
+        for p in payments:
+            due_date_str = p.get("due_date", "")
+            if due_date_str:
+                try:
+                    dd = date.fromisoformat(due_date_str)
+                    if dd.month == body.month and dd.year == body.year:
+                        supabase.table("payment_records").update({
+                            "status": "paid",
+                            "paid_amount": p.get("due_amount", 0),
+                        }).eq("id", p["id"]).execute()
+                        updated += 1
+                except (ValueError, TypeError):
+                    pass
+
+    return {"status": "ok", "updated_count": updated}
+
+
+# ============================================
+# MGLR CALCULATION
+# ============================================
+
+class MGLRRequest(BaseModel):
+    outlet_id: str
+    dine_in_revenue: float
+    delivery_revenue: float
+
+@app.post("/api/calculate-mglr")
+async def calculate_mglr(body: MGLRRequest):
+    """Calculate hybrid MGLR rent for an outlet based on revenue."""
+    # Get outlet's agreement with rent schedule
+    agreements = supabase.table("agreements").select("*").eq("outlet_id", body.outlet_id).eq("status", "active").execute().data or []
+    if not agreements:
+        raise HTTPException(status_code=404, detail="No active agreement found for this outlet")
+
+    agreement = agreements[0]
+    ed = agreement.get("extracted_data") or {}
+    rent = ed.get("rent", {})
+    rent_model = rent.get("rent_model", "fixed")
+
+    if rent_model != "hybrid_mglr":
+        return {"rent_model": rent_model, "message": "Not a hybrid MGLR agreement", "payable_rent": agreement.get("monthly_rent", 0)}
+
+    schedule = rent.get("rent_schedule", [])
+    first = schedule[0] if schedule else {}
+    mglr = get_num(first.get("mglr_monthly")) or get_num(first.get("monthly_rent")) or 0
+    rev_share_pct = get_num(first.get("revenue_share_pct")) or get_num(rent.get("revenue_share_pct")) or 0
+
+    total_revenue = body.dine_in_revenue + body.delivery_revenue
+    revenue_share = total_revenue * (rev_share_pct / 100) if rev_share_pct > 0 else 0
+    payable_rent = max(mglr, revenue_share)
+
+    return {
+        "rent_model": "hybrid_mglr",
+        "mglr": mglr,
+        "revenue_share_pct": rev_share_pct,
+        "total_revenue": total_revenue,
+        "revenue_share_amount": round(revenue_share, 2),
+        "payable_rent": round(payable_rent, 2),
+        "higher_of": "revenue_share" if revenue_share > mglr else "mglr",
+    }
+
+
+# ============================================
+# CRON TRIGGER ENDPOINTS (manual trigger)
+# ============================================
+
+@app.post("/api/cron/agreement-transitions")
+async def cron_agreement_transitions():
+    """Manually trigger agreement status transitions."""
+    today = date.today()
+    updated = {"to_expiring": 0, "to_expired": 0}
+
+    # Active → expiring (within 90 days of expiry)
+    active = supabase.table("agreements").select("id, lease_expiry_date").eq("status", "active").execute().data or []
+    for a in active:
+        exp = a.get("lease_expiry_date")
+        if exp:
+            try:
+                exp_date = date.fromisoformat(exp)
+                if today < exp_date <= today + timedelta(days=90):
+                    supabase.table("agreements").update({"status": "expiring"}).eq("id", a["id"]).execute()
+                    updated["to_expiring"] += 1
+            except (ValueError, TypeError):
+                pass
+
+    # Active/expiring → expired (past expiry)
+    expirable = supabase.table("agreements").select("id, lease_expiry_date").in_("status", ["active", "expiring"]).execute().data or []
+    for a in expirable:
+        exp = a.get("lease_expiry_date")
+        if exp:
+            try:
+                exp_date = date.fromisoformat(exp)
+                if exp_date < today:
+                    supabase.table("agreements").update({"status": "expired"}).eq("id", a["id"]).execute()
+                    updated["to_expired"] += 1
+            except (ValueError, TypeError):
+                pass
+
+    return {"status": "ok", **updated}
+
+
+@app.post("/api/cron/payment-status-update")
+async def cron_payment_status_update():
+    """Mark overdue payments automatically."""
+    today = date.today()
+    pending = supabase.table("payment_records").select("id, due_date").in_("status", ["pending", "due", "upcoming"]).execute().data or []
+    updated = 0
+    for p in pending:
+        dd = p.get("due_date")
+        if dd:
+            try:
+                if date.fromisoformat(dd) < today:
+                    supabase.table("payment_records").update({"status": "overdue"}).eq("id", p["id"]).execute()
+                    updated += 1
+            except (ValueError, TypeError):
+                pass
+
+    return {"status": "ok", "marked_overdue": updated}
+
+
+@app.post("/api/cron/escalation-calculator")
+async def cron_escalation_calculator():
+    """Check and apply rent escalations that are due."""
+    today = date.today()
+    escalated = 0
+
+    obligations = supabase.table("obligations").select("id, amount, type, agreement_id").eq("is_active", True).eq("type", "rent").execute().data or []
+    for ob in obligations:
+        agreement = supabase.table("agreements").select("extracted_data, org_id").eq("id", ob["agreement_id"]).single().execute()
+        if not agreement.data:
+            continue
+        ed = agreement.data.get("extracted_data") or {}
+        rent = ed.get("rent", {})
+        esc_pct = get_num(rent.get("escalation_percentage"))
+        esc_freq = int(get_num(rent.get("escalation_frequency_years")) or 0)
+        if not esc_pct or esc_pct <= 0 or esc_freq <= 0:
+            continue
+
+        lt = ed.get("lease_term", {})
+        base_str = lt.get("rent_commencement_date") or lt.get("lease_commencement_date")
+        if not base_str:
+            continue
+        try:
+            base_date = date.fromisoformat(str(base_str))
+        except (ValueError, TypeError):
+            continue
+
+        from dateutil.relativedelta import relativedelta as rd
+        years_elapsed = (today.year - base_date.year) + (today.month - base_date.month) / 12
+        if years_elapsed < esc_freq:
+            continue
+
+        next_esc_year = int((int(years_elapsed) // esc_freq) * esc_freq + esc_freq)
+        anniversary = base_date + rd(years=next_esc_year)
+        if anniversary == today:
+            new_amount = round(ob["amount"] * (1 + esc_pct / 100), 2)
+            supabase.table("obligations").update({"amount": new_amount}).eq("id", ob["id"]).execute()
+            # Log
+            supabase.table("activity_log").insert({
+                "org_id": agreement.data.get("org_id"),
+                "entity_type": "obligation",
+                "entity_id": ob["id"],
+                "action": "escalation_applied",
+                "details": json.dumps({
+                    "old_amount": ob["amount"],
+                    "new_amount": new_amount,
+                    "escalation_pct": esc_pct,
+                }),
+            }).execute()
+            escalated += 1
+
+    return {"status": "ok", "escalated": escalated}
 
 
 if __name__ == "__main__":

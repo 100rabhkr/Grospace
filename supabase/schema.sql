@@ -33,7 +33,8 @@ CREATE TABLE organizations (
   name text NOT NULL,
   logo_url text,
   created_at timestamptz DEFAULT now(),
-  created_by uuid REFERENCES auth.users(id)
+  created_by uuid REFERENCES auth.users(id),
+  alert_preferences jsonb DEFAULT '{}'::jsonb
 );
 
 -- ============================================
@@ -45,6 +46,7 @@ CREATE TABLE profiles (
   full_name text,
   role text NOT NULL DEFAULT 'org_member' CHECK (role IN ('platform_admin', 'org_admin', 'org_member')),
   org_id uuid REFERENCES organizations(id),
+  phone_number text,
   created_at timestamptz DEFAULT now()
 );
 
@@ -260,6 +262,13 @@ CREATE INDEX idx_outlets_org ON outlets(org_id, status);
 CREATE INDEX idx_outlets_city ON outlets(city, org_id);
 CREATE INDEX idx_showcase_token ON showcase_tokens(token, is_active);
 CREATE INDEX idx_showcase_outlet ON showcase_tokens(outlet_id);
+CREATE INDEX idx_obligations_agreement ON obligations(agreement_id);
+CREATE INDEX idx_agreements_outlet ON agreements(outlet_id);
+CREATE INDEX idx_payments_obligation ON payment_records(obligation_id);
+CREATE INDEX idx_alerts_outlet ON alerts(outlet_id);
+CREATE INDEX idx_qa_sessions_agreement ON document_qa_sessions(agreement_id);
+CREATE INDEX idx_activity_entity ON activity_log(entity_type, entity_id);
+CREATE INDEX idx_outlets_deal_stage ON outlets(org_id, deal_stage);
 
 -- ============================================
 -- ROW LEVEL SECURITY
