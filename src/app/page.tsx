@@ -75,22 +75,6 @@ function statusLabel(key: string): string {
     .join(" ");
 }
 
-/** Return Tailwind color classes for outlet status badges */
-function statusBadgeClasses(status: string): string {
-  switch (status) {
-    case "operational":
-      return "border-green-200 text-green-700 bg-green-50";
-    case "fit_out":
-      return "border-amber-200 text-amber-700 bg-amber-50";
-    case "closed":
-      return "border-red-200 text-red-700 bg-red-50";
-    case "under_construction":
-      return "border-blue-200 text-blue-700 bg-blue-50";
-    default:
-      return "border-neutral-200 text-neutral-600 bg-neutral-50";
-  }
-}
-
 /** Return hex color for outlet status (for pie chart) */
 function statusColor(status: string): string {
   switch (status) {
