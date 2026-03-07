@@ -272,6 +272,7 @@ class ConfirmActivateRequest(BaseModel):
     confidence: dict = {}
     filename: str
     org_id: Optional[str] = None  # If None, use/create demo org
+    document_text: Optional[str] = None  # Full OCR text to persist for Q&A
 
 
 class PaymentUpdateRequest(BaseModel):
@@ -1224,6 +1225,7 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
         "text_length": len(text),
         "extraction_method": extraction_method,
         "error": error_message,
+        "document_text": text if text and len(text.strip()) >= 100 else None,
     }
 
 
@@ -1339,7 +1341,7 @@ def create_outlet_from_extraction(extraction: dict, org_id: str) -> str:
 
 
 def create_agreement_record(extraction: dict, doc_type: str, risk_flags: list, confidence: dict,
-                            filename: str, org_id: str, outlet_id: str) -> str:
+                            filename: str, org_id: str, outlet_id: str, document_text: Optional[str] = None) -> str:
     """Create an agreement record. Returns agreement_id."""
     parties = get_section(extraction, "parties")
     lease_term = get_section(extraction, "lease_term")
@@ -1396,6 +1398,7 @@ def create_agreement_record(extraction: dict, doc_type: str, risk_flags: list, c
         "security_deposit": security_deposit,
         "late_payment_interest_pct": get_num(legal.get("late_payment_interest_pct")),
         "confirmed_at": datetime.utcnow().isoformat(),
+        "full_document_text": document_text,
     }
 
     # Compute lock_in_end_date from lock_in_months + commencement
@@ -1783,13 +1786,16 @@ async def extract_endpoint(request: Request, req: ExtractRequest):
         result = await process_document(file_bytes, filename)
 
         # Update agreement record in Supabase
-        supabase.table("agreements").update({
+        update_data = {
             "extracted_data": result["extraction"],
             "extraction_confidence": result["confidence"],
             "risk_flags": result["risk_flags"],
             "extraction_status": "review",
             "type": result["document_type"],
-        }).eq("id", req.agreement_id).execute()
+        }
+        if result.get("document_text"):
+            update_data["full_document_text"] = result["document_text"]
+        supabase.table("agreements").update(update_data).eq("id", req.agreement_id).execute()
 
         return {
             "status": "review",
@@ -1824,12 +1830,13 @@ async def qa_endpoint(request: Request, req: QARequest):
     """Answer questions about a specific agreement document with conversation history."""
     try:
         # Fetch agreement data from DB
-        result = supabase.table("agreements").select("extracted_data, document_url").eq("id", req.agreement_id).single().execute()
+        result = supabase.table("agreements").select("extracted_data, document_url, full_document_text").eq("id", req.agreement_id).single().execute()
         if not result.data:
             raise HTTPException(status_code=404, detail="Agreement not found")
 
         extracted_data = result.data.get("extracted_data", {})
         doc_url = result.data.get("document_url")
+        stored_text = result.data.get("full_document_text")
 
         # --- Conversation history ---
         session_id = req.session_id
@@ -1850,8 +1857,8 @@ async def qa_endpoint(request: Request, req: QARequest):
                 text_content = msg.get("content", "")
                 formatted_history += f"{'User' if role == 'user' else 'Assistant'}: {text_content}\n\n"
 
-        # --- Get document text ---
-        document_text = req.document_text
+        # --- Get document text (prefer stored text to avoid re-scanning) ---
+        document_text = stored_text or req.document_text
         if not document_text and doc_url:
             try:
                 pdf_bytes = await download_file(doc_url)
@@ -2031,6 +2038,7 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
             filename=req.filename,
             org_id=org_id,
             outlet_id=outlet_id,
+            document_text=req.document_text,
         )
 
         # 4. Auto-generate obligations
@@ -2476,6 +2484,7 @@ async def dashboard_stats():
         if city not in outlet_details_by_city:
             outlet_details_by_city[city] = []
         outlet_details_by_city[city].append({
+            "id": o.get("id", ""),
             "name": o.get("name", ""),
             "status": o.get("status", "unknown"),
             "rent": rent_by_outlet.get(o["id"], 0),

@@ -117,7 +117,8 @@ CREATE TABLE agreements (
   valid_to date,
   created_at timestamptz DEFAULT now(),
   confirmed_at timestamptz,
-  confirmed_by uuid REFERENCES auth.users(id)
+  confirmed_by uuid REFERENCES auth.users(id),
+  full_document_text text
 );
 
 -- ============================================

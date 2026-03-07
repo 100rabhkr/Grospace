@@ -45,7 +45,7 @@ interface DashboardStats {
   expiring_leases_90d: number;
   outlets_by_city: Record<string, number>;
   outlets_by_status: Record<string, number>;
-  outlet_details_by_city?: Record<string, { name: string; status: string; rent?: number }[]>;
+  outlet_details_by_city?: Record<string, { id?: string; name: string; status: string; rent?: number }[]>;
   overdue_payments_count?: number;
   overdue_amount?: number;
   pipeline_stages?: Record<string, number>;
@@ -781,19 +781,21 @@ export default function Dashboard() {
       {/* -------------------------------------------------------------- */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 lg:gap-5">
         {/* India Map -- 3 columns */}
-        <Card className="flex flex-col lg:col-span-3">
+        <Card className="flex flex-col lg:col-span-3 overflow-hidden border-neutral-200/60">
           <CardHeader className="p-4 pb-2">
             <div className="flex items-center gap-2">
-              <MapPin className="h-4 w-4 text-neutral-500" />
+              <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-neutral-800 to-neutral-950 flex items-center justify-center">
+                <MapPin className="h-3 w-3 text-white" />
+              </div>
               <CardTitle className="text-sm font-semibold">
                 Outlet Locations
               </CardTitle>
-              <Badge variant="secondary" className="text-[10px] ml-auto">
+              <Badge variant="secondary" className="text-[10px] ml-auto font-semibold">
                 {stats?.total_outlets ?? 0} outlets
               </Badge>
             </div>
           </CardHeader>
-          <CardContent className="p-4 pt-0">
+          <CardContent className="p-3 pt-0">
             {outletsByCity.length === 0 ? (
               <p className="text-xs text-neutral-400">No outlet data yet.</p>
             ) : (

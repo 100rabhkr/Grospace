@@ -468,6 +468,7 @@ export default function UploadAgreementPage() {
         risk_flags: item.result.risk_flags,
         confidence: item.result.confidence,
         filename: item.result.filename,
+        document_text: item.result.document_text,
       });
       setBulkFiles((prev) => prev.map((f, idx) => idx === index ? { ...f, status: "done", activationResult: activation } : f));
     } catch (err) {
@@ -1093,6 +1094,7 @@ export default function UploadAgreementPage() {
                       risk_flags: result.risk_flags,
                       confidence: result.confidence,
                       filename: result.filename,
+                      document_text: result.document_text,
                     });
                     setActivationResult(res);
                     setStep(4);
