@@ -109,6 +109,7 @@ export async function confirmAndActivate(data: {
   risk_flags: unknown[];
   confidence: Record<string, string>;
   filename: string;
+  document_text?: string | null;
 }) {
   return apiFetch("/api/confirm-and-activate", {
     method: "POST",
