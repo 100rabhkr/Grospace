@@ -168,6 +168,7 @@ type ExtractionResult = {
   }>;
   filename: string;
   document_text?: string;
+  document_url?: string;
   processing_duration_seconds?: number;
 };
 

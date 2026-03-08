@@ -66,7 +66,7 @@ export function Sidebar() {
       {/* Logo */}
       <div className="h-14 flex items-center px-5 border-b border-neutral-100/60">
         <Link href="/" className="flex items-center gap-2.5">
-          <Image src="/logo.png" alt="GroSpace" width={28} height={28} />
+          <Image src="/logo.png" alt="GroSpace" width={28} height={28} className="rounded-md" />
           <span className="text-[17px] font-semibold tracking-tight text-[#132337]">GroSpace</span>
         </Link>
       </div>

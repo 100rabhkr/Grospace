@@ -107,7 +107,7 @@ export default function LoginPage() {
 
         <div className="relative z-10">
           <div className="flex items-center gap-3 mb-16">
-            <Image src="/logo.png" alt="GroSpace" width={36} height={36} className="text-white" style={{ filter: "brightness(0) invert(1)" }} />
+            <Image src="/logo.png" alt="GroSpace" width={36} height={36} className="rounded-lg" />
             <span className="text-xl font-semibold tracking-tight text-white">GroSpace</span>
           </div>
 
