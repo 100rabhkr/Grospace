@@ -1215,14 +1215,23 @@ async def submit_feedback(
     """Submit extraction feedback for a field."""
     user = await get_current_user(authorization)
 
+    # agreement_id may be a filename (pre-confirmation) or a UUID
+    agr_id = req.agreement_id
+    try:
+        import uuid as _uuid
+        _uuid.UUID(agr_id)
+    except (ValueError, AttributeError):
+        agr_id = None  # Not a valid UUID — skip FK reference
+
     feedback_data = {
-        "agreement_id": req.agreement_id,
         "field_name": req.field_name,
         "original_value": req.original_value,
         "corrected_value": req.corrected_value,
         "comment": req.comment,
         "status": "pending",
     }
+    if agr_id:
+        feedback_data["agreement_id"] = agr_id
 
     if user:
         feedback_data["user_id"] = user.user_id
@@ -1230,8 +1239,9 @@ async def submit_feedback(
 
     result = supabase.table("feedback").insert(feedback_data).execute()
 
-    # Try to sync to Google Sheets
-    _sync_feedback_to_google_sheets(feedback_data)
+    # Try to sync to Google Sheets (use original ID/filename for reference)
+    sheets_data = {**feedback_data, "agreement_id": req.agreement_id}
+    _sync_feedback_to_google_sheets(sheets_data)
 
     return {"success": True, "feedback_id": result.data[0]["id"] if result.data else None}
 
