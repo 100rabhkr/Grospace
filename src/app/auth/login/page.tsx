@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Image from "next/image";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -107,7 +106,7 @@ export default function LoginPage() {
 
         <div className="relative z-10">
           <div className="flex items-center gap-3 mb-16">
-            <Image src="/logo.png" alt="GroSpace" width={36} height={36} className="rounded-lg brightness-0 invert" />
+            <img src="/logo.svg" alt="GroSpace" width={36} height={36} className="text-white" style={{ filter: "brightness(0) invert(1)" }} />
             <span className="text-xl font-semibold tracking-tight text-white">GroSpace</span>
           </div>
 
@@ -155,7 +154,7 @@ export default function LoginPage() {
         >
           {/* Mobile logo */}
           <div className="flex items-center gap-2.5 mb-10 lg:hidden">
-            <Image src="/logo.png" alt="GroSpace" width={32} height={32} className="rounded-lg" />
+            <img src="/logo.svg" alt="GroSpace" width={32} height={32} />
             <span className="text-lg font-semibold tracking-tight text-[#132337]">GroSpace</span>
           </div>
 
