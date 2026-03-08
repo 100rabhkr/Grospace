@@ -77,6 +77,8 @@ CREATE TABLE outlets (
   deal_stage_entered_at timestamptz DEFAULT now(),
   deal_notes text,
   deal_priority text DEFAULT 'medium' CHECK (deal_priority IN ('low', 'medium', 'high')),
+  site_code text,
+  locality text,
   created_at timestamptz DEFAULT now(),
   created_by uuid REFERENCES auth.users(id)
 );
@@ -110,6 +112,7 @@ CREATE TABLE agreements (
   total_monthly_outflow numeric,
   security_deposit numeric,
   late_payment_interest_pct numeric,
+  document_text text,
   certificate_type text,
   certificate_number text,
   issuing_authority text,

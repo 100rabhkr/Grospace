@@ -108,6 +108,8 @@ interface OutletDetail {
   address: string;
   city: string;
   state: string;
+  site_code: string | null;
+  locality: string | null;
   property_type: string;
   floor: string;
   unit_number: string;
@@ -415,7 +417,14 @@ export default function OutletDetailPage() {
             <ArrowLeft className="h-5 w-5" />
           </Link>
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">{outlet.name}</h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-bold tracking-tight">{outlet.name}</h1>
+              {outlet.site_code && (
+                <span className="font-mono text-xs bg-neutral-100 text-neutral-500 px-2 py-1 rounded border border-neutral-200">
+                  {outlet.site_code}
+                </span>
+              )}
+            </div>
             <div className="flex items-center gap-2 mt-1 text-sm text-neutral-500">
               <Building2 className="h-3.5 w-3.5" />
               <span>{outlet.brand_name}</span>
@@ -556,6 +565,14 @@ export default function OutletDetailPage() {
             <div>
               <span className="text-neutral-500 text-xs">Brand</span>
               <div className="font-medium">{outlet.brand_name}</div>
+            </div>
+            <div>
+              <span className="text-neutral-500 text-xs">Site Code</span>
+              <div className="font-medium font-mono">{outlet.site_code || "--"}</div>
+            </div>
+            <div>
+              <span className="text-neutral-500 text-xs">Locality</span>
+              <div className="font-medium">{outlet.locality || "--"}</div>
             </div>
             <div>
               <span className="text-neutral-500 text-xs">Full Address</span>
