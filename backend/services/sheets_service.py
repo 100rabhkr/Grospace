@@ -10,10 +10,6 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# Lazy-loaded client
-_sheet = None
-_initialized = False
-
 SHEET_HEADERS = [
     "Timestamp", "Agreement ID", "Outlet Name", "City", "State",
     "Landlord", "Tenant", "Brand", "Property Type",
@@ -26,14 +22,7 @@ SHEET_HEADERS = [
 
 
 def _get_sheet():
-    """Lazy-initialize the Google Sheets connection."""
-    global _sheet, _initialized
-
-    if _initialized:
-        return _sheet
-
-    _initialized = True
-
+    """Connect to Google Sheets. No caching — fresh connection each time to avoid stale state."""
     spreadsheet_id = os.getenv("GOOGLE_SHEETS_SPREADSHEET_ID")
     creds_json_str = os.getenv("GOOGLE_SHEETS_CREDENTIALS_JSON")
     creds_path = os.getenv(
@@ -42,7 +31,7 @@ def _get_sheet():
     )
 
     if not spreadsheet_id:
-        logger.warning("GOOGLE_SHEETS_SPREADSHEET_ID not set — Google Sheets integration disabled")
+        logger.warning("GOOGLE_SHEETS_SPREADSHEET_ID not set — disabled")
         return None
 
     try:
@@ -54,37 +43,31 @@ def _get_sheet():
             "https://www.googleapis.com/auth/drive",
         ]
 
-        # Try env var JSON first (for Railway/cloud), then fall back to file
         if creds_json_str:
             creds_info = json.loads(creds_json_str)
             creds = Credentials.from_service_account_info(creds_info, scopes=scopes)
-            logger.info("Using Google Sheets credentials from env var")
         elif os.path.exists(creds_path):
             creds = Credentials.from_service_account_file(creds_path, scopes=scopes)
-            logger.info("Using Google Sheets credentials from file")
         else:
-            logger.warning("No Google Sheets credentials found (no env var or file)")
+            logger.warning("No Google Sheets credentials found")
             return None
 
         client = gspread.authorize(creds)
         spreadsheet = client.open_by_key(spreadsheet_id)
-        _sheet = spreadsheet.sheet1
+        sheet = spreadsheet.sheet1
 
         # Ensure headers exist
         try:
-            first_row = _sheet.row_values(1)
+            first_row = sheet.row_values(1)
             if not first_row or first_row[0] != SHEET_HEADERS[0]:
-                _sheet.insert_row(SHEET_HEADERS, 1)
-                logger.info("Added headers to Google Sheet")
+                sheet.insert_row(SHEET_HEADERS, 1)
         except Exception:
-            _sheet.insert_row(SHEET_HEADERS, 1)
+            sheet.insert_row(SHEET_HEADERS, 1)
 
-        logger.info(f"Google Sheets connected: {spreadsheet.title}")
-        return _sheet
+        return sheet
 
     except Exception as e:
         logger.error(f"Failed to connect to Google Sheets: {e}")
-        _sheet = None
         return None
 
 
@@ -112,12 +95,10 @@ def write_agreement_to_sheet(
     status: str = "active",
     document_filename: Optional[str] = None,
 ) -> bool:
-    """
-    Append a row to Google Sheet after agreement confirmation.
-    Returns True on success, False on failure (non-blocking).
-    """
+    """Append a row to Google Sheet. Returns True on success."""
     sheet = _get_sheet()
     if sheet is None:
+        logger.error("Google Sheets not available — _get_sheet() returned None")
         return False
 
     try:
