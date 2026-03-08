@@ -35,6 +35,7 @@ ALLOWED_ORIGINS = list(set(filter(None, [
     "http://localhost:3001",
     "http://localhost:3002",
     "http://localhost:3003",
+    "https://grospace-sandy.vercel.app",
     _frontend_url,
     *(_env_origins.split(",") if _env_origins else []),
 ])))

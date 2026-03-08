@@ -202,13 +202,14 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
   // Use backend average if available, otherwise fallback to file-size heuristic
   const isImage = fileName ? /\.(png|jpe?g|webp|gif|bmp|tiff?)$/i.test(fileName) : false;
   const fallbackEstimate = isImage
-    ? 60
+    ? 90
     : fileSizeMB
-      ? fileSizeMB < 2 ? 45
-        : fileSizeMB < 10 ? 90
-        : fileSizeMB < 30 ? 150
-        : 200
-      : 90;
+      ? fileSizeMB < 1 ? 45
+        : fileSizeMB < 3 ? 75
+        : fileSizeMB < 10 ? 120
+        : fileSizeMB < 30 ? 180
+        : 240
+      : 120;
 
   const estimatedTotalSec = backendEstimate ? Math.round(backendEstimate.avg) : fallbackEstimate;
 
@@ -254,7 +255,7 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
   );
 
   // Stage labels for the progress
-  const stageLabels = ["Uploading...", "Analyzing document type...", "Extracting data...", "Checking risk flags...", "Done!"];
+  const stageLabels = ["Uploading...", "Analyzing document type...", "Extracting data...", "Checking risk flags...", "Almost done..."];
   const currentStageIdx = activeStep < 2 ? 0 : activeStep < 4 ? 1 : activeStep < 6 ? 2 : activeStep < 7 ? 3 : 4;
   const currentStageLabel = stageLabels[currentStageIdx];
 
