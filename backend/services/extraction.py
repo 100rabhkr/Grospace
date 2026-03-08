@@ -19,7 +19,7 @@ import google.generativeai as genai
 from core.config import (
     supabase, model,
     SUPPORTED_PDF_EXTENSIONS, SUPPORTED_IMAGE_EXTENSIONS,
-    CITY_ABBREVIATIONS, log_activity,
+    CITY_ABBREVIATIONS,
 )
 from services.ocr_service import extract_text_cloud_vision
 from services.email_service import dispatch_notification
@@ -726,7 +726,6 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
         "confidence": confidence,
         "risk_flags": risk_flags,
         "filename": filename,
-        "document_text": text if extraction_method in ("text", "cloud_vision") else None,
         "text_length": len(text),
         "extraction_method": extraction_method,
         "error": error_message,

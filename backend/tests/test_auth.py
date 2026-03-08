@@ -5,7 +5,7 @@ and role-based behavior (platform_admin vs org_admin vs org_member).
 """
 
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock
 from tests.conftest import _make_query_builder
 
 

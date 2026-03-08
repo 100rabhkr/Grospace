@@ -3,8 +3,7 @@ Tests for API endpoints: health check, CORS, rate limiting, and basic CRUD.
 Uses FastAPI TestClient for synchronous HTTP testing.
 """
 
-import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from tests.conftest import _make_query_builder
 
 

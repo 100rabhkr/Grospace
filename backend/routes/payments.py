@@ -2,7 +2,7 @@
 Payment obligations, mark-paid, bulk-paid endpoints.
 """
 
-from typing import Optional, List
+from typing import Optional
 from datetime import datetime, date, timedelta
 from dateutil.relativedelta import relativedelta
 
@@ -15,7 +15,7 @@ from core.models import (
     BulkMarkPaidRequest, MGLRRequest,
 )
 from core.dependencies import get_current_user, get_org_filter, require_permission
-from services.extraction import get_num, get_val
+from services.extraction import get_num
 
 router = APIRouter(prefix="/api", tags=["payments"])
 

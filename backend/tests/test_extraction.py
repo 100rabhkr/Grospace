@@ -5,8 +5,6 @@ confidence scoring, risk flag detection, and helper utilities.
 
 import json
 import pytest
-from unittest.mock import MagicMock, patch, AsyncMock
-from datetime import date
 
 
 # ---------------------------------------------------------------

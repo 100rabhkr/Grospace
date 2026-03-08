@@ -3,7 +3,6 @@ Google Sheets integration — writes confirmed agreement data to a shared spread
 """
 
 import os
-import json
 import logging
 from datetime import datetime
 from typing import Optional

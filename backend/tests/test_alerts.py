@@ -4,8 +4,7 @@ Verifies lease expiry alerts, lock-in alerts, escalation alerts,
 rent-due alerts, severity levels, and configurable lead times.
 """
 
-import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from datetime import date, timedelta
 from dateutil.relativedelta import relativedelta
 from tests.conftest import _make_query_builder

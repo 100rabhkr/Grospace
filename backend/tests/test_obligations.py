@@ -4,9 +4,6 @@ Verifies that generate_obligations produces the correct obligation types,
 amounts, frequencies, dates, and escalation info from extraction data.
 """
 
-import pytest
-from unittest.mock import MagicMock, call
-from datetime import date
 from tests.conftest import _make_query_builder
 
 

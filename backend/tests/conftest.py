@@ -5,11 +5,8 @@ Mocks external services: Supabase, Gemini, Resend, MSG91.
 
 import os
 import sys
-import json
-import types
 import pytest
-from unittest.mock import MagicMock, patch, AsyncMock
-from datetime import date, datetime
+from unittest.mock import MagicMock
 
 # Ensure backend package is importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))

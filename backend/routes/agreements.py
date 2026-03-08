@@ -2,8 +2,6 @@
 CRUD agreements, confirm-and-activate, save-draft endpoints.
 """
 
-from typing import Optional
-from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from starlette.requests import Request
@@ -251,5 +249,5 @@ async def save_as_draft(agreement_id: str, body: SaveDraftRequest):
         "risk_flags": body.risk_flags,
         "status": "draft",
     }
-    result = supabase.table("agreements").update(update_data).eq("id", agreement_id).execute()
+    supabase.table("agreements").update(update_data).eq("id", agreement_id).execute()
     return {"status": "ok", "agreement_id": agreement_id, "message": "Saved as draft"}

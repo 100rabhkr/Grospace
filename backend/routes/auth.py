@@ -3,7 +3,7 @@ Authentication, login, profile endpoints.
 """
 
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends
 
 from core.config import supabase
 from core.models import CurrentUser, UpdateProfileRequest, AlertPreferencesRequest

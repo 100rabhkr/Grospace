@@ -34,6 +34,8 @@ backend/venv/
 backend/__pycache__/
 __pycache__/
 *.pyc
+.venv/
+backend/.venv/
 
 # credentials / deployment secrets
 DEPLOYMENT.md

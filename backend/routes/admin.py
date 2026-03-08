@@ -876,7 +876,6 @@ If asked for recommendations, be actionable and specific."""
             generation_config={"temperature": 0.3, "max_output_tokens": 4096},
         )
         if not response.candidates or not response.candidates[0].content.parts:
-            finish_reason = response.candidates[0].finish_reason if response.candidates else "unknown"
             answer = "I'm sorry, I couldn't generate a response for that question. Please try rephrasing your question."
         else:
             answer = response.text
@@ -1255,7 +1254,6 @@ async def list_feedback(
 @router.get("/api/processing-stats", dependencies=[Depends(require_permission("view_reports"))])
 async def get_processing_stats():
     """Return average processing time stats."""
-    from collections import deque
     # Access the processing times from the documents route
     try:
         from routes.documents import _processing_times
