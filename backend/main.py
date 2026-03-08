@@ -85,6 +85,7 @@ LEASE_EXTRACTION_SCHEMA = {
     "premises": {
         "property_name": "string",
         "full_address": "string",
+        "locality": "string (neighbourhood/area name, e.g. Rajouri Garden, Koramangala, Connaught Place)",
         "city": "string",
         "state": "string",
         "pincode": "string",
@@ -272,7 +273,7 @@ class ConfirmActivateRequest(BaseModel):
     confidence: dict = {}
     filename: str
     org_id: Optional[str] = None  # If None, use/create demo org
-    document_text: Optional[str] = None  # Full OCR text to persist for Q&A
+    document_text: Optional[str] = None  # Cached OCR/extracted text for Q&A
 
 
 class PaymentUpdateRequest(BaseModel):
@@ -326,6 +327,7 @@ class AlertPreferencesRequest(BaseModel):
 class UpdateOutletRequest(BaseModel):
     monthly_net_revenue: Optional[float] = None
     status: Optional[str] = None
+    site_code: Optional[str] = None
 
 
 class CreateReminderRequest(BaseModel):
@@ -1222,6 +1224,7 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
         "confidence": confidence,
         "risk_flags": risk_flags,
         "filename": filename,
+        "document_text": text if extraction_method in ("text", "cloud_vision") else None,
         "text_length": len(text),
         "extraction_method": extraction_method,
         "error": error_message,
@@ -1294,6 +1297,51 @@ def get_or_create_demo_org() -> str:
     return new_org.data[0]["id"]
 
 
+# City abbreviation map for site codes
+CITY_ABBREVIATIONS = {
+    "delhi": "Del", "new delhi": "Del", "mumbai": "Mum", "bengaluru": "Blr", "bangalore": "Blr",
+    "hyderabad": "Hyd", "chennai": "Chn", "kolkata": "Kol", "pune": "Pun", "ahmedabad": "Ahm",
+    "jaipur": "Jai", "lucknow": "Lkn", "chandigarh": "Chd", "indore": "Ind", "bhopal": "Bpl",
+    "nagpur": "Nag", "patna": "Pat", "vadodara": "Vad", "surat": "Sur", "kochi": "Koc",
+    "coimbatore": "Cbe", "thiruvananthapuram": "Tvm", "visakhapatnam": "Viz", "vijayawada": "Vjw",
+    "gurgaon": "Gur", "gurugram": "Gur", "noida": "Noi", "ghaziabad": "Ghz", "faridabad": "Far",
+    "dehradun": "Deh", "ranchi": "Ran", "bhubaneswar": "Bhu", "guwahati": "Guw", "raipur": "Rai",
+    "ludhiana": "Lud", "amritsar": "Amr", "kanpur": "Kan", "agra": "Agr", "varanasi": "Var",
+    "mysuru": "Mys", "mysore": "Mys", "mangaluru": "Mng", "mangalore": "Mng", "hubli": "Hub",
+    "nashik": "Nsk", "aurangabad": "Aur", "thane": "Thn", "navi mumbai": "NMm",
+    "rajkot": "Rjk", "jodhpur": "Jdp", "udaipur": "Udp", "kota": "Kot",
+    "gwalior": "Gwl", "jalandhar": "Jal", "meerut": "Mrt", "allahabad": "Ald", "prayagraj": "Ald",
+    "trivandrum": "Tvm", "madurai": "Mad", "tiruchirappalli": "Tri", "salem": "Slm",
+    "jammu": "Jam", "srinagar": "Srn", "shimla": "Shm", "panaji": "Pnj", "goa": "Goa",
+    "siliguri": "Slg", "durgapur": "Drg", "jamshedpur": "Jms", "bokaro": "Bok",
+}
+
+
+def generate_site_code(city: str, locality: str, org_id: str) -> str:
+    """Generate a unique site code like 'DelRG-01' for an outlet."""
+    # City abbreviation
+    city_lower = (city or "").strip().lower()
+    city_abbr = CITY_ABBREVIATIONS.get(city_lower, (city or "XXX")[:3].title())
+
+    # Locality abbreviation: first letter of each word, uppercase, max 3 chars
+    if locality and locality.strip():
+        words = locality.strip().split()
+        loc_abbr = "".join(w[0].upper() for w in words if w)[:3]
+    else:
+        loc_abbr = "XX"
+
+    prefix = f"{city_abbr}{loc_abbr}"
+
+    # Find next sequence number for this prefix within the org
+    try:
+        existing = supabase.table("outlets").select("site_code").eq("org_id", org_id).ilike("site_code", f"{prefix}-%").execute()
+        seq = len(existing.data) + 1
+    except Exception:
+        seq = 1
+
+    return f"{prefix}-{seq:02d}"
+
+
 def create_outlet_from_extraction(extraction: dict, org_id: str) -> str:
     """Create an outlet from extracted premises data. Returns outlet_id."""
     premises = get_section(extraction, "premises")
@@ -1316,12 +1364,17 @@ def create_outlet_from_extraction(extraction: dict, org_id: str) -> str:
     else:
         fm = None
 
+    city = get_val(premises.get("city"))
+    locality = get_val(premises.get("locality"))
+    site_code = generate_site_code(city, locality, org_id)
+
     outlet_data = {
         "org_id": org_id,
         "name": get_val(premises.get("property_name")) or get_val(parties.get("brand_name")) or "New Outlet",
         "brand_name": get_val(parties.get("brand_name")),
         "address": get_val(premises.get("full_address")),
-        "city": get_val(premises.get("city")),
+        "city": city,
+        "locality": locality,
         "state": get_val(premises.get("state")),
         "pincode": get_val(premises.get("pincode")),
         "property_type": prop_type,
@@ -1332,6 +1385,7 @@ def create_outlet_from_extraction(extraction: dict, org_id: str) -> str:
         "carpet_area_sqft": get_num(premises.get("carpet_area_sqft")),
         "franchise_model": fm,
         "status": "fit_out",
+        "site_code": site_code,
     }
 
     # Remove None values
@@ -1397,8 +1451,9 @@ def create_agreement_record(extraction: dict, doc_type: str, risk_flags: list, c
         "total_monthly_outflow": total if total > 0 else None,
         "security_deposit": security_deposit,
         "late_payment_interest_pct": get_num(legal.get("late_payment_interest_pct")),
+        "document_text": document_text,
         "confirmed_at": datetime.utcnow().isoformat(),
-        "full_document_text": document_text,
+        "document_text": document_text,
     }
 
     # Compute lock_in_end_date from lock_in_months + commencement
@@ -1794,7 +1849,7 @@ async def extract_endpoint(request: Request, req: ExtractRequest):
             "type": result["document_type"],
         }
         if result.get("document_text"):
-            update_data["full_document_text"] = result["document_text"]
+            update_data["document_text"] = result["document_text"]
         supabase.table("agreements").update(update_data).eq("id", req.agreement_id).execute()
 
         return {
@@ -1830,13 +1885,13 @@ async def qa_endpoint(request: Request, req: QARequest):
     """Answer questions about a specific agreement document with conversation history."""
     try:
         # Fetch agreement data from DB
-        result = supabase.table("agreements").select("extracted_data, document_url, full_document_text").eq("id", req.agreement_id).single().execute()
+        result = supabase.table("agreements").select("extracted_data, document_url, document_text").eq("id", req.agreement_id).single().execute()
         if not result.data:
             raise HTTPException(status_code=404, detail="Agreement not found")
 
         extracted_data = result.data.get("extracted_data", {})
         doc_url = result.data.get("document_url")
-        stored_text = result.data.get("full_document_text")
+        cached_text = result.data.get("document_text")
 
         # --- Conversation history ---
         session_id = req.session_id
@@ -1857,8 +1912,8 @@ async def qa_endpoint(request: Request, req: QARequest):
                 text_content = msg.get("content", "")
                 formatted_history += f"{'User' if role == 'user' else 'Assistant'}: {text_content}\n\n"
 
-        # --- Get document text (prefer stored text to avoid re-scanning) ---
-        document_text = stored_text or req.document_text
+        # --- Get document text (use cached text first, then fallback to re-download) ---
+        document_text = cached_text or req.document_text
         if not document_text and doc_url:
             try:
                 pdf_bytes = await download_file(doc_url)
@@ -2276,6 +2331,8 @@ async def update_outlet(outlet_id: str, req: UpdateOutletRequest, user: Optional
         if req.status not in valid_statuses:
             raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {', '.join(valid_statuses)}")
         update_data["status"] = req.status
+    if req.site_code is not None:
+        update_data["site_code"] = req.site_code
     if not update_data:
         raise HTTPException(status_code=400, detail="No fields to update")
 

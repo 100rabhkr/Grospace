@@ -154,10 +154,11 @@ export async function listAlerts(params?: { page?: number; page_size?: number })
   return apiFetch(`/api/alerts${qs ? `?${qs}` : ""}`);
 }
 
-/** Update an outlet (revenue, status) */
+/** Update an outlet (revenue, status, site_code) */
 export async function updateOutlet(outletId: string, data: {
   monthly_net_revenue?: number;
   status?: string;
+  site_code?: string;
 }) {
   return apiFetch(`/api/outlets/${outletId}`, {
     method: "PATCH",

@@ -55,6 +55,8 @@ interface Outlet {
   address: string;
   city: string;
   state: string;
+  site_code: string | null;
+  locality: string | null;
   property_type: string;
   floor: string;
   unit_number: string;
@@ -226,7 +228,8 @@ export default function OutletsPage() {
           (outlet.name || "").toLowerCase().includes(query) ||
           (outlet.brand_name || "").toLowerCase().includes(query) ||
           (outlet.city || "").toLowerCase().includes(query) ||
-          (outlet.address || "").toLowerCase().includes(query);
+          (outlet.address || "").toLowerCase().includes(query) ||
+          (outlet.site_code || "").toLowerCase().includes(query);
         if (!matchesSearch) return false;
       }
       if (cityFilter !== "all" && outlet.city !== cityFilter) return false;
@@ -443,9 +446,16 @@ export default function OutletsPage() {
                           {statusLabel(outlet.status)}
                         </Badge>
                       </div>
-                      <h3 className="text-base font-semibold text-black leading-tight">
-                        {outlet.name}
-                      </h3>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-base font-semibold text-black leading-tight">
+                          {outlet.name}
+                        </h3>
+                        {outlet.site_code && (
+                          <span className="font-mono text-[10px] bg-neutral-100 text-neutral-500 px-1.5 py-0.5 rounded">
+                            {outlet.site_code}
+                          </span>
+                        )}
+                      </div>
                     </CardHeader>
                     <CardContent className="pt-0 space-y-3">
                       {/* Location */}
@@ -552,6 +562,9 @@ export default function OutletsPage() {
                     Outlet Name
                   </TableHead>
                   <TableHead className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">
+                    Site Code
+                  </TableHead>
+                  <TableHead className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">
                     City
                   </TableHead>
                   <TableHead className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">
@@ -595,6 +608,15 @@ export default function OutletsPage() {
                         >
                           {outlet.name}
                         </Link>
+                      </TableCell>
+                      <TableCell>
+                        {outlet.site_code ? (
+                          <span className="font-mono text-xs bg-neutral-100 text-neutral-500 px-1.5 py-0.5 rounded">
+                            {outlet.site_code}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-neutral-300">—</span>
+                        )}
                       </TableCell>
                       <TableCell className="text-sm text-neutral-600">
                         {outlet.city}

@@ -145,6 +145,7 @@ type ExtractionResult = {
     name?: string;
   }>;
   filename: string;
+  document_text?: string;
 };
 
 const processingSteps = [
