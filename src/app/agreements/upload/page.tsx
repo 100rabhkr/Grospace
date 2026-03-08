@@ -202,14 +202,14 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
   // Use backend average if available, otherwise fallback to file-size heuristic
   const isImage = fileName ? /\.(png|jpe?g|webp|gif|bmp|tiff?)$/i.test(fileName) : false;
   const fallbackEstimate = isImage
-    ? 90
+    ? 110
     : fileSizeMB
-      ? fileSizeMB < 1 ? 45
-        : fileSizeMB < 3 ? 75
-        : fileSizeMB < 10 ? 120
+      ? fileSizeMB < 1 ? 90
+        : fileSizeMB < 3 ? 110
+        : fileSizeMB < 10 ? 130
         : fileSizeMB < 30 ? 180
         : 240
-      : 120;
+      : 110;
 
   const estimatedTotalSec = backendEstimate ? Math.round(backendEstimate.avg) : fallbackEstimate;
 
