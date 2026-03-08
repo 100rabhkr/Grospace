@@ -1,0 +1,1272 @@
+"""
+Admin endpoints, cron triggers, org management, seed data, dashboard, smart chat.
+"""
+
+import os
+import json
+from typing import Optional
+from datetime import datetime, date, timedelta
+from dateutil.relativedelta import relativedelta
+
+from fastapi import APIRouter, HTTPException, Depends, Header, Query, Form
+from starlette.requests import Request
+
+from core.config import supabase, model, limiter, PORTFOLIO_QA_SCHEMA
+from core.models import (
+    CurrentUser, UpdateOrganizationRequest, InviteMemberRequest,
+    PortfolioQARequest, SmartChatRequest, FeedbackRequest,
+)
+from core.dependencies import get_current_user, require_permission
+from services.extraction import get_num, get_or_create_demo_org
+from services.email_service import send_email_via_resend
+import google.generativeai as genai
+
+router = APIRouter(prefix="/api", tags=["admin"])
+
+
+# ============================================
+# ORGANIZATION ENDPOINTS
+# ============================================
+
+@router.get("/organizations", dependencies=[Depends(require_permission("manage_org_settings"))])
+async def list_organizations(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+):
+    """List all organizations (paginated)."""
+    offset = (page - 1) * page_size
+    count_result = supabase.table("organizations").select("id", count="exact").execute()
+    total = count_result.count or 0
+    result = supabase.table("organizations").select("*").order("created_at", desc=True).range(offset, offset + page_size - 1).execute()
+    return {"items": result.data, "total": total, "page": page, "page_size": page_size}
+
+
+@router.post("/organizations", dependencies=[Depends(require_permission("manage_org_settings"))])
+async def create_organization(name: str = Form(...)):
+    """Create a new organization."""
+    result = supabase.table("organizations").insert({"name": name}).execute()
+    return {"organization": result.data[0]}
+
+
+@router.get("/organizations/{org_id}", dependencies=[Depends(require_permission("manage_org_settings"))])
+async def get_organization(org_id: str):
+    """Get a single organization with its outlets and agreements."""
+    result = supabase.table("organizations").select("*").eq("id", org_id).single().execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    outlets = supabase.table("outlets").select("*").eq("org_id", org_id).order("created_at", desc=True).execute()
+    agreements = supabase.table("agreements").select("id, type, status, document_filename, monthly_rent, lease_expiry_date, outlet_id, outlets(name, city)").eq("org_id", org_id).order("created_at", desc=True).execute()
+    alerts = supabase.table("alerts").select("id, type, severity, title, trigger_date, status").eq("org_id", org_id).order("trigger_date").limit(10).execute()
+
+    return {
+        "organization": result.data,
+        "outlets": outlets.data,
+        "agreements": agreements.data,
+        "alerts": alerts.data,
+    }
+
+
+@router.patch("/organizations/{org_id}", dependencies=[Depends(require_permission("manage_org_settings"))])
+async def update_organization(org_id: str, req: UpdateOrganizationRequest):
+    """Update organization name/settings."""
+    update_data: dict = {}
+    if req.name is not None:
+        update_data["name"] = req.name
+    if req.logo_url is not None:
+        update_data["logo_url"] = req.logo_url
+    if req.alert_preferences is not None:
+        update_data["alert_preferences"] = req.alert_preferences
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    result = supabase.table("organizations").update(update_data).eq("id", org_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    return {"organization": result.data[0]}
+
+
+@router.get("/organizations/{org_id}/members", dependencies=[Depends(require_permission("manage_org_members"))])
+async def list_org_members(
+    org_id: str,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+):
+    """List all profiles belonging to an organization (paginated)."""
+    offset = (page - 1) * page_size
+    count_result = supabase.table("profiles").select("id", count="exact").eq("org_id", org_id).execute()
+    total = count_result.count or 0
+    result = supabase.table("profiles").select("*").eq("org_id", org_id).range(offset, offset + page_size - 1).execute()
+    return {"items": result.data, "total": total, "page": page, "page_size": page_size}
+
+
+@router.post("/organizations/{org_id}/invite", dependencies=[Depends(require_permission("manage_org_members"))])
+async def invite_org_member(org_id: str, req: InviteMemberRequest):
+    """Invite a member -- uses Supabase Auth admin invite, then updates profile with org/role."""
+    try:
+        existing = supabase.table("profiles").select("id, org_id").eq("email", req.email).execute()
+        if existing.data and len(existing.data) > 0:
+            user_id = existing.data[0]["id"]
+            supabase.table("profiles").update({
+                "org_id": org_id,
+                "role": req.role,
+            }).eq("id", user_id).execute()
+            member = {**existing.data[0], "org_id": org_id, "role": req.role, "email": req.email}
+        else:
+            try:
+                invite_result = supabase.auth.admin.invite_user_by_email(req.email)
+                user_id = invite_result.user.id if invite_result and invite_result.user else None
+            except Exception:
+                user_id = None
+
+            if user_id:
+                supabase.table("profiles").update({
+                    "org_id": org_id,
+                    "role": req.role,
+                    "full_name": req.email.split("@")[0].title(),
+                }).eq("id", user_id).execute()
+                member = {"id": user_id, "email": req.email, "role": req.role, "org_id": org_id}
+            else:
+                raise HTTPException(status_code=500, detail="Failed to invite user via auth system")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    email_sent = False
+    try:
+        org_result = supabase.table("organizations").select("name").eq("id", org_id).single().execute()
+        org_name = org_result.data.get("name", "GroSpace") if org_result.data else "GroSpace"
+
+        invite_html = f"""
+        <html><body style="font-family:sans-serif;max-width:600px;margin:auto;padding:20px">
+        <div style="border-bottom:2px solid #000;padding-bottom:10px;margin-bottom:20px">
+            <h2 style="margin:0">GroSpace</h2>
+        </div>
+        <h3>You've been invited to {org_name}</h3>
+        <p>You've been invited to join <strong>{org_name}</strong> on GroSpace as a <strong>{req.role.replace('_', ' ').title()}</strong>.</p>
+        <p>GroSpace is a smart lease management platform for managing outlets, agreements, payments, and alerts across your property portfolio.</p>
+        <div style="margin:24px 0">
+            <a href="{os.getenv('NEXT_PUBLIC_APP_URL', 'https://grospace.app')}/auth/login" style="background:#000;color:#fff;padding:10px 24px;text-decoration:none;border-radius:6px;font-weight:600">Accept Invitation</a>
+        </div>
+        <p style="color:#999;font-size:12px">If you didn't expect this invitation, you can safely ignore this email.</p>
+        </body></html>
+        """
+        email_sent = send_email_via_resend(
+            req.email,
+            f"You've been invited to {org_name} on GroSpace",
+            invite_html,
+        )
+    except Exception:
+        pass
+
+    return {"member": member, "email_sent": email_sent}
+
+
+@router.delete("/organizations/{org_id}/members/{user_id}", dependencies=[Depends(require_permission("manage_org_members"))])
+async def remove_org_member(org_id: str, user_id: str):
+    """Remove a member from the organization."""
+    result = supabase.table("profiles").delete().eq("id", user_id).eq("org_id", org_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Member not found")
+    return {"deleted": True}
+
+
+# ============================================
+# DASHBOARD
+# ============================================
+
+@router.get("/dashboard", dependencies=[Depends(require_permission("view_reports"))])
+async def dashboard_stats():
+    """Get dashboard statistics."""
+    outlets = supabase.table("outlets").select("id, name, status, city, property_type, franchise_model, monthly_net_revenue, deal_stage").execute()
+    agreements = supabase.table("agreements").select("id, outlet_id, status, monthly_rent, cam_monthly, total_monthly_outflow, lease_expiry_date, risk_flags").execute()
+    supabase.table("obligations").select("id, type, amount, is_active").execute()
+    alerts = supabase.table("alerts").select("id, type, severity, status, trigger_date").execute()
+    payments = supabase.table("payment_records").select("id, status, due_amount").execute()
+
+    total_outlets = len(outlets.data)
+    total_agreements = len(agreements.data)
+    active_agreements = len([a for a in agreements.data if a.get("status") == "active"])
+    total_monthly_rent = sum(a.get("monthly_rent") or 0 for a in agreements.data)
+    total_monthly_outflow = sum(a.get("total_monthly_outflow") or 0 for a in agreements.data)
+    total_risk_flags = sum(len(a.get("risk_flags") or []) for a in agreements.data)
+    pending_alerts = len([a for a in alerts.data if a.get("status") == "pending"])
+
+    overdue_payments = [p for p in (payments.data or []) if p.get("status") == "overdue"]
+    overdue_amount = sum(p.get("due_amount") or 0 for p in overdue_payments)
+
+    pipeline_stages = {}
+    for o in outlets.data:
+        stage = o.get("deal_stage") or "lead"
+        pipeline_stages[stage] = pipeline_stages.get(stage, 0) + 1
+
+    today = date.today()
+    expiring = []
+    for a in agreements.data:
+        try:
+            if a.get("lease_expiry_date"):
+                days_left = (date.fromisoformat(a["lease_expiry_date"]) - today).days
+                if 0 <= days_left <= 90:
+                    expiring.append(a)
+        except (ValueError, TypeError):
+            pass
+
+    cities = {}
+    for o in outlets.data:
+        city = o.get("city") or "Unknown"
+        cities[city] = cities.get(city, 0) + 1
+
+    statuses = {}
+    for o in outlets.data:
+        s = o.get("status") or "unknown"
+        statuses[s] = statuses.get(s, 0) + 1
+
+    rent_by_outlet = {}
+    for a in agreements.data:
+        oid = a.get("outlet_id")
+        if oid:
+            rent_by_outlet[oid] = a.get("monthly_rent") or 0
+
+    outlet_details_by_city = {}
+    for o in outlets.data:
+        city = o.get("city") or "Unknown"
+        if city not in outlet_details_by_city:
+            outlet_details_by_city[city] = []
+        outlet_details_by_city[city].append({
+            "id": o.get("id", ""),
+            "name": o.get("name", ""),
+            "status": o.get("status", "unknown"),
+            "rent": rent_by_outlet.get(o["id"], 0),
+        })
+
+    return {
+        "total_outlets": total_outlets,
+        "total_agreements": total_agreements,
+        "active_agreements": active_agreements,
+        "total_monthly_rent": total_monthly_rent,
+        "total_monthly_outflow": total_monthly_outflow,
+        "total_risk_flags": total_risk_flags,
+        "pending_alerts": pending_alerts,
+        "expiring_leases_90d": len(expiring),
+        "outlets_by_city": cities,
+        "outlets_by_status": statuses,
+        "outlet_details_by_city": outlet_details_by_city,
+        "overdue_payments_count": len(overdue_payments),
+        "overdue_amount": overdue_amount,
+        "pipeline_stages": pipeline_stages,
+    }
+
+
+# ============================================
+# SEED DEMO DATA
+# ============================================
+
+@router.post("/seed", dependencies=[Depends(require_permission("manage_org_settings"))])
+async def seed_demo_data():
+    """Seed 6 realistic demo outlets with agreements, obligations, and alerts."""
+    try:
+        org_id = get_or_create_demo_org()
+
+        outlets_data = [
+            {
+                "org_id": org_id, "name": "Ambience Mall", "brand_name": "Tan Coffee",
+                "address": "Unit GF-127, Ground Floor, Ambience Mall, NH-8, Gurugram, Haryana 122002",
+                "city": "Gurugram", "state": "Haryana", "pincode": "122002",
+                "property_type": "mall", "floor": "Ground Floor", "unit_number": "GF-127",
+                "super_area_sqft": 1850, "covered_area_sqft": 1550, "carpet_area_sqft": 1200,
+                "franchise_model": "FOFO", "status": "operational",
+            },
+            {
+                "org_id": org_id, "name": "Phoenix MarketCity", "brand_name": "Tan Coffee",
+                "address": "Unit F-215, 2nd Floor, Phoenix MarketCity, LBS Marg, Kurla, Mumbai 400070",
+                "city": "Mumbai", "state": "Maharashtra", "pincode": "400070",
+                "property_type": "mall", "floor": "2nd Floor", "unit_number": "F-215",
+                "super_area_sqft": 2200, "covered_area_sqft": 1850, "carpet_area_sqft": 1450,
+                "franchise_model": "FOCO", "status": "operational",
+            },
+            {
+                "org_id": org_id, "name": "Indiranagar High Street", "brand_name": "Tan Coffee",
+                "address": "No. 42, 12th Main, HAL 2nd Stage, Indiranagar, Bengaluru 560038",
+                "city": "Bengaluru", "state": "Karnataka", "pincode": "560038",
+                "property_type": "high_street", "floor": "Ground Floor", "unit_number": "42",
+                "super_area_sqft": 1400, "covered_area_sqft": 1250, "carpet_area_sqft": 1050,
+                "franchise_model": "FOFO", "status": "fit_out",
+            },
+            {
+                "org_id": org_id, "name": "Select Citywalk", "brand_name": "Tan Coffee",
+                "address": "Unit 2-14, 2nd Floor, Select Citywalk, Saket, New Delhi 110017",
+                "city": "New Delhi", "state": "Delhi", "pincode": "110017",
+                "property_type": "mall", "floor": "2nd Floor", "unit_number": "2-14",
+                "super_area_sqft": 1650, "covered_area_sqft": 1380, "carpet_area_sqft": 1100,
+                "franchise_model": "FOFO", "status": "up_for_renewal",
+            },
+            {
+                "org_id": org_id, "name": "Palladium Chennai", "brand_name": "Tan Coffee",
+                "address": "Unit GF-08, Ground Floor, Palladium Mall, Velachery, Chennai 600042",
+                "city": "Chennai", "state": "Tamil Nadu", "pincode": "600042",
+                "property_type": "mall", "floor": "Ground Floor", "unit_number": "GF-08",
+                "super_area_sqft": 1300, "covered_area_sqft": 1100, "carpet_area_sqft": 900,
+                "franchise_model": "COCO", "status": "operational",
+            },
+            {
+                "org_id": org_id, "name": "DLF CyberHub", "brand_name": "Tan Coffee",
+                "address": "Unit CH-305, 3rd Floor, DLF CyberHub, DLF Cyber City, Gurugram 122002",
+                "city": "Gurugram", "state": "Haryana", "pincode": "122002",
+                "property_type": "cyber_park", "floor": "3rd Floor", "unit_number": "CH-305",
+                "super_area_sqft": 1000, "covered_area_sqft": 850, "carpet_area_sqft": 700,
+                "franchise_model": "FOFO", "status": "pipeline",
+            },
+        ]
+
+        created_outlets = []
+        for od in outlets_data:
+            result = supabase.table("outlets").insert(od).execute()
+            created_outlets.append(result.data[0])
+
+        today = date.today()
+        agreements_data = [
+            {
+                "org_id": org_id, "outlet_id": created_outlets[0]["id"],
+                "type": "lease_loi", "status": "active",
+                "document_filename": "ambience-mall-lease.pdf",
+                "lessor_name": "Mr. Rajesh Kumar Sharma", "lessee_name": "Tan Coffee Pvt Ltd",
+                "brand_name": "Tan Coffee", "rent_model": "fixed",
+                "lease_commencement_date": "2025-02-01", "rent_commencement_date": "2025-03-18",
+                "lease_expiry_date": "2034-01-31", "lock_in_end_date": "2028-02-01",
+                "monthly_rent": 285000, "rent_per_sqft": 154, "cam_monthly": 59200,
+                "total_monthly_outflow": 344200, "security_deposit": 1710000,
+                "late_payment_interest_pct": 18,
+                "extraction_status": "confirmed", "confirmed_at": datetime.utcnow().isoformat(),
+                "risk_flags": [{"flag_id": 6, "severity": "high", "explanation": "Lessor can relocate lessee with 90 days notice"}],
+                "extracted_data": {"parties": {"lessor_name": "Mr. Rajesh Kumar Sharma", "lessee_name": "Tan Coffee Pvt Ltd", "brand_name": "Tan Coffee"}, "premises": {"property_name": "Ambience Mall", "city": "Gurugram"}},
+            },
+            {
+                "org_id": org_id, "outlet_id": created_outlets[1]["id"],
+                "type": "lease_loi", "status": "active",
+                "document_filename": "phoenix-mumbai-lease.pdf",
+                "lessor_name": "Phoenix Mills Ltd", "lessee_name": "Tan Coffee Pvt Ltd",
+                "brand_name": "Tan Coffee", "rent_model": "hybrid_mglr",
+                "lease_commencement_date": "2024-06-01", "rent_commencement_date": "2024-07-15",
+                "lease_expiry_date": "2030-05-31", "lock_in_end_date": "2027-06-01",
+                "monthly_rent": 350000, "rent_per_sqft": 159, "cam_monthly": 72600,
+                "total_monthly_outflow": 422600, "security_deposit": 2100000,
+                "late_payment_interest_pct": 15,
+                "extraction_status": "confirmed", "confirmed_at": datetime.utcnow().isoformat(),
+                "risk_flags": [{"flag_id": 8, "severity": "medium", "explanation": "Revenue share with no maximum cap"}],
+                "extracted_data": {"parties": {"lessor_name": "Phoenix Mills Ltd", "lessee_name": "Tan Coffee Pvt Ltd", "brand_name": "Tan Coffee"}, "premises": {"property_name": "Phoenix MarketCity", "city": "Mumbai"}},
+            },
+            {
+                "org_id": org_id, "outlet_id": created_outlets[2]["id"],
+                "type": "lease_loi", "status": "active",
+                "document_filename": "indiranagar-lease.pdf",
+                "lessor_name": "Mrs. Lakshmi Devi", "lessee_name": "Tan Coffee Pvt Ltd",
+                "brand_name": "Tan Coffee", "rent_model": "fixed",
+                "lease_commencement_date": "2025-12-01", "rent_commencement_date": "2026-01-15",
+                "lease_expiry_date": "2031-11-30", "lock_in_end_date": "2028-12-01",
+                "monthly_rent": 195000, "rent_per_sqft": 139, "cam_monthly": 0,
+                "total_monthly_outflow": 195000, "security_deposit": 1170000,
+                "late_payment_interest_pct": 18,
+                "extraction_status": "confirmed", "confirmed_at": datetime.utcnow().isoformat(),
+                "risk_flags": [],
+                "extracted_data": {"parties": {"lessor_name": "Mrs. Lakshmi Devi", "lessee_name": "Tan Coffee Pvt Ltd", "brand_name": "Tan Coffee"}, "premises": {"property_name": "Indiranagar High Street", "city": "Bengaluru"}},
+            },
+            {
+                "org_id": org_id, "outlet_id": created_outlets[3]["id"],
+                "type": "lease_loi", "status": "expiring",
+                "document_filename": "select-citywalk-lease.pdf",
+                "lessor_name": "Select Infrastructure Pvt Ltd", "lessee_name": "Tan Coffee Pvt Ltd",
+                "brand_name": "Tan Coffee", "rent_model": "fixed",
+                "lease_commencement_date": "2022-04-01", "rent_commencement_date": "2022-05-15",
+                "lease_expiry_date": (today + timedelta(days=75)).isoformat(),
+                "lock_in_end_date": "2025-04-01",
+                "monthly_rent": 310000, "rent_per_sqft": 188, "cam_monthly": 52800,
+                "total_monthly_outflow": 362800, "security_deposit": 1860000,
+                "late_payment_interest_pct": 18,
+                "extraction_status": "confirmed", "confirmed_at": datetime.utcnow().isoformat(),
+                "risk_flags": [{"flag_id": 1, "severity": "high", "explanation": "No lessor lock-in clause found"}, {"flag_id": 5, "severity": "medium", "explanation": "Late interest at 18% - borderline predatory"}],
+                "extracted_data": {"parties": {"lessor_name": "Select Infrastructure Pvt Ltd", "lessee_name": "Tan Coffee Pvt Ltd", "brand_name": "Tan Coffee"}, "premises": {"property_name": "Select Citywalk", "city": "New Delhi"}},
+            },
+            {
+                "org_id": org_id, "outlet_id": created_outlets[4]["id"],
+                "type": "lease_loi", "status": "active",
+                "document_filename": "palladium-chennai-lease.pdf",
+                "lessor_name": "Forum Synergy Realty", "lessee_name": "Tan Coffee Pvt Ltd",
+                "brand_name": "Tan Coffee", "rent_model": "revenue_share",
+                "lease_commencement_date": "2024-11-01", "rent_commencement_date": "2024-12-15",
+                "lease_expiry_date": "2030-10-31", "lock_in_end_date": "2027-11-01",
+                "monthly_rent": 175000, "rent_per_sqft": 135, "cam_monthly": 41600,
+                "total_monthly_outflow": 216600, "security_deposit": 1050000,
+                "late_payment_interest_pct": 12,
+                "extraction_status": "confirmed", "confirmed_at": datetime.utcnow().isoformat(),
+                "risk_flags": [],
+                "extracted_data": {"parties": {"lessor_name": "Forum Synergy Realty", "lessee_name": "Tan Coffee Pvt Ltd", "brand_name": "Tan Coffee"}, "premises": {"property_name": "Palladium Chennai", "city": "Chennai"}},
+            },
+            {
+                "org_id": org_id, "outlet_id": created_outlets[5]["id"],
+                "type": "lease_loi", "status": "draft",
+                "document_filename": "cyberhub-loi-draft.pdf",
+                "lessor_name": "DLF Assets Ltd", "lessee_name": "Tan Coffee Pvt Ltd",
+                "brand_name": "Tan Coffee", "rent_model": "fixed",
+                "lease_commencement_date": None, "rent_commencement_date": None,
+                "lease_expiry_date": None, "lock_in_end_date": None,
+                "monthly_rent": 145000, "rent_per_sqft": 145, "cam_monthly": 35000,
+                "total_monthly_outflow": 180000, "security_deposit": 870000,
+                "late_payment_interest_pct": 15,
+                "extraction_status": "review",
+                "risk_flags": [{"flag_id": 2, "severity": "high", "explanation": "Escalation at 20% every 3 years - above market"}],
+                "extracted_data": {"parties": {"lessor_name": "DLF Assets Ltd", "lessee_name": "Tan Coffee Pvt Ltd", "brand_name": "Tan Coffee"}, "premises": {"property_name": "DLF CyberHub", "city": "Gurugram"}},
+            },
+        ]
+
+        created_agreements = []
+        for ad in agreements_data:
+            clean = {k: v for k, v in ad.items() if v is not None}
+            result = supabase.table("agreements").insert(clean).execute()
+            created_agreements.append(result.data[0])
+
+        all_obligations = []
+        obligation_configs = [
+            (0, 0, [
+                {"type": "rent", "frequency": "monthly", "amount": 285000, "due_day_of_month": 7, "start_date": "2025-03-18", "end_date": "2034-01-31", "escalation_pct": 15, "escalation_frequency_years": 3, "next_escalation_date": "2028-03-18"},
+                {"type": "cam", "frequency": "monthly", "amount": 59200, "due_day_of_month": 7, "start_date": "2025-02-01", "end_date": "2034-01-31", "escalation_pct": 5},
+                {"type": "hvac", "frequency": "monthly", "amount": 27900, "amount_formula": "Rs.18/sqft x 1550 sqft (covered)", "due_day_of_month": 7, "start_date": "2025-02-01", "end_date": "2034-01-31"},
+                {"type": "security_deposit", "frequency": "one_time", "amount": 1710000, "start_date": "2025-02-01"},
+                {"type": "cam_deposit", "frequency": "one_time", "amount": 118400, "start_date": "2025-02-01"},
+            ]),
+            (1, 1, [
+                {"type": "rent", "frequency": "monthly", "amount": 350000, "due_day_of_month": 5, "start_date": "2024-07-15", "end_date": "2030-05-31", "escalation_pct": 12, "escalation_frequency_years": 3, "next_escalation_date": "2027-07-15"},
+                {"type": "cam", "frequency": "monthly", "amount": 72600, "due_day_of_month": 5, "start_date": "2024-06-01", "end_date": "2030-05-31", "escalation_pct": 5},
+                {"type": "security_deposit", "frequency": "one_time", "amount": 2100000, "start_date": "2024-06-01"},
+            ]),
+            (2, 2, [
+                {"type": "rent", "frequency": "monthly", "amount": 195000, "due_day_of_month": 10, "start_date": "2026-01-15", "end_date": "2031-11-30", "escalation_pct": 10, "escalation_frequency_years": 3, "next_escalation_date": "2029-01-15"},
+                {"type": "electricity", "frequency": "monthly", "amount": None, "amount_formula": "Actual metered (35 KW load)", "due_day_of_month": 10, "start_date": "2025-12-01", "end_date": "2031-11-30"},
+                {"type": "security_deposit", "frequency": "one_time", "amount": 1170000, "start_date": "2025-12-01"},
+            ]),
+            (3, 3, [
+                {"type": "rent", "frequency": "monthly", "amount": 310000, "due_day_of_month": 1, "start_date": "2022-05-15", "end_date": (today + timedelta(days=75)).isoformat(), "escalation_pct": 15, "escalation_frequency_years": 3},
+                {"type": "cam", "frequency": "monthly", "amount": 52800, "due_day_of_month": 1, "start_date": "2022-04-01", "end_date": (today + timedelta(days=75)).isoformat(), "escalation_pct": 5},
+                {"type": "security_deposit", "frequency": "one_time", "amount": 1860000, "start_date": "2022-04-01"},
+            ]),
+            (4, 4, [
+                {"type": "rent", "frequency": "monthly", "amount": 175000, "due_day_of_month": 15, "start_date": "2024-12-15", "end_date": "2030-10-31", "escalation_pct": 10, "escalation_frequency_years": 3, "next_escalation_date": "2027-12-15"},
+                {"type": "cam", "frequency": "monthly", "amount": 41600, "due_day_of_month": 15, "start_date": "2024-11-01", "end_date": "2030-10-31", "escalation_pct": 5},
+                {"type": "security_deposit", "frequency": "one_time", "amount": 1050000, "start_date": "2024-11-01"},
+                {"type": "utility_deposit", "frequency": "one_time", "amount": 600000, "amount_formula": "Rs.15000/KW x 40 KW", "start_date": "2024-11-01"},
+            ]),
+        ]
+
+        for outlet_idx, agr_idx, obls in obligation_configs:
+            for obl in obls:
+                obl_data = {
+                    "org_id": org_id,
+                    "agreement_id": created_agreements[agr_idx]["id"],
+                    "outlet_id": created_outlets[outlet_idx]["id"],
+                    "is_active": True,
+                    **obl,
+                }
+                clean = {k: v for k, v in obl_data.items() if v is not None}
+                result = supabase.table("obligations").insert(clean).execute()
+                all_obligations.append(result.data[0])
+
+        all_alerts = []
+        alert_configs = [
+            {"outlet_idx": 3, "agr_idx": 3, "type": "lease_expiry", "severity": "high",
+             "title": "Lease expiry in 75 days - Select Citywalk",
+             "message": f"Select Citywalk lease expires on {(today + timedelta(days=75)).isoformat()}. Initiate renewal discussions.",
+             "trigger_date": today.isoformat(), "lead_days": 75,
+             "reference_date": (today + timedelta(days=75)).isoformat()},
+            {"outlet_idx": 3, "agr_idx": 3, "type": "lease_expiry", "severity": "high",
+             "title": "Lease expiry in 30 days - Select Citywalk",
+             "message": f"Select Citywalk lease expires on {(today + timedelta(days=75)).isoformat()}. URGENT: Only 30 days remaining.",
+             "trigger_date": (today + timedelta(days=45)).isoformat(), "lead_days": 30,
+             "reference_date": (today + timedelta(days=75)).isoformat()},
+            {"outlet_idx": 0, "agr_idx": 0, "type": "escalation", "severity": "medium",
+             "title": "Rent escalation in 90 days - Ambience Mall",
+             "message": "15% rent escalation due on 2028-03-18 for Ambience Mall. Current rent: Rs. 2,85,000.",
+             "trigger_date": "2027-12-18", "lead_days": 90, "reference_date": "2028-03-18"},
+            {"outlet_idx": 1, "agr_idx": 1, "type": "lock_in_expiry", "severity": "medium",
+             "title": "Lock-in expires in 90 days - Phoenix MarketCity",
+             "message": "Lock-in period ends on 2027-06-01. You may exit after this date with notice.",
+             "trigger_date": "2027-03-03", "lead_days": 90, "reference_date": "2027-06-01"},
+            {"outlet_idx": 0, "agr_idx": 0, "type": "rent_due", "severity": "medium",
+             "title": f"Rent due on {date(today.year, today.month, 7).strftime('%d %b %Y')} - Ambience Mall",
+             "message": "Monthly rent payment of Rs. 2,85,000 + CAM Rs. 59,200 due.",
+             "trigger_date": (today + timedelta(days=3)).isoformat(), "lead_days": 7,
+             "reference_date": (today + timedelta(days=10)).isoformat()},
+            {"outlet_idx": 1, "agr_idx": 1, "type": "rent_due", "severity": "medium",
+             "title": "Rent due - Phoenix MarketCity",
+             "message": "Monthly rent payment of Rs. 3,50,000 + CAM Rs. 72,600 due.",
+             "trigger_date": (today + timedelta(days=5)).isoformat(), "lead_days": 7,
+             "reference_date": (today + timedelta(days=12)).isoformat()},
+            {"outlet_idx": 4, "agr_idx": 4, "type": "rent_due", "severity": "medium",
+             "title": "Rent due - Palladium Chennai",
+             "message": "Monthly rent payment of Rs. 1,75,000 + CAM Rs. 41,600 due.",
+             "trigger_date": (today + timedelta(days=8)).isoformat(), "lead_days": 7,
+             "reference_date": (today + timedelta(days=15)).isoformat()},
+            {"outlet_idx": 0, "agr_idx": 0, "type": "lease_expiry", "severity": "medium",
+             "title": "Lease expiry in 180 days - Ambience Mall",
+             "message": "Lease expires on 2034-01-31. 180 days remaining. Plan renewal strategy.",
+             "trigger_date": "2033-08-04", "lead_days": 180, "reference_date": "2034-01-31"},
+            {"outlet_idx": 2, "agr_idx": 2, "type": "fit_out_deadline", "severity": "high",
+             "title": "Fit-out deadline approaching - Indiranagar",
+             "message": "Fit-out period ends on 2026-01-15. Rent commencement starts after.",
+             "trigger_date": "2026-01-08", "lead_days": 7, "reference_date": "2026-01-15"},
+        ]
+
+        for ac in alert_configs:
+            outlet_idx = ac.pop("outlet_idx")
+            agr_idx = ac.pop("agr_idx")
+            alert_data = {
+                "org_id": org_id,
+                "outlet_id": created_outlets[outlet_idx]["id"],
+                "agreement_id": created_agreements[agr_idx]["id"],
+                "status": "pending",
+                **ac,
+            }
+            result = supabase.table("alerts").insert(alert_data).execute()
+            all_alerts.append(result.data[0])
+
+        supabase.table("activity_log").insert({
+            "org_id": org_id,
+            "entity_type": "system",
+            "action": "seed_demo_data",
+            "details": {
+                "outlets_created": len(created_outlets),
+                "agreements_created": len(created_agreements),
+                "obligations_created": len(all_obligations),
+                "alerts_created": len(all_alerts),
+            }
+        }).execute()
+
+        return {
+            "status": "seeded",
+            "outlets_created": len(created_outlets),
+            "agreements_created": len(created_agreements),
+            "obligations_created": len(all_obligations),
+            "alerts_created": len(all_alerts),
+            "message": "Demo data seeded successfully! Check Dashboard, Outlets, Agreements, and Alerts pages.",
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================
+# DIGEST ENDPOINTS
+# ============================================
+
+@router.post("/digest/send", dependencies=[Depends(require_permission("view_reports"))])
+async def send_digest(cron_secret: Optional[str] = Header(None, alias="X-Cron-Secret")):
+    """Collect today's alerts + overdue payments per org and return digest data."""
+    today = date.today()
+
+    orgs = supabase.table("organizations").select("id, name").execute()
+
+    digests = []
+    for org in orgs.data:
+        org_id = org["id"]
+
+        upcoming_alerts = supabase.table("alerts").select(
+            "id, title, severity, trigger_date, type"
+        ).eq("org_id", org_id).eq("status", "pending").gte(
+            "trigger_date", today.isoformat()
+        ).lte(
+            "trigger_date", (today + timedelta(days=7)).isoformat()
+        ).execute()
+
+        overdue_payments = supabase.table("payment_records").select(
+            "id, due_amount, due_date, outlets(name)"
+        ).eq("org_id", org_id).eq("status", "overdue").execute()
+
+        digests.append({
+            "org_id": org_id,
+            "org_name": org["name"],
+            "upcoming_alerts": upcoming_alerts.data,
+            "overdue_payments": overdue_payments.data,
+            "alert_count": len(upcoming_alerts.data),
+            "overdue_count": len(overdue_payments.data),
+        })
+
+    resend_configured = bool(os.getenv("RESEND_API_KEY"))
+    emails_sent = 0
+    if resend_configured:
+        for d in digests:
+            if d["alert_count"] == 0 and d["overdue_count"] == 0:
+                continue
+            try:
+                members = supabase.table("profiles").select("email").eq("org_id", d["org_id"]).in_("role", ["org_admin", "platform_admin"]).execute()
+                admin_emails = [m["email"] for m in (members.data or []) if m.get("email")]
+            except Exception:
+                admin_emails = []
+
+            if admin_emails:
+                preview_result = await preview_digest(org_id=d["org_id"])
+                html_body = preview_result.get("html", "")
+                subject = f"[GroSpace] Daily Digest — {d['org_name']} — {today.strftime('%b %d')}"
+                for email in admin_emails:
+                    if send_email_via_resend(email, subject, html_body):
+                        emails_sent += 1
+
+    return {
+        "date": today.isoformat(),
+        "digests": digests,
+        "emails_sent": emails_sent,
+        "message": f"Digest sent to {emails_sent} recipients." if emails_sent > 0 else ("Digest data collected. Set RESEND_API_KEY to enable email delivery." if not resend_configured else "No digests required today."),
+    }
+
+
+@router.post("/digest/preview", dependencies=[Depends(require_permission("view_reports"))])
+async def preview_digest(org_id: str = Query(...)):
+    """Return HTML preview of what the digest email would look like."""
+    today = date.today()
+
+    upcoming_alerts = supabase.table("alerts").select(
+        "title, severity, trigger_date, type"
+    ).eq("org_id", org_id).eq("status", "pending").gte(
+        "trigger_date", today.isoformat()
+    ).lte(
+        "trigger_date", (today + timedelta(days=7)).isoformat()
+    ).order("trigger_date").execute()
+
+    overdue_payments = supabase.table("payment_records").select(
+        "due_amount, due_date, outlets(name)"
+    ).eq("org_id", org_id).eq("status", "overdue").order("due_date").execute()
+
+    alert_rows = ""
+    for a in upcoming_alerts.data:
+        alert_rows += f'<tr><td>{a["title"]}</td><td>{a["severity"]}</td><td>{a["trigger_date"]}</td></tr>'
+
+    payment_rows = ""
+    for p in overdue_payments.data:
+        outlet_name = p.get("outlets", {}).get("name", "Unknown") if p.get("outlets") else "Unknown"
+        amount = p.get("due_amount", 0)
+        payment_rows += f'<tr><td>{outlet_name}</td><td>Rs {amount:,.0f}</td><td>{p["due_date"]}</td></tr>'
+
+    org = supabase.table("organizations").select("name").eq("id", org_id).single().execute()
+    org_name = org.data.get("name", "Organization") if org.data else "Organization"
+
+    html = f"""
+    <html><body style="font-family:sans-serif;max-width:600px;margin:auto;padding:20px">
+    <h2>GroSpace Daily Digest — {org_name}</h2>
+    <p style="color:#666">{today.strftime('%B %d, %Y')}</p>
+    <h3>Upcoming Alerts ({len(upcoming_alerts.data)})</h3>
+    {"<table border='1' cellpadding='8' cellspacing='0' width='100%'><tr><th>Alert</th><th>Severity</th><th>Date</th></tr>" + alert_rows + "</table>" if alert_rows else "<p style='color:#999'>No upcoming alerts this week.</p>"}
+    <h3 style="margin-top:20px">Overdue Payments ({len(overdue_payments.data)})</h3>
+    {"<table border='1' cellpadding='8' cellspacing='0' width='100%'><tr><th>Outlet</th><th>Amount</th><th>Due Date</th></tr>" + payment_rows + "</table>" if payment_rows else "<p style='color:#999'>No overdue payments.</p>"}
+    <hr style="margin-top:30px"><p style="color:#999;font-size:12px">This is an automated digest from GroSpace.</p>
+    </body></html>
+    """
+
+    return {"html": html, "org_name": org_name, "date": today.isoformat()}
+
+
+# ============================================
+# PORTFOLIO Q&A
+# ============================================
+
+@router.post("/portfolio-qa", dependencies=[Depends(require_permission("view_reports"))])
+@limiter.limit("15/minute")
+async def portfolio_qa_endpoint(request: Request, req: PortfolioQARequest, authorization: Optional[str] = Header(None)):
+    """Answer natural language questions across the portfolio using SQL generation."""
+    try:
+        org_id = req.org_id
+        if not org_id and authorization:
+            try:
+                token = authorization.replace("Bearer ", "")
+                user_resp = supabase.auth.get_user(token)
+                if user_resp and user_resp.user:
+                    profile = supabase.table("profiles").select("org_id").eq("id", user_resp.user.id).single().execute()
+                    if profile.data:
+                        org_id = profile.data.get("org_id")
+            except Exception:
+                pass
+
+        if not org_id:
+            raise HTTPException(status_code=400, detail="Organization context required")
+
+        current_date = date.today().isoformat()
+
+        sql_prompt = (
+            "Convert this natural language question into a PostgreSQL SELECT query.\n\n"
+            + PORTFOLIO_QA_SCHEMA.format(current_date=current_date, org_id=org_id)
+            + f"\n\nUser question: {req.question}\n\n"
+            "Return ONLY the SQL query, nothing else. No markdown code blocks."
+        )
+
+        sql_response = model.generate_content(
+            sql_prompt,
+            generation_config=genai.GenerationConfig(temperature=0, max_output_tokens=500),
+        )
+        generated_sql = sql_response.text.strip()
+
+        if generated_sql.startswith("```"):
+            generated_sql = generated_sql.split("\n", 1)[1] if "\n" in generated_sql else generated_sql[3:]
+        if generated_sql.endswith("```"):
+            generated_sql = generated_sql[:-3].strip()
+        if generated_sql.lower().startswith("sql"):
+            generated_sql = generated_sql[3:].strip()
+
+        sql_upper = generated_sql.upper().strip()
+        if not sql_upper.startswith("SELECT"):
+            raise HTTPException(status_code=400, detail="Only SELECT queries are allowed")
+        forbidden = ["INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "TRUNCATE", "CREATE", "GRANT", "REVOKE"]
+        for keyword in forbidden:
+            if keyword in sql_upper.split("SELECT", 1)[0] or f" {keyword} " in f" {sql_upper} ":
+                if sql_upper.index(keyword) < sql_upper.index("FROM") if "FROM" in sql_upper else True:
+                    raise HTTPException(status_code=400, detail=f"Forbidden SQL operation: {keyword}")
+
+        try:
+            query_result = supabase.rpc("exec_readonly_sql", {"query_text": generated_sql}).execute()
+            rows = query_result.data if query_result.data else []
+        except Exception:
+            rows = []
+            try:
+                query_result = supabase.postgrest.rpc("exec_readonly_sql", {"query_text": generated_sql}).execute()
+                rows = query_result.data if query_result.data else []
+            except Exception:
+                rows = []
+
+        answer_prompt = (
+            "You are a helpful portfolio analytics assistant for a commercial real estate management platform.\n"
+            f"The user asked: \"{req.question}\"\n\n"
+            f"The database query returned these results:\n{json.dumps(rows[:50], indent=2, default=str)}\n\n"
+            "Rules:\n"
+            "- Provide a clear, concise answer summarizing the data.\n"
+            "- Format numbers as Indian currency (Rs) where applicable.\n"
+            "- If results are empty, say so clearly.\n"
+            "- Include specific outlet/agreement names when available.\n"
+            "- Use a professional but conversational tone.\n"
+        )
+
+        answer_response = model.generate_content(
+            answer_prompt,
+            generation_config=genai.GenerationConfig(temperature=0.2, max_output_tokens=1000),
+        )
+
+        return {
+            "answer": answer_response.text,
+            "data": rows[:50],
+            "sql_used": generated_sql,
+            "row_count": len(rows),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================
+# SMART AI CHAT
+# ============================================
+
+@router.post("/smart-chat", dependencies=[Depends(require_permission("view_reports"))])
+@limiter.limit("15/minute")
+async def smart_chat(request: Request, req: SmartChatRequest, user: Optional[CurrentUser] = Depends(get_current_user)):
+    """AI-powered dashboard chat."""
+    question = req.question.strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="Question is required")
+
+    org_id = req.org_id
+    if not org_id and user and user.org_id:
+        org_id = user.org_id
+    if not org_id:
+        orgs = supabase.table("organizations").select("id").limit(1).execute()
+        org_id = orgs.data[0]["id"] if orgs.data else None
+    if not org_id:
+        raise HTTPException(status_code=400, detail="Organization context required")
+
+    try:
+        outlets_q = supabase.table("outlets").select("id, name, brand_name, city, status, property_type, franchise_model, monthly_net_revenue, deal_stage, deal_priority")
+        if org_id:
+            outlets_q = outlets_q.eq("org_id", org_id)
+        outlets_result = outlets_q.limit(200).execute()
+        outlets = outlets_result.data or []
+
+        agreements_q = supabase.table("agreements").select("id, outlet_id, type, status, monthly_rent, cam_monthly, total_monthly_outflow, security_deposit, lease_commencement_date, lease_expiry_date, lock_in_end_date, rent_model, risk_flags, lessor_name, lessee_name, brand_name")
+        if org_id:
+            agreements_q = agreements_q.eq("org_id", org_id)
+        agreements_result = agreements_q.limit(200).execute()
+        agreements = agreements_result.data or []
+
+        alerts_q = supabase.table("alerts").select("id, type, severity, title, trigger_date, status, outlet_id")
+        if org_id:
+            alerts_q = alerts_q.eq("org_id", org_id)
+        alerts_result = alerts_q.eq("status", "pending").limit(100).execute()
+        alerts = alerts_result.data or []
+
+        payments_q = supabase.table("payment_records").select("id, outlet_id, due_amount, due_date, status, period_month, period_year")
+        if org_id:
+            payments_q = payments_q.eq("org_id", org_id)
+        payments_result = payments_q.in_("status", ["overdue", "due", "upcoming"]).limit(200).execute()
+        payments = payments_result.data or []
+
+        obligations_q = supabase.table("obligations").select("id, outlet_id, type, frequency, amount, escalation_pct, is_active")
+        if org_id:
+            obligations_q = obligations_q.eq("org_id", org_id)
+        obligations_result = obligations_q.eq("is_active", True).limit(200).execute()
+        obligations = obligations_result.data or []
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch portfolio data: {str(e)}")
+
+    outlet_names = {o["id"]: o.get("name", "Unknown") for o in outlets}
+
+    total_monthly_rent = sum(a.get("monthly_rent") or 0 for a in agreements if a.get("status") == "active")
+    total_monthly_outflow = sum(a.get("total_monthly_outflow") or 0 for a in agreements if a.get("status") == "active")
+    overdue_payments = [p for p in payments if p.get("status") == "overdue"]
+    total_overdue = sum(p.get("due_amount") or 0 for p in overdue_payments)
+
+    escalation_obligations = [o for o in obligations if (o.get("escalation_pct") or 0) > 0]
+
+    all_risk_flags = []
+    for a in agreements:
+        flags = a.get("risk_flags") or []
+        if isinstance(flags, list):
+            for f in flags:
+                all_risk_flags.append({
+                    "agreement": a.get("brand_name") or a.get("lessee_name") or a["id"][:8],
+                    "outlet": outlet_names.get(a.get("outlet_id"), "Unknown"),
+                    "flag": f if isinstance(f, str) else f.get("flag", str(f)),
+                })
+
+    context = f"""You are GroSpace AI, a smart assistant for commercial real estate lease management.
+The user manages a portfolio of {len(outlets)} outlet(s) with {len(agreements)} agreement(s).
+
+PORTFOLIO SUMMARY:
+- Total outlets: {len(outlets)}
+- Outlets by status: {json.dumps({s: len([o for o in outlets if o.get("status") == s]) for s in set(o.get("status", "unknown") for o in outlets)})}
+- Outlets by city: {json.dumps({c: len([o for o in outlets if o.get("city") == c]) for c in set(o.get("city", "Unknown") for o in outlets)})}
+- Deal pipeline: {json.dumps({s: len([o for o in outlets if o.get("deal_stage") == s]) for s in set(o.get("deal_stage", "lead") for o in outlets)})}
+- Total active monthly rent: Rs {total_monthly_rent:,.0f}
+- Total monthly outflow (rent+CAM+charges): Rs {total_monthly_outflow:,.0f}
+- Pending alerts: {len(alerts)}
+- Overdue payments: {len(overdue_payments)} totaling Rs {total_overdue:,.0f}
+
+OUTLETS:
+{json.dumps([{{"name": o.get("name"), "city": o.get("city"), "status": o.get("status"), "type": o.get("property_type"), "revenue": o.get("monthly_net_revenue"), "deal_stage": o.get("deal_stage"), "priority": o.get("deal_priority")}} for o in outlets[:20]])}
+
+AGREEMENTS (active):
+{json.dumps([{{"outlet": outlet_names.get(a.get("outlet_id"), "Unknown"), "type": a.get("type"), "monthly_rent": a.get("monthly_rent"), "total_outflow": a.get("total_monthly_outflow"), "rent_model": a.get("rent_model"), "expiry": a.get("lease_expiry_date"), "lock_in_end": a.get("lock_in_end_date")}} for a in agreements if a.get("status") == "active"][:20])}
+
+ESCALATION OBLIGATIONS:
+{json.dumps([{{"outlet": outlet_names.get(o.get("outlet_id"), "Unknown"), "type": o.get("type"), "amount": o.get("amount"), "escalation_pct": o.get("escalation_pct")}} for o in escalation_obligations[:15]])}
+
+RISK FLAGS:
+{json.dumps(all_risk_flags[:15])}
+
+PENDING ALERTS (top 15):
+{json.dumps([{{"title": a.get("title"), "type": a.get("type"), "severity": a.get("severity"), "outlet": outlet_names.get(a.get("outlet_id"), "Unknown")}} for a in alerts[:15]])}
+
+OVERDUE PAYMENTS:
+{json.dumps([{{"outlet": outlet_names.get(p.get("outlet_id"), "Unknown"), "amount": p.get("due_amount"), "due_date": p.get("due_date")}} for p in overdue_payments[:15]])}
+
+
+Answer the user's question based on this data. Be specific with numbers, outlet names, and dates.
+Format your response in clear, readable text. Use bullet points for lists.
+If the user asks about escalation struggles, focus on which outlets have high escalation rates and what their impact is.
+If asked for recommendations, be actionable and specific."""
+
+    try:
+        response = model.generate_content(
+            [context, f"User question: {question}"],
+            generation_config={"temperature": 0.3, "max_output_tokens": 4096},
+        )
+        if not response.candidates or not response.candidates[0].content.parts:
+            answer = "I'm sorry, I couldn't generate a response for that question. Please try rephrasing your question."
+        else:
+            answer = response.text
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI generation failed: {str(e)}")
+
+    return {
+        "answer": answer,
+        "context_summary": {
+            "outlets": len(outlets),
+            "agreements": len(agreements),
+            "pending_alerts": len(alerts),
+            "overdue_payments": len(overdue_payments),
+            "total_monthly_rent": total_monthly_rent,
+        },
+    }
+
+
+# ============================================
+# CRON TRIGGER ENDPOINTS
+# ============================================
+
+def run_agreement_status_transitions() -> dict:
+    """Auto-transition agreement and outlet statuses based on dates."""
+    today = date.today()
+    threshold_90 = today + timedelta(days=90)
+    transitioned = {"expiring": 0, "expired": 0, "outlets_updated": 0}
+
+    try:
+        expiring = supabase.table("agreements").select("id, outlet_id, org_id").eq("status", "active").lte("lease_expiry_date", threshold_90.isoformat()).gte("lease_expiry_date", today.isoformat()).execute()
+        for ag in (expiring.data or []):
+            supabase.table("agreements").update({"status": "expiring"}).eq("id", ag["id"]).execute()
+            supabase.table("activity_log").insert({"org_id": ag["org_id"], "entity_type": "agreement", "entity_id": ag["id"], "action": "auto_transition", "details": json.dumps({"from": "active", "to": "expiring"})}).execute()
+            transitioned["expiring"] += 1
+            supabase.table("outlets").update({"status": "up_for_renewal"}).eq("id", ag["outlet_id"]).execute()
+            transitioned["outlets_updated"] += 1
+    except Exception as e:
+        print(f"[CRON] Error transitioning expiring: {e}")
+
+    try:
+        expired = supabase.table("agreements").select("id, outlet_id, org_id").in_("status", ["active", "expiring"]).lt("lease_expiry_date", today.isoformat()).execute()
+        for ag in (expired.data or []):
+            supabase.table("agreements").update({"status": "expired"}).eq("id", ag["id"]).execute()
+            supabase.table("activity_log").insert({"org_id": ag["org_id"], "entity_type": "agreement", "entity_id": ag["id"], "action": "auto_transition", "details": json.dumps({"from": "active/expiring", "to": "expired"})}).execute()
+            transitioned["expired"] += 1
+    except Exception as e:
+        print(f"[CRON] Error transitioning expired: {e}")
+
+    return transitioned
+
+
+def run_payment_status_updater() -> dict:
+    """Mark overdue obligations."""
+    today = date.today()
+    updated = 0
+    try:
+        overdue = supabase.table("obligations").select("id").lt("due_date", today.isoformat()).not_.eq("status", "paid").not_.eq("status", "overdue").execute()
+        for ob in (overdue.data or []):
+            supabase.table("obligations").update({"status": "overdue"}).eq("id", ob["id"]).execute()
+            updated += 1
+    except Exception as e:
+        print(f"[CRON] Error updating payment status: {e}")
+    return {"overdue_marked": updated}
+
+
+def run_alert_engine() -> dict:
+    """Scan obligations and key dates, generate alerts with configurable lead times."""
+    today = date.today()
+    generated = 0
+    try:
+        orgs = supabase.table("organizations").select("id, alert_preferences").execute()
+        for org in (orgs.data or []):
+            org_id = org["id"]
+            prefs = org.get("alert_preferences") or {}
+            lease_days = prefs.get("lease_expiry_days", [90, 30, 7])
+            rent_days = prefs.get("rent_due_days", [7, 3, 1])
+
+            agreements = supabase.table("agreements").select("id, outlet_id, lease_expiry_date, status").eq("org_id", org_id).in_("status", ["active", "expiring"]).execute()
+            for ag in (agreements.data or []):
+                expiry = ag.get("lease_expiry_date")
+                if not expiry:
+                    continue
+                try:
+                    exp_date = date.fromisoformat(expiry)
+                except (ValueError, TypeError):
+                    continue
+                days_left = (exp_date - today).days
+                for lead in lease_days:
+                    if days_left == lead:
+                        existing = supabase.table("alerts").select("id").eq("agreement_id", ag["id"]).eq("type", "lease_expiry").eq("trigger_date", today.isoformat()).execute()
+                        if not existing.data:
+                            supabase.table("alerts").insert({
+                                "org_id": org_id, "agreement_id": ag["id"], "outlet_id": ag.get("outlet_id"),
+                                "type": "lease_expiry", "severity": "high" if lead <= 30 else "medium",
+                                "title": f"Lease expiring in {lead} days",
+                                "description": f"Agreement lease expires on {expiry}",
+                                "trigger_date": today.isoformat(), "status": "pending",
+                            }).execute()
+                            generated += 1
+
+            obligations_data = supabase.table("obligations").select("id, outlet_id, agreement_id, due_date, type, amount").eq("org_id", org_id).eq("status", "upcoming").execute()
+            for ob in (obligations_data.data or []):
+                due = ob.get("due_date")
+                if not due:
+                    continue
+                try:
+                    due_date_val = date.fromisoformat(due)
+                except (ValueError, TypeError):
+                    continue
+                days_until = (due_date_val - today).days
+                for lead in rent_days:
+                    if days_until == lead:
+                        existing = supabase.table("alerts").select("id").eq("agreement_id", ob.get("agreement_id")).eq("type", "rent_due").eq("trigger_date", today.isoformat()).execute()
+                        if not existing.data:
+                            supabase.table("alerts").insert({
+                                "org_id": org_id, "agreement_id": ob.get("agreement_id"), "outlet_id": ob.get("outlet_id"),
+                                "type": "rent_due", "severity": "medium" if lead > 1 else "high",
+                                "title": f"Rent due in {lead} day{'s' if lead > 1 else ''}",
+                                "description": f"{ob.get('type', 'Payment')} of {ob.get('amount', 'N/A')} due on {due}",
+                                "trigger_date": today.isoformat(), "status": "pending",
+                            }).execute()
+                            generated += 1
+    except Exception as e:
+        print(f"[CRON] Error in alert engine: {e}")
+    return {"alerts_generated": generated}
+
+
+def run_email_digest() -> dict:
+    """Compile pending alerts into a digest."""
+    resend_key = os.getenv("RESEND_API_KEY")
+    if not resend_key:
+        return {"status": "skipped", "reason": "RESEND_API_KEY not configured"}
+
+    digest_data = []
+    try:
+        orgs = supabase.table("organizations").select("id, name").execute()
+        for org in (orgs.data or []):
+            pending = supabase.table("alerts").select("*").eq("org_id", org["id"]).eq("status", "pending").order("trigger_date").limit(50).execute()
+            overdue = supabase.table("obligations").select("*").eq("org_id", org["id"]).eq("status", "overdue").limit(20).execute()
+            if pending.data or overdue.data:
+                digest_data.append({
+                    "org": org["name"],
+                    "pending_alerts": len(pending.data or []),
+                    "overdue_obligations": len(overdue.data or []),
+                })
+    except Exception as e:
+        print(f"[CRON] Error in email digest: {e}")
+    return {"status": "compiled", "orgs_with_alerts": len(digest_data), "email_sending": "not_configured"}
+
+
+@router.post("/admin/run-transitions", dependencies=[Depends(require_permission("manage_org_settings"))])
+async def api_run_transitions():
+    """Manually trigger agreement/outlet status transitions."""
+    result = run_agreement_status_transitions()
+    return {"status": "ok", **result}
+
+
+@router.post("/admin/run-cron/{job_name}", dependencies=[Depends(require_permission("manage_org_settings"))])
+async def api_run_cron(job_name: str):
+    """Manually trigger a cron job."""
+    jobs = {
+        "alert_engine": run_alert_engine,
+        "payment_updater": run_payment_status_updater,
+        "transitions": run_agreement_status_transitions,
+        "email_digest": run_email_digest,
+    }
+    if job_name not in jobs:
+        raise HTTPException(status_code=400, detail=f"Unknown job: {job_name}. Available: {', '.join(jobs.keys())}")
+    result = jobs[job_name]()
+    return {"job": job_name, "result": result}
+
+
+@router.post("/cron/agreement-transitions", dependencies=[Depends(require_permission("manage_org_settings"))])
+async def cron_agreement_transitions():
+    """Manually trigger agreement status transitions."""
+    today = date.today()
+    updated = {"to_expiring": 0, "to_expired": 0}
+
+    active = supabase.table("agreements").select("id, lease_expiry_date").eq("status", "active").execute().data or []
+    for a in active:
+        exp = a.get("lease_expiry_date")
+        if exp:
+            try:
+                exp_date = date.fromisoformat(exp)
+                if today < exp_date <= today + timedelta(days=90):
+                    supabase.table("agreements").update({"status": "expiring"}).eq("id", a["id"]).execute()
+                    updated["to_expiring"] += 1
+            except (ValueError, TypeError):
+                pass
+
+    expirable = supabase.table("agreements").select("id, lease_expiry_date").in_("status", ["active", "expiring"]).execute().data or []
+    for a in expirable:
+        exp = a.get("lease_expiry_date")
+        if exp:
+            try:
+                exp_date = date.fromisoformat(exp)
+                if exp_date < today:
+                    supabase.table("agreements").update({"status": "expired"}).eq("id", a["id"]).execute()
+                    updated["to_expired"] += 1
+            except (ValueError, TypeError):
+                pass
+
+    return {"status": "ok", **updated}
+
+
+@router.post("/cron/payment-status-update", dependencies=[Depends(require_permission("manage_org_settings"))])
+async def cron_payment_status_update():
+    """Mark overdue payments automatically."""
+    today = date.today()
+    pending = supabase.table("payment_records").select("id, due_date").in_("status", ["pending", "due", "upcoming"]).execute().data or []
+    updated = 0
+    for p in pending:
+        dd = p.get("due_date")
+        if dd:
+            try:
+                if date.fromisoformat(dd) < today:
+                    supabase.table("payment_records").update({"status": "overdue"}).eq("id", p["id"]).execute()
+                    updated += 1
+            except (ValueError, TypeError):
+                pass
+
+    return {"status": "ok", "marked_overdue": updated}
+
+
+@router.post("/cron/escalation-calculator", dependencies=[Depends(require_permission("manage_org_settings"))])
+async def cron_escalation_calculator():
+    """Check and apply rent escalations that are due."""
+    today = date.today()
+    escalated = 0
+
+    obligations_data = supabase.table("obligations").select("id, amount, type, agreement_id").eq("is_active", True).eq("type", "rent").execute().data or []
+    for ob in obligations_data:
+        agreement = supabase.table("agreements").select("extracted_data, org_id").eq("id", ob["agreement_id"]).single().execute()
+        if not agreement.data:
+            continue
+        ed = agreement.data.get("extracted_data") or {}
+        rent = ed.get("rent", {})
+        esc_pct = get_num(rent.get("escalation_percentage"))
+        esc_freq = int(get_num(rent.get("escalation_frequency_years")) or 0)
+        if not esc_pct or esc_pct <= 0 or esc_freq <= 0:
+            continue
+
+        lt = ed.get("lease_term", {})
+        base_str = lt.get("rent_commencement_date") or lt.get("lease_commencement_date")
+        if not base_str:
+            continue
+        try:
+            base_date = date.fromisoformat(str(base_str))
+        except (ValueError, TypeError):
+            continue
+
+        years_elapsed = (today.year - base_date.year) + (today.month - base_date.month) / 12
+        if years_elapsed < esc_freq:
+            continue
+
+        next_esc_year = int((int(years_elapsed) // esc_freq) * esc_freq + esc_freq)
+        anniversary = base_date + relativedelta(years=next_esc_year)
+        if anniversary == today:
+            new_amount = round(ob["amount"] * (1 + esc_pct / 100), 2)
+            supabase.table("obligations").update({"amount": new_amount}).eq("id", ob["id"]).execute()
+            supabase.table("activity_log").insert({
+                "org_id": agreement.data.get("org_id"),
+                "entity_type": "obligation",
+                "entity_id": ob["id"],
+                "action": "escalation_applied",
+                "details": json.dumps({
+                    "old_amount": ob["amount"],
+                    "new_amount": new_amount,
+                    "escalation_pct": esc_pct,
+                }),
+            }).execute()
+            escalated += 1
+
+    return {"status": "ok", "escalated": escalated}
+
+
+# ============================================
+# ROLE TIERS
+# ============================================
+
+ROLE_TIER_INFO = {
+    "platform_admin": {
+        "badge": "System Admin",
+        "tier_level": 3,
+        "color": "red",
+        "description": "Full platform access — all orgs, system settings, user management",
+    },
+    "org_admin": {
+        "badge": "Admin",
+        "tier_level": 2,
+        "color": "blue",
+        "description": "Organization admin — team management, full analytics, all CRUD operations",
+    },
+    "org_member": {
+        "badge": "Member",
+        "tier_level": 1,
+        "color": "green",
+        "description": "View-only access with payment marking capability",
+    },
+}
+
+
+@router.get("/api/role-tiers")
+async def get_role_tiers():
+    """Return role tier metadata for frontend display."""
+    return ROLE_TIER_INFO
+
+
+# ============================================
+# FEEDBACK PIPELINE
+# ============================================
+
+def _sync_feedback_to_google_sheets(feedback_data: dict):
+    """Stub: sync feedback to Google Sheets when API key is configured."""
+    api_key = os.getenv("GOOGLE_SHEETS_API_KEY")
+    if not api_key:
+        return {"synced": False, "reason": "GOOGLE_SHEETS_API_KEY not configured"}
+    # TODO: implement Google Sheets API sync
+    return {"synced": False, "reason": "Google Sheets sync not yet implemented"}
+
+
+@router.post("/api/feedback", dependencies=[Depends(require_permission("view_agreements"))])
+async def submit_feedback(
+    req: FeedbackRequest,
+    authorization: Optional[str] = Header(None),
+):
+    """Submit extraction feedback for a field."""
+    user = await get_current_user(authorization)
+
+    feedback_data = {
+        "agreement_id": req.agreement_id,
+        "field_name": req.field_name,
+        "original_value": req.original_value,
+        "corrected_value": req.corrected_value,
+        "comment": req.comment,
+        "status": "pending",
+    }
+
+    if user:
+        feedback_data["user_id"] = user.user_id
+        feedback_data["org_id"] = user.org_id
+
+    result = supabase.table("feedback").insert(feedback_data).execute()
+
+    # Try to sync to Google Sheets
+    _sync_feedback_to_google_sheets(feedback_data)
+
+    return {"success": True, "feedback_id": result.data[0]["id"] if result.data else None}
+
+
+@router.get("/api/feedback", dependencies=[Depends(require_permission("view_agreements"))])
+async def list_feedback(
+    org_id: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+):
+    """List feedback entries, optionally filtered by org and status."""
+    query = supabase.table("feedback").select("*", count="exact")
+
+    if org_id:
+        query = query.eq("org_id", org_id)
+    if status:
+        query = query.eq("status", status)
+
+    offset = (page - 1) * page_size
+    result = query.order("created_at", desc=True).range(offset, offset + page_size - 1).execute()
+
+    return {"data": result.data, "total": result.count, "page": page, "page_size": page_size}
+
+
+# ============================================
+# PROCESSING STATS
+# ============================================
+
+@router.get("/api/processing-stats", dependencies=[Depends(require_permission("view_reports"))])
+async def get_processing_stats():
+    """Return average processing time stats."""
+    # Access the processing times from the documents route
+    try:
+        from routes.documents import _processing_times
+        times = list(_processing_times)
+    except (ImportError, AttributeError):
+        times = []
+
+    if not times:
+        return {"average_seconds": 0, "count": 0, "min_seconds": 0, "max_seconds": 0}
+
+    return {
+        "average_seconds": round(sum(times) / len(times), 1),
+        "count": len(times),
+        "min_seconds": round(min(times), 1),
+        "max_seconds": round(max(times), 1),
+    }

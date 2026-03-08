@@ -41,6 +41,7 @@ import {
   Trash2,
   Loader2,
 } from "lucide-react";
+import { PageHeader } from "@/components/page-header";
 
 // ---------- Types ----------
 
@@ -378,23 +379,17 @@ export default function AlertsPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Bell className="h-6 w-6 text-neutral-700" />
-          <h1 className="text-xl font-semibold tracking-tight text-black">
-            Alerts
-          </h1>
-          {!loading && (
-            <Badge variant="secondary" className="text-sm">
-              {total}
-            </Badge>
-          )}
-        </div>
+      <PageHeader title="Alerts" backHref="/">
+        {!loading && (
+          <Badge variant="secondary" className="text-sm">
+            {total}
+          </Badge>
+        )}
         <Button onClick={() => openReminderForm()} className="gap-2">
           <Plus className="h-4 w-4" />
           Add Reminder
         </Button>
-      </div>
+      </PageHeader>
 
       {/* Error State */}
       {error && (

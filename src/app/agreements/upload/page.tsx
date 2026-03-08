@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import Link from "next/link";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   FileText,
@@ -22,13 +21,21 @@ import {
   Rocket,
   ArrowRight,
   Files,
+  ChevronDown,
+  ChevronUp,
+  ZoomIn,
+  ZoomOut,
+  CheckCircle2,
+  Eye,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { uploadAndExtract, confirmAndActivate } from "@/lib/api";
+import { uploadAndExtract, confirmAndActivate, getProcessingEstimate } from "@/lib/api";
 import { EditableField } from "@/components/editable-field";
+import { FeedbackButton } from "@/components/feedback-button";
+import { PageHeader } from "@/components/page-header";
 
 type Confidence = "high" | "medium" | "low" | "not_found";
 
@@ -90,12 +97,19 @@ function parseField(fieldVal: unknown): { displayVal: string; confidence: Confid
         return { displayVal: "Not found", confidence: "not_found" };
       }
       if (typeof val === "object") {
-        return { displayVal: JSON.stringify(val), confidence: conf };
+        // Recursively parse arrays/objects (e.g. rent_schedule wrapped in {value, confidence})
+        return { displayVal: parseField(val).displayVal, confidence: conf };
       }
       return { displayVal: String(val), confidence: conf };
     }
-    // Generic object without value key
-    return { displayVal: JSON.stringify(obj), confidence: "high" };
+    // Generic object without value key — format as key-value pairs
+    return {
+      displayVal: Object.entries(obj)
+        .filter(([, v]) => v !== null && v !== undefined && v !== "")
+        .map(([k, v]) => `${k.replace(/_/g, " ")}: ${v}`)
+        .join(" | "),
+      confidence: "high",
+    };
   }
 
   // Handle arrays (e.g. rent_schedule)
@@ -106,16 +120,24 @@ function parseField(fieldVal: unknown): { displayVal: string; confidence: Confid
       if (typeof item === "object" && item !== null) {
         // Try to format rent schedule items
         const o = item as Record<string, unknown>;
-        if (o.year || o.period || o.years) {
-          const period = o.year || o.period || o.years || "";
-          const rent = o.monthly_rent || o.rent || o.amount || "";
-          const perSqft = o.rent_per_sqft || o.per_sqft || "";
+        if (o.year || o.period || o.years || o.from_year || o.to_year) {
+          const period = o.year || o.period || o.years || (o.from_year && o.to_year ? `Year ${o.from_year}-${o.to_year}` : o.from_year || o.to_year) || "";
+          const rent = o.monthly_rent || o.mglr_monthly || o.rent || o.amount || "";
+          const perSqft = o.rent_per_sqft || o.mglr_per_sqft || o.per_sqft || "";
+          const revShare = o.revenue_share_takeaway_dining || o.revenue_share || "";
+          const revOnline = o.revenue_share_online || "";
           let line = `${period}`;
           if (rent) line += `: Rs ${Number(rent).toLocaleString("en-IN")}/mo`;
           if (perSqft) line += ` (Rs ${perSqft}/sqft)`;
+          if (revShare) line += ` | Rev Share: ${revShare}%`;
+          if (revOnline) line += `, Online: ${revOnline}%`;
           return line;
         }
-        return Object.values(o).join(" | ");
+        // Format other objects as key-value pairs
+        return Object.entries(o)
+          .filter(([, v]) => v !== null && v !== undefined && v !== "")
+          .map(([k, v]) => `${k.replace(/_/g, " ")}: ${v}`)
+          .join(" | ");
       }
       return String(item);
     });
@@ -146,6 +168,8 @@ type ExtractionResult = {
   }>;
   filename: string;
   document_text?: string;
+  document_url?: string;
+  processing_duration_seconds?: number;
 };
 
 const processingSteps = [
@@ -162,14 +186,22 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
   const steps = processingSteps;
   const [activeStep, setActiveStep] = useState(0);
   const [elapsedMs, setElapsedMs] = useState(0);
+  const [backendEstimate, setBackendEstimate] = useState<{ avg: number; min: number; max: number } | null>(null);
 
-  // Smarter time estimation:
-  // - Small text PDFs (<2MB): ~45s (text extraction is fast)
-  // - Medium PDFs (2-10MB): ~90s (likely has images, needs OCR)
-  // - Large/scanned PDFs (>10MB): ~150s (full vision pipeline)
-  // - Images: ~60s (direct vision)
+  // Fetch real processing time estimate from backend
+  useEffect(() => {
+    getProcessingEstimate()
+      .then((est) => {
+        if (est.sample_count > 0) {
+          setBackendEstimate({ avg: est.avg_seconds, min: est.min_seconds, max: est.max_seconds });
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Use backend average if available, otherwise fallback to file-size heuristic
   const isImage = fileName ? /\.(png|jpe?g|webp|gif|bmp|tiff?)$/i.test(fileName) : false;
-  const estimatedTotalSec = isImage
+  const fallbackEstimate = isImage
     ? 60
     : fileSizeMB
       ? fileSizeMB < 2 ? 45
@@ -177,6 +209,16 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
         : fileSizeMB < 30 ? 150
         : 200
       : 90;
+
+  const estimatedTotalSec = backendEstimate ? Math.round(backendEstimate.avg) : fallbackEstimate;
+
+  // Use real min/max from backend or derive from estimate
+  const estimatedRangeLow = backendEstimate
+    ? Math.round(backendEstimate.min)
+    : Math.max(10, Math.round(estimatedTotalSec * 0.6));
+  const estimatedRangeHigh = backendEstimate
+    ? Math.round(backendEstimate.max)
+    : Math.round(estimatedTotalSec * 1.3);
 
   useEffect(() => {
     let timeout: NodeJS.Timeout;
@@ -232,12 +274,22 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
           Powered by 360Labs AI Engine
         </p>
 
-        {/* Time estimate badge */}
-        <p className="text-xs text-neutral-500 bg-neutral-100 px-3 py-1.5 rounded-full mb-4">
+        {/* Processing time estimate & live timer (Task 43) */}
+        <div className="flex items-center gap-3 mb-4">
+          <span className="text-xs text-neutral-500 bg-neutral-100 px-3 py-1.5 rounded-full">
+            Estimated: {estimatedRangeLow}-{estimatedRangeHigh} seconds
+          </span>
+          <span className="text-xs font-semibold tabular-nums bg-[#132337] text-white px-3 py-1.5 rounded-full">
+            {elapsedSec}s elapsed
+          </span>
+        </div>
+
+        {/* Remaining time hint */}
+        <p className="text-xs text-neutral-400 mb-3">
           {isOverEstimate
-            ? `${elapsedSec}s elapsed — taking longer than expected, please wait...`
+            ? "Taking longer than expected, please wait..."
             : remainingSec > 0
-              ? `~${Math.ceil(remainingSec / 5) * 5}s remaining · ${elapsedSec}s elapsed`
+              ? `~${Math.ceil(remainingSec / 5) * 5}s remaining`
               : "Almost done..."}
         </p>
 
@@ -249,7 +301,7 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
           </div>
           <div className="h-2 bg-neutral-100 rounded-full overflow-hidden">
             <div
-              className="h-full bg-black rounded-full transition-all duration-700 ease-out"
+              className="h-full bg-[#132337] rounded-full transition-all duration-700 ease-out"
               style={{ width: `${progressPct}%` }}
             />
           </div>
@@ -323,6 +375,71 @@ export default function UploadAgreementPage() {
   const [uploadMode, setUploadMode] = useState<"single" | "bulk">("single");
   const [bulkFiles, setBulkFiles] = useState<BulkFileItem[]>([]);
   const [bulkProcessing, setBulkProcessing] = useState(false);
+
+  // Split-screen review state
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
+  const [pdfZoom, setPdfZoom] = useState(100);
+
+  // Create object URL for PDF viewer
+  const fileUrl = useMemo(() => {
+    if (selectedFile) return URL.createObjectURL(selectedFile);
+    return null;
+  }, [selectedFile]);
+
+  // Cleanup object URL on unmount or file change
+  useEffect(() => {
+    return () => {
+      if (fileUrl) URL.revokeObjectURL(fileUrl);
+    };
+  }, [fileUrl]);
+
+  function toggleSection(sectionKey: string) {
+    setCollapsedSections((prev) => ({ ...prev, [sectionKey]: !prev[sectionKey] }));
+  }
+
+  function expandAllSections() {
+    setCollapsedSections({});
+  }
+
+  function collapseAllSections() {
+    if (!result) return;
+    const all: Record<string, boolean> = {};
+    Object.keys(result.extraction).forEach((key) => { all[key] = true; });
+    setCollapsedSections(all);
+  }
+
+  function getConfidenceBadge(level: Confidence) {
+    switch (level) {
+      case "high":
+        return (
+          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-1.5 py-0.5">
+            <CheckCircle2 className="h-3 w-3" />
+            High
+          </span>
+        );
+      case "medium":
+        return (
+          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-1.5 py-0.5">
+            <AlertTriangle className="h-3 w-3" />
+            Medium
+          </span>
+        );
+      case "low":
+        return (
+          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-red-700 bg-red-50 border border-red-200 rounded-full px-1.5 py-0.5">
+            <AlertTriangle className="h-3 w-3" />
+            Low
+          </span>
+        );
+      default:
+        return (
+          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-neutral-500 bg-neutral-50 border border-neutral-200 rounded-full px-1.5 py-0.5">
+            <Eye className="h-3 w-3" />
+            N/A
+          </span>
+        );
+    }
+  }
 
   const validExtRegex = /\.(pdf|png|jpe?g|webp|gif|bmp|tiff?)$/i;
   const validMimeTypes = [
@@ -470,6 +587,7 @@ export default function UploadAgreementPage() {
         confidence: item.result.confidence,
         filename: item.result.filename,
         document_text: item.result.document_text,
+        document_url: item.result.document_url,
       });
       setBulkFiles((prev) => prev.map((f, idx) => idx === index ? { ...f, status: "done", activationResult: activation } : f));
     } catch (err) {
@@ -543,20 +661,7 @@ export default function UploadAgreementPage() {
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <Link href="/agreements">
-          <Button variant="ghost" size="sm" className="gap-1">
-            <ChevronLeft className="h-4 w-4" />
-            Back
-          </Button>
-        </Link>
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Upload Agreement</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Upload a lease, LOI, or license document for AI-powered data extraction
-          </p>
-        </div>
-      </div>
+      <PageHeader title="Upload Agreement" description="Upload a lease, LOI, or license document for AI-powered data extraction" backHref="/agreements" />
 
       {/* Step Indicator */}
       <div className="flex items-center gap-0">
@@ -573,7 +678,7 @@ export default function UploadAgreementPage() {
                   step > s.num
                     ? "bg-emerald-600 text-white"
                     : step === s.num
-                    ? "bg-black text-white"
+                    ? "bg-[#132337] text-white"
                     : "bg-neutral-200 text-neutral-500"
                 }`}
               >
@@ -621,7 +726,7 @@ export default function UploadAgreementPage() {
               variant={uploadMode === "single" ? "default" : "ghost"}
               size="sm"
               onClick={() => setUploadMode("single")}
-              className={uploadMode === "single" ? "bg-black text-white hover:bg-neutral-800" : "text-neutral-500 hover:text-black"}
+              className={uploadMode === "single" ? "bg-[#132337] text-white hover:bg-[#152340]" : "text-neutral-500 hover:text-black"}
             >
               <CloudUpload className="h-4 w-4 mr-1.5" />
               Single File
@@ -630,7 +735,7 @@ export default function UploadAgreementPage() {
               variant={uploadMode === "bulk" ? "default" : "ghost"}
               size="sm"
               onClick={() => setUploadMode("bulk")}
-              className={uploadMode === "bulk" ? "bg-black text-white hover:bg-neutral-800" : "text-neutral-500 hover:text-black"}
+              className={uploadMode === "bulk" ? "bg-[#132337] text-white hover:bg-[#152340]" : "text-neutral-500 hover:text-black"}
             >
               <Files className="h-4 w-4 mr-1.5" />
               Bulk Upload
@@ -812,15 +917,32 @@ export default function UploadAgreementPage() {
                               </Button>
                             )}
                             {item.status === "extracted" && (
-                              <Button
-                                variant="default"
-                                size="sm"
-                                className="text-xs h-7 gap-1"
-                                onClick={() => handleBulkActivate(i)}
-                              >
-                                <Rocket className="h-3 w-3" />
-                                Activate
-                              </Button>
+                              <div className="flex items-center gap-1.5">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="text-xs h-7 gap-1"
+                                  onClick={() => {
+                                    // Load this file into single review mode (step 3)
+                                    setSelectedFile(item.file);
+                                    setResult(item.result || null);
+                                    setUploadMode("single");
+                                    setStep(3);
+                                  }}
+                                >
+                                  <Eye className="h-3 w-3" />
+                                  Review
+                                </Button>
+                                <Button
+                                  variant="default"
+                                  size="sm"
+                                  className="text-xs h-7 gap-1"
+                                  onClick={() => handleBulkActivate(i)}
+                                >
+                                  <Rocket className="h-3 w-3" />
+                                  Activate
+                                </Button>
+                              </div>
                             )}
                             {item.status === "error" && !bulkProcessing && (
                               <Button
@@ -905,30 +1027,33 @@ export default function UploadAgreementPage() {
       {/* Step 2: Processing */}
       {step === 2 && <ProcessingStep fileSizeMB={selectedFile ? selectedFile.size / (1024 * 1024) : undefined} fileName={selectedFile?.name} />}
 
-      {/* Step 3: Review */}
+      {/* Step 3: Review — Split-Screen Layout */}
       {step === 3 && result && (
-        <div className="space-y-5">
+        <div className="space-y-4">
           {/* Summary bar */}
           <div className="flex items-center gap-4 p-4 rounded-xl border bg-emerald-50/80 border-emerald-200">
-            <div className="h-10 w-10 rounded-full bg-emerald-100 flex items-center justify-center">
+            <div className="h-10 w-10 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
               <Check className="h-5 w-5 text-emerald-600" />
             </div>
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-emerald-900">Extraction Complete</p>
               <p className="text-xs text-emerald-700">
                 Classified as <strong>{(result.document_type || "unknown").replace(/_/g, " ").toUpperCase()}</strong>
                 {stats && <> &middot; {stats.total} fields extracted &middot; {stats.highConf} high confidence</>}
+                {result.processing_duration_seconds != null && (
+                  <> &middot; Processed in {result.processing_duration_seconds}s</>
+                )}
                 {(result as Record<string, unknown>)?.extraction_method === "vision" && (
                   <Badge variant="outline" className="ml-2 text-[10px]">Vision AI</Badge>
                 )}
               </p>
             </div>
-            <Badge variant="outline" className="text-xs">{result.filename}</Badge>
+            <Badge variant="outline" className="text-xs flex-shrink-0 hidden sm:inline-flex">{result.filename}</Badge>
           </div>
 
           {/* Stats bar */}
           {stats && (
-            <div className="grid grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="text-center p-3 rounded-lg border bg-white">
                 <p className="text-2xl font-bold">{stats.total}</p>
                 <p className="text-[11px] text-muted-foreground">Fields Extracted</p>
@@ -948,121 +1073,289 @@ export default function UploadAgreementPage() {
             </div>
           )}
 
-          {/* Risk Flags Section */}
-          {result.risk_flags.length > 0 && (
-            <div>
-              <div className="flex items-center gap-2 mb-3">
-                <Shield className="h-4 w-4 text-red-500" />
-                <h2 className="text-sm font-semibold">Risk Flags Detected</h2>
+          {/* Split-Screen: PDF Viewer (left) + Extracted Fields (right) */}
+          <div className="flex flex-col lg:flex-row gap-4 lg:gap-5">
+            {/* LEFT SIDE: PDF Viewer */}
+            <div className="w-full lg:w-1/2 lg:sticky lg:top-4 lg:self-start">
+              <Card className="overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-2.5 bg-neutral-50 border-b">
+                  <div className="flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-neutral-500" />
+                    <span className="text-xs font-medium text-neutral-700 truncate max-w-[200px]">
+                      {result.filename}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0"
+                      onClick={() => setPdfZoom((z) => Math.max(50, z - 25))}
+                      disabled={pdfZoom <= 50}
+                    >
+                      <ZoomOut className="h-3.5 w-3.5" />
+                    </Button>
+                    <span className="text-xs font-medium text-neutral-500 w-10 text-center tabular-nums">
+                      {pdfZoom}%
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-7 p-0"
+                      onClick={() => setPdfZoom((z) => Math.min(200, z + 25))}
+                      disabled={pdfZoom >= 200}
+                    >
+                      <ZoomIn className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+                <div className="bg-neutral-100 overflow-auto" style={{ height: "calc(100vh - 320px)", minHeight: "400px" }}>
+                  {fileUrl && selectedFile?.type === "application/pdf" ? (
+                    <iframe
+                      src={`${fileUrl}#toolbar=0&view=FitH`}
+                      className="border-0"
+                      title="Document Preview"
+                      style={{
+                        width: `${pdfZoom}%`,
+                        height: "100%",
+                        minHeight: "100%",
+                        transformOrigin: "top left",
+                      }}
+                    />
+                  ) : fileUrl && selectedFile?.type?.startsWith("image/") ? (
+                    <div className="flex items-center justify-center p-4 h-full">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={fileUrl}
+                        alt="Uploaded document"
+                        className="max-w-full object-contain"
+                        style={{
+                          transform: `scale(${pdfZoom / 100})`,
+                          transformOrigin: "top center",
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center h-full text-neutral-400">
+                      <FileText className="h-12 w-12 mb-3" />
+                      <p className="text-sm font-medium">Preview not available</p>
+                      <p className="text-xs mt-1">The uploaded document cannot be previewed in the browser.</p>
+                    </div>
+                  )}
+                </div>
+              </Card>
+            </div>
+
+            {/* RIGHT SIDE: Extracted Fields with Collapsible Sections */}
+            <div className="w-full lg:w-1/2 space-y-3">
+              {/* Section controls */}
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-neutral-700">Extracted Data</h2>
+                <div className="flex items-center gap-1">
+                  <Button variant="ghost" size="sm" className="text-xs h-7 px-2" onClick={expandAllSections}>
+                    Expand All
+                  </Button>
+                  <Button variant="ghost" size="sm" className="text-xs h-7 px-2" onClick={collapseAllSections}>
+                    Collapse All
+                  </Button>
+                </div>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {result.risk_flags.map((flag, i) => (
+
+              {/* Risk Flags Section (collapsible) */}
+              {result.risk_flags.length > 0 && (
+                <Card className="overflow-hidden border-red-200">
+                  <button
+                    className="w-full flex items-center gap-2 px-4 py-3 bg-red-50/50 hover:bg-red-50 transition-colors text-left"
+                    onClick={() => toggleSection("_risk_flags")}
+                  >
+                    <Shield className="h-4 w-4 text-red-500 flex-shrink-0" />
+                    <span className="text-sm font-semibold flex-1">Risk Flags</span>
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] border-red-300 text-red-700 mr-1"
+                    >
+                      {result.risk_flags.length}
+                    </Badge>
+                    {collapsedSections["_risk_flags"] ? (
+                      <ChevronDown className="h-4 w-4 text-neutral-400" />
+                    ) : (
+                      <ChevronUp className="h-4 w-4 text-neutral-400" />
+                    )}
+                  </button>
                   <div
-                    key={i}
-                    className={`p-3 rounded-lg border ${
-                      flag.severity === "high"
-                        ? "border-red-200 bg-red-50/50"
-                        : "border-amber-200 bg-amber-50/50"
+                    className={`transition-all duration-300 ease-in-out overflow-hidden ${
+                      collapsedSections["_risk_flags"] ? "max-h-0" : "max-h-[2000px]"
                     }`}
                   >
-                    <div className="flex items-start gap-2">
-                      <AlertTriangle
-                        className={`h-4 w-4 mt-0.5 flex-shrink-0 ${
-                          flag.severity === "high" ? "text-red-500" : "text-amber-500"
-                        }`}
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-0.5">
-                          <span className="text-sm font-medium">{flag.name || flag.explanation}</span>
-                          <Badge
-                            variant="outline"
-                            className={`text-[10px] px-1.5 py-0 ${
-                              flag.severity === "high"
-                                ? "border-red-300 text-red-700"
-                                : "border-amber-300 text-amber-700"
-                            }`}
-                          >
-                            {flag.severity}
-                          </Badge>
+                    <CardContent className="pt-3 pb-3 space-y-2">
+                      {result.risk_flags.map((flag, i) => (
+                        <div
+                          key={i}
+                          className={`p-2.5 rounded-lg border ${
+                            flag.severity === "high"
+                              ? "border-red-200 bg-red-50/50"
+                              : "border-amber-200 bg-amber-50/50"
+                          }`}
+                        >
+                          <div className="flex items-start gap-2">
+                            <AlertTriangle
+                              className={`h-3.5 w-3.5 mt-0.5 flex-shrink-0 ${
+                                flag.severity === "high" ? "text-red-500" : "text-amber-500"
+                              }`}
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-0.5">
+                                <span className="text-xs font-medium">{flag.name || flag.explanation}</span>
+                                <Badge
+                                  variant="outline"
+                                  className={`text-[10px] px-1.5 py-0 ${
+                                    flag.severity === "high"
+                                      ? "border-red-300 text-red-700"
+                                      : "border-amber-300 text-amber-700"
+                                  }`}
+                                >
+                                  {flag.severity}
+                                </Badge>
+                              </div>
+                              {flag.explanation && flag.name && (
+                                <p className="text-[11px] text-muted-foreground">{flag.explanation}</p>
+                              )}
+                              {flag.clause_text && (
+                                <p className="text-[11px] text-muted-foreground italic mt-1 line-clamp-2">
+                                  &ldquo;{flag.clause_text}&rdquo;
+                                </p>
+                              )}
+                            </div>
+                          </div>
                         </div>
-                        {flag.explanation && flag.name && (
-                          <p className="text-xs text-muted-foreground">{flag.explanation}</p>
+                      ))}
+                    </CardContent>
+                  </div>
+                </Card>
+              )}
+
+              {/* Extracted Data — Accordion Sections */}
+              {Object.entries(result.extraction).map(([sectionKey, sectionData]) => {
+                if (typeof sectionData !== "object" || sectionData === null) return null;
+                const fields = Object.entries(sectionData as Record<string, unknown>);
+                if (fields.length === 0) return null;
+
+                const config = sectionConfig[sectionKey] || {
+                  title: formatFieldLabel(sectionKey),
+                  icon: FileText,
+                };
+                const Icon = config.icon;
+                const isCollapsed = !!collapsedSections[sectionKey];
+
+                // Count confidence levels in this section
+                const sectionStats = fields.reduce(
+                  (acc, [, val]) => {
+                    const { confidence } = parseField(val);
+                    acc.total++;
+                    if (confidence === "high") acc.high++;
+                    else if (confidence === "medium") acc.medium++;
+                    else if (confidence === "low") acc.low++;
+                    return acc;
+                  },
+                  { total: 0, high: 0, medium: 0, low: 0 }
+                );
+
+                return (
+                  <Card key={sectionKey} className="overflow-hidden">
+                    {/* Section Header (clickable to toggle) */}
+                    <button
+                      className="w-full flex items-center gap-2 px-4 py-3 hover:bg-neutral-50/80 transition-colors text-left"
+                      onClick={() => toggleSection(sectionKey)}
+                    >
+                      <Icon className="h-4 w-4 text-neutral-500 flex-shrink-0" />
+                      <span className="text-sm font-semibold flex-1">{config.title}</span>
+                      <div className="flex items-center gap-1.5 mr-1">
+                        {sectionStats.high > 0 && (
+                          <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-emerald-600">
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                            {sectionStats.high}
+                          </span>
                         )}
-                        {flag.clause_text && (
-                          <p className="text-xs text-muted-foreground italic mt-1 line-clamp-2">
-                            &ldquo;{flag.clause_text}&rdquo;
-                          </p>
+                        {sectionStats.medium > 0 && (
+                          <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-amber-600">
+                            <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                            {sectionStats.medium}
+                          </span>
+                        )}
+                        {sectionStats.low > 0 && (
+                          <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-red-600">
+                            <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+                            {sectionStats.low}
+                          </span>
                         )}
                       </div>
+                      <Badge variant="outline" className="text-[10px] mr-1">
+                        {fields.length} {fields.length === 1 ? "field" : "fields"}
+                      </Badge>
+                      {isCollapsed ? (
+                        <ChevronDown className="h-4 w-4 text-neutral-400 flex-shrink-0" />
+                      ) : (
+                        <ChevronUp className="h-4 w-4 text-neutral-400 flex-shrink-0" />
+                      )}
+                    </button>
+
+                    {/* Section Body (collapsible) */}
+                    <div
+                      className={`transition-all duration-300 ease-in-out overflow-hidden ${
+                        isCollapsed ? "max-h-0" : "max-h-[5000px]"
+                      }`}
+                    >
+                      <Separator />
+                      <CardContent className="pt-3 pb-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-3">
+                          {fields.map(([fieldKey, fieldVal]) => {
+                            const { displayVal, confidence } = parseField(fieldVal);
+
+                            return (
+                              <div key={fieldKey} className="min-w-0 group/field">
+                                <div className="flex items-center gap-1.5 mb-0.5">
+                                  <ConfidenceDot level={confidence} />
+                                  <p className="text-[11px] text-muted-foreground uppercase tracking-wide flex-1">
+                                    {formatFieldLabel(fieldKey)}
+                                  </p>
+                                  <span className="opacity-0 group-hover/field:opacity-100 transition-opacity">
+                                    {getConfidenceBadge(confidence)}
+                                  </span>
+                                  <FeedbackButton
+                                    agreementId={result.filename}
+                                    fieldName={`${sectionKey}.${fieldKey}`}
+                                    originalValue={displayVal}
+                                  />
+                                </div>
+                                <EditableField
+                                  value={displayVal}
+                                  isNotFound={displayVal === "Not found"}
+                                  onChange={(newVal) => {
+                                    setResult((prev) => {
+                                      if (!prev) return prev;
+                                      const updated = { ...prev, extraction: { ...prev.extraction } };
+                                      const section = { ...(updated.extraction[sectionKey] as Record<string, unknown>) };
+                                      const existing = section[fieldKey];
+                                      if (typeof existing === "object" && existing !== null && "value" in (existing as Record<string, unknown>)) {
+                                        section[fieldKey] = { ...(existing as Record<string, unknown>), value: newVal };
+                                      } else {
+                                        section[fieldKey] = newVal;
+                                      }
+                                      updated.extraction[sectionKey] = section;
+                                      return updated;
+                                    });
+                                  }}
+                                />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </CardContent>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  </Card>
+                );
+              })}
             </div>
-          )}
-
-          <Separator />
-
-          {/* Extracted Data Sections */}
-          <div className="space-y-4">
-            {Object.entries(result.extraction).map(([sectionKey, sectionData]) => {
-              if (typeof sectionData !== "object" || sectionData === null) return null;
-              const fields = Object.entries(sectionData as Record<string, unknown>);
-              if (fields.length === 0) return null;
-
-              const config = sectionConfig[sectionKey] || {
-                title: formatFieldLabel(sectionKey),
-                icon: FileText,
-              };
-              const Icon = config.icon;
-
-              return (
-                <Card key={sectionKey}>
-                  <CardContent className="pt-4 pb-4">
-                    <div className="flex items-center gap-2 mb-3">
-                      <Icon className="h-4 w-4 text-neutral-500" />
-                      <h3 className="text-sm font-semibold">{config.title}</h3>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-3">
-                      {fields.map(([fieldKey, fieldVal]) => {
-                        const { displayVal, confidence } = parseField(fieldVal);
-
-                        return (
-                          <div key={fieldKey} className="min-w-0">
-                            <div className="flex items-center gap-1.5 mb-0.5">
-                              <ConfidenceDot level={confidence} />
-                              <p className="text-[11px] text-muted-foreground uppercase tracking-wide">
-                                {formatFieldLabel(fieldKey)}
-                              </p>
-                            </div>
-                            <EditableField
-                              value={displayVal}
-                              isNotFound={displayVal === "Not found"}
-                              onChange={(newVal) => {
-                                setResult((prev) => {
-                                  if (!prev) return prev;
-                                  const updated = { ...prev, extraction: { ...prev.extraction } };
-                                  const section = { ...(updated.extraction[sectionKey] as Record<string, unknown>) };
-                                  const existing = section[fieldKey];
-                                  // Preserve confidence wrapper
-                                  if (typeof existing === "object" && existing !== null && "value" in (existing as Record<string, unknown>)) {
-                                    section[fieldKey] = { ...(existing as Record<string, unknown>), value: newVal };
-                                  } else {
-                                    section[fieldKey] = newVal;
-                                  }
-                                  updated.extraction[sectionKey] = section;
-                                  return updated;
-                                });
-                              }}
-                            />
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
           </div>
 
           {/* Action Bar */}
@@ -1096,6 +1389,7 @@ export default function UploadAgreementPage() {
                       confidence: result.confidence,
                       filename: result.filename,
                       document_text: result.document_text,
+                      document_url: result.document_url,
                     });
                     setActivationResult(res);
                     setStep(4);

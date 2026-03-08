@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
-import { getDashboardStats, smartChat } from "@/lib/api";
+import { getDashboardStats, smartChat, listOutlets } from "@/lib/api";
+import { useUser } from "@/lib/hooks/use-user";
 import dynamic from "next/dynamic";
 
 const IndiaMap = dynamic(() => import("@/components/india-map"), { ssr: false });
@@ -28,6 +29,10 @@ import {
   Sparkles,
   User,
   MapPin,
+  Shield,
+  Users,
+  Activity,
+  Settings,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -45,10 +50,11 @@ interface DashboardStats {
   expiring_leases_90d: number;
   outlets_by_city: Record<string, number>;
   outlets_by_status: Record<string, number>;
-  outlet_details_by_city?: Record<string, { name: string; status: string; rent?: number }[]>;
+  outlet_details_by_city?: Record<string, { id?: string; name: string; status: string; rent?: number }[]>;
   overdue_payments_count?: number;
   overdue_amount?: number;
   pipeline_stages?: Record<string, number>;
+  outlets_by_property_type?: Record<string, number>;
 }
 
 // ---------------------------------------------------------------------------
@@ -82,6 +88,19 @@ function statusColor(status: string): string {
     case "fit_out": return "#f59e0b";
     case "closed": return "#ef4444";
     case "under_construction": return "#3b82f6";
+    default: return "#a3a3a3";
+  }
+}
+
+/** Return hex color for property type (for bar chart) */
+function propertyTypeColor(type: string): string {
+  switch (type) {
+    case "mall": return "#8b5cf6";
+    case "high_street": return "#3b82f6";
+    case "standalone": return "#10b981";
+    case "food_court": return "#f59e0b";
+    case "cloud_kitchen": return "#ef4444";
+    case "institutional": return "#06b6d4";
     default: return "#a3a3a3";
   }
 }
@@ -337,14 +356,14 @@ function SmartAIChat() {
                 className={`flex gap-2 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
               >
                 {msg.role === "ai" && (
-                  <div className="w-6 h-6 rounded-full bg-black flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <div className="w-6 h-6 rounded-full bg-[#132337] flex items-center justify-center flex-shrink-0 mt-0.5">
                     <Sparkles className="w-3 h-3 text-white" />
                   </div>
                 )}
                 <div
                   className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
                     msg.role === "user"
-                      ? "bg-black text-white"
+                      ? "bg-[#132337] text-white"
                       : "bg-white border border-neutral-200 text-neutral-700"
                   }`}
                 >
@@ -360,7 +379,7 @@ function SmartAIChat() {
 
             {loading && (
               <div className="flex gap-2">
-                <div className="w-6 h-6 rounded-full bg-black flex items-center justify-center flex-shrink-0">
+                <div className="w-6 h-6 rounded-full bg-[#132337] flex items-center justify-center flex-shrink-0">
                   <Sparkles className="w-3 h-3 text-white" />
                 </div>
                 <div className="bg-white border border-neutral-200 rounded-lg px-3 py-2">
@@ -423,6 +442,7 @@ function SmartAIChat() {
 // ---------------------------------------------------------------------------
 
 export default function Dashboard() {
+  const { user } = useUser();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -432,6 +452,7 @@ export default function Dashboard() {
     count: number;
     outlets: { name: string; status: string; rent?: number }[];
   } | null>(null);
+  const [propertyTypeCounts, setPropertyTypeCounts] = useState<Record<string, number>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -462,6 +483,61 @@ export default function Dashboard() {
       cancelled = true;
     };
   }, []);
+
+  // Fetch outlets to compute property type breakdown
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchPropertyTypes() {
+      try {
+        // If stats already has property type data, use it
+        if (stats?.outlets_by_property_type && Object.keys(stats.outlets_by_property_type).length > 0) {
+          if (!cancelled) setPropertyTypeCounts(stats.outlets_by_property_type);
+          return;
+        }
+        // Otherwise fetch outlets and compute
+        const data = await listOutlets({ page: 1, page_size: 500 });
+        if (!cancelled && data?.items) {
+          const counts: Record<string, number> = {};
+          for (const outlet of data.items) {
+            const pt = (outlet as { property_type?: string }).property_type || "unknown";
+            counts[pt] = (counts[pt] || 0) + 1;
+          }
+          setPropertyTypeCounts(counts);
+        }
+      } catch {
+        // Non-critical — silently ignore
+      }
+    }
+
+    if (stats) fetchPropertyTypes();
+    return () => { cancelled = true; };
+  }, [stats]);
+
+  // Role-based visibility helpers
+  // TODO: If role-scoped backend endpoints are added, filter data server-side as well
+  const isPlatformAdmin = user?.role === "platform_admin" || user?.role === "org_admin";
+  const isOrgMember = user?.role === "org_member";
+
+  // Role tier badge config (Task 42)
+  const roleTierConfig: Record<string, { badge: string; color: string; icon: JSX.Element }> = {
+    platform_admin: {
+      badge: "System Admin",
+      color: "bg-red-100 text-red-800 border-red-200",
+      icon: <Shield className="h-3 w-3" />,
+    },
+    org_admin: {
+      badge: "Admin",
+      color: "bg-blue-100 text-blue-800 border-blue-200",
+      icon: <Users className="h-3 w-3" />,
+    },
+    org_member: {
+      badge: "Member",
+      color: "bg-neutral-100 text-neutral-700 border-neutral-200",
+      icon: <User className="h-3 w-3" />,
+    },
+  };
+  const currentTier = roleTierConfig[user?.role || "org_member"];
 
   // Loading state
   if (loading) {
@@ -527,12 +603,78 @@ export default function Dashboard() {
       {/* -------------------------------------------------------------- */}
       {/* Page heading                                                     */}
       {/* -------------------------------------------------------------- */}
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight">Dashboard</h1>
-        <p className="text-xs text-neutral-500 mt-0.5">
-          Platform overview across {stats?.total_outlets ?? 0} outlets and{" "}
-          {stats?.total_agreements ?? 0} agreements
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-semibold tracking-tight">Dashboard</h1>
+            <Badge className={`text-[10px] gap-1 px-2 py-0.5 border ${currentTier.color}`}>
+              {currentTier.icon}
+              {currentTier.badge}
+            </Badge>
+          </div>
+          <p className="text-xs text-neutral-500 mt-0.5">
+            {user?.role === "platform_admin"
+              ? `System-wide overview across ${stats?.total_outlets ?? 0} outlets and ${stats?.total_agreements ?? 0} agreements`
+              : isPlatformAdmin
+                ? `Organization overview — ${stats?.total_outlets ?? 0} outlets, ${stats?.total_agreements ?? 0} agreements`
+                : `Your portfolio — ${stats?.total_outlets ?? 0} outlets, ${stats?.pending_alerts ?? 0} pending alerts`}
+          </p>
+        </div>
+        {user?.role === "platform_admin" && (
+          <div className="flex items-center gap-1.5">
+            <Badge variant="outline" className="gap-1 text-[10px] text-emerald-700 border-emerald-200 bg-emerald-50">
+              <Activity className="h-3 w-3" />
+              System Healthy
+            </Badge>
+          </div>
+        )}
+      </div>
+
+      {/* -------------------------------------------------------------- */}
+      {/* Quick Actions Row (top)                                          */}
+      {/* -------------------------------------------------------------- */}
+      <div className="flex flex-wrap items-center gap-2">
+        {/* Common actions for all roles */}
+        <Link href="/agreements/upload">
+          <Button variant="outline" size="sm" className="gap-1.5 text-xs">
+            <Upload className="h-3.5 w-3.5" />
+            Upload Agreement
+          </Button>
+        </Link>
+        <Link href="/outlets">
+          <Button variant="outline" size="sm" className="gap-1.5 text-xs">
+            <Store className="h-3.5 w-3.5" />
+            View All Outlets
+          </Button>
+        </Link>
+        <Link href="/reports">
+          <Button variant="outline" size="sm" className="gap-1.5 text-xs">
+            <BarChart3 className="h-3.5 w-3.5" />
+            View Reports
+          </Button>
+        </Link>
+
+        {/* platform_admin: all-org switcher & system settings */}
+        {user?.role === "platform_admin" && (
+          <>
+            <Link href="/settings">
+              <Button variant="outline" size="sm" className="gap-1.5 text-xs">
+                <Settings className="h-3.5 w-3.5" />
+                System Settings
+              </Button>
+            </Link>
+          </>
+        )}
+
+        {/* org_admin: team management shortcuts */}
+        {user?.role === "org_admin" && (
+          <Link href="/settings">
+            <Button variant="outline" size="sm" className="gap-1.5 text-xs">
+              <Users className="h-3.5 w-3.5" />
+              Manage Team
+            </Button>
+          </Link>
+        )}
       </div>
 
       {/* -------------------------------------------------------------- */}
@@ -613,9 +755,9 @@ export default function Dashboard() {
       </div>
 
       {/* -------------------------------------------------------------- */}
-      {/* Row 2 -- Secondary stat cards (3 columns)                        */}
+      {/* Row 2 -- Secondary stat cards (3 columns) [admin/org_admin only] */}
       {/* -------------------------------------------------------------- */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 lg:gap-5">
+      {isPlatformAdmin && <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 lg:gap-5">
         {/* Expiring Leases (90 days) */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 p-4">
@@ -669,7 +811,7 @@ export default function Dashboard() {
             </p>
           </CardContent>
         </Card>
-      </div>
+      </div>}
 
       {/* -------------------------------------------------------------- */}
       {/* Row 2.5 -- Expiring Leases + Risk Flags + Overdue inline badges  */}
@@ -745,9 +887,9 @@ export default function Dashboard() {
       </div>
 
       {/* -------------------------------------------------------------- */}
-      {/* Row 2.7 -- Pipeline Summary                                     */}
+      {/* Row 2.7 -- Pipeline Summary [admin only]                         */}
       {/* -------------------------------------------------------------- */}
-      {stats?.pipeline_stages && Object.keys(stats.pipeline_stages).length > 0 && (
+      {isPlatformAdmin && stats?.pipeline_stages && Object.keys(stats.pipeline_stages).length > 0 && (
         <Card>
           <CardHeader className="p-4 pb-2">
             <div className="flex items-center justify-between">
@@ -777,23 +919,127 @@ export default function Dashboard() {
       )}
 
       {/* -------------------------------------------------------------- */}
-      {/* Row 3 -- India Map + Outlets by City & Status                    */}
+      {/* Row 2.8 -- Expiring Leases + Risk Flags + Property Type cards    */}
       {/* -------------------------------------------------------------- */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 lg:gap-5">
+      {isPlatformAdmin && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-5">
+          {/* Expiring Leases Card */}
+          <Card className="border-amber-200 bg-amber-50/30">
+            <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 p-4">
+              <CardTitle className="text-xs font-medium text-amber-700">
+                Expiring Leases
+              </CardTitle>
+              <CalendarClock className="h-4 w-4 text-amber-500" />
+            </CardHeader>
+            <CardContent className="p-4 pt-0">
+              <div className="text-3xl font-bold text-amber-700">
+                {stats?.expiring_leases_90d ?? 0}
+              </div>
+              <p className="text-xs text-amber-600/80 mt-1">
+                Agreements expiring within 90 days
+              </p>
+              {(stats?.expiring_leases_90d ?? 0) > 0 && (
+                <Link href="/alerts" className="inline-block mt-2">
+                  <Button variant="outline" size="sm" className="text-[11px] h-7 border-amber-300 text-amber-700 hover:bg-amber-100">
+                    Review Expiring
+                  </Button>
+                </Link>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Risk Flags Summary Card */}
+          <Card className={`${(stats?.total_risk_flags ?? 0) > 0 ? "border-red-200 bg-red-50/30" : "border-emerald-200 bg-emerald-50/30"}`}>
+            <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 p-4">
+              <CardTitle className={`text-xs font-medium ${(stats?.total_risk_flags ?? 0) > 0 ? "text-red-700" : "text-emerald-700"}`}>
+                Risk Flags Summary
+              </CardTitle>
+              <ShieldAlert className={`h-4 w-4 ${(stats?.total_risk_flags ?? 0) > 0 ? "text-red-500" : "text-emerald-500"}`} />
+            </CardHeader>
+            <CardContent className="p-4 pt-0">
+              <div className={`text-3xl font-bold ${(stats?.total_risk_flags ?? 0) > 0 ? "text-red-700" : "text-emerald-700"}`}>
+                {stats?.total_risk_flags ?? 0}
+              </div>
+              <p className={`text-xs mt-1 ${(stats?.total_risk_flags ?? 0) > 0 ? "text-red-600/80" : "text-emerald-600/80"}`}>
+                {(stats?.total_risk_flags ?? 0) > 0
+                  ? "Total risk flags across all agreements"
+                  : "No risk flags — portfolio looks healthy"}
+              </p>
+              {(stats?.total_risk_flags ?? 0) > 0 && (
+                <Link href="/agreements" className="inline-block mt-2">
+                  <Button variant="outline" size="sm" className="text-[11px] h-7 border-red-300 text-red-700 hover:bg-red-100">
+                    View Flagged
+                  </Button>
+                </Link>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Outlets by Property Type Card */}
+          <Card>
+            <CardHeader className="p-4 pb-2">
+              <CardTitle className="text-sm font-semibold">Outlets by Property Type</CardTitle>
+            </CardHeader>
+            <CardContent className="p-4 pt-2">
+              {Object.keys(propertyTypeCounts).length === 0 ? (
+                <p className="text-xs text-neutral-400">No property type data yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {Object.entries(propertyTypeCounts)
+                    .sort(([, a], [, b]) => b - a)
+                    .map(([type, count]) => {
+                      const maxCount = Math.max(...Object.values(propertyTypeCounts));
+                      return (
+                        <div key={type}>
+                          <div className="flex items-center justify-between mb-0.5">
+                            <div className="flex items-center gap-1.5">
+                              <span
+                                className="w-2 h-2 rounded-full flex-shrink-0"
+                                style={{ backgroundColor: propertyTypeColor(type) }}
+                              />
+                              <span className="text-xs text-neutral-700">{statusLabel(type)}</span>
+                            </div>
+                            <span className="text-xs font-semibold tabular-nums">{count}</span>
+                          </div>
+                          <div className="h-1.5 w-full rounded-full bg-neutral-100 overflow-hidden">
+                            <div
+                              className="h-full rounded-full transition-all"
+                              style={{
+                                width: `${(count / maxCount) * 100}%`,
+                                backgroundColor: propertyTypeColor(type),
+                              }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* -------------------------------------------------------------- */}
+      {/* Row 3 -- India Map + Outlets by City & Status [admin only]        */}
+      {/* -------------------------------------------------------------- */}
+      {isPlatformAdmin && <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 lg:gap-5">
         {/* India Map -- 3 columns */}
-        <Card className="flex flex-col lg:col-span-3">
+        <Card className="flex flex-col lg:col-span-3 overflow-hidden border-neutral-200/60">
           <CardHeader className="p-4 pb-2">
             <div className="flex items-center gap-2">
-              <MapPin className="h-4 w-4 text-neutral-500" />
+              <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-neutral-800 to-neutral-950 flex items-center justify-center">
+                <MapPin className="h-3 w-3 text-white" />
+              </div>
               <CardTitle className="text-sm font-semibold">
                 Outlet Locations
               </CardTitle>
-              <Badge variant="secondary" className="text-[10px] ml-auto">
+              <Badge variant="secondary" className="text-[10px] ml-auto font-semibold">
                 {stats?.total_outlets ?? 0} outlets
               </Badge>
             </div>
           </CardHeader>
-          <CardContent className="p-4 pt-0">
+          <CardContent className="p-3 pt-0">
             {outletsByCity.length === 0 ? (
               <p className="text-xs text-neutral-400">No outlet data yet.</p>
             ) : (
@@ -814,7 +1060,7 @@ export default function Dashboard() {
             <CardHeader className="p-4 pb-2">
               {mapCluster ? (
                 <div className="flex items-center gap-2">
-                  <div className="w-5 h-5 rounded-full bg-neutral-900 flex items-center justify-center flex-shrink-0">
+                  <div className="w-5 h-5 rounded-full bg-[#132337] flex items-center justify-center flex-shrink-0">
                     <MapPin className="h-3 w-3 text-white" />
                   </div>
                   <CardTitle className="text-sm font-semibold truncate">
@@ -946,38 +1192,52 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         </div>
-      </div>
+      </div>}
 
       {/* -------------------------------------------------------------- */}
-      {/* Row 4 -- Quick Actions                                           */}
+      {/* Org Member Simplified View                                       */}
       {/* -------------------------------------------------------------- */}
-      <Card>
-        <CardHeader className="p-4 pb-2">
-          <CardTitle className="text-sm font-semibold">Quick Actions</CardTitle>
-        </CardHeader>
-        <CardContent className="p-4 pt-2">
-          <div className="flex flex-wrap gap-3">
-            <Link href="/agreements/upload">
-              <Button size="sm">
-                <Upload className="h-4 w-4" />
-                Upload Agreement
-              </Button>
-            </Link>
-            <Link href="/alerts">
-              <Button variant="outline" size="sm">
-                <Bell className="h-4 w-4" />
-                View Alerts
-              </Button>
-            </Link>
-            <Link href="/reports">
-              <Button variant="outline" size="sm">
-                <BarChart3 className="h-4 w-4" />
-                View Reports
-              </Button>
-            </Link>
-          </div>
-        </CardContent>
-      </Card>
+      {isOrgMember && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 lg:gap-5">
+          {/* Expiring Leases Card (org_member view) */}
+          <Card className="border-amber-200 bg-amber-50/30">
+            <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 p-4">
+              <CardTitle className="text-xs font-medium text-amber-700">
+                Expiring Leases
+              </CardTitle>
+              <CalendarClock className="h-4 w-4 text-amber-500" />
+            </CardHeader>
+            <CardContent className="p-4 pt-0">
+              <div className="text-3xl font-bold text-amber-700">
+                {stats?.expiring_leases_90d ?? 0}
+              </div>
+              <p className="text-xs text-amber-600/80 mt-1">
+                Agreements expiring within 90 days
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* Risk Flags (org_member view) */}
+          <Card className={`${(stats?.total_risk_flags ?? 0) > 0 ? "border-red-200 bg-red-50/30" : "border-emerald-200 bg-emerald-50/30"}`}>
+            <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 p-4">
+              <CardTitle className={`text-xs font-medium ${(stats?.total_risk_flags ?? 0) > 0 ? "text-red-700" : "text-emerald-700"}`}>
+                Risk Flags
+              </CardTitle>
+              <ShieldAlert className={`h-4 w-4 ${(stats?.total_risk_flags ?? 0) > 0 ? "text-red-500" : "text-emerald-500"}`} />
+            </CardHeader>
+            <CardContent className="p-4 pt-0">
+              <div className={`text-3xl font-bold ${(stats?.total_risk_flags ?? 0) > 0 ? "text-red-700" : "text-emerald-700"}`}>
+                {stats?.total_risk_flags ?? 0}
+              </div>
+              <p className={`text-xs mt-1 ${(stats?.total_risk_flags ?? 0) > 0 ? "text-red-600/80" : "text-emerald-600/80"}`}>
+                {(stats?.total_risk_flags ?? 0) > 0
+                  ? "Flags needing your attention"
+                  : "All clear — no risk flags"}
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* -------------------------------------------------------------- */}
       {/* Row 5 -- Smart AI Chat                                          */}

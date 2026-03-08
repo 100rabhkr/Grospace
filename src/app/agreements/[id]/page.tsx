@@ -181,11 +181,17 @@ function parseField(fieldVal: unknown): {
         return { displayVal: "Not found", confidence: "not_found" };
       }
       if (typeof val === "object") {
-        return { displayVal: JSON.stringify(val), confidence: conf };
+        return { displayVal: parseField(val).displayVal, confidence: conf };
       }
       return { displayVal: String(val), confidence: conf };
     }
-    return { displayVal: JSON.stringify(obj), confidence: "high" };
+    return {
+      displayVal: Object.entries(obj)
+        .filter(([, v]) => v !== null && v !== undefined && v !== "")
+        .map(([k, v]) => `${k.replace(/_/g, " ")}: ${v}`)
+        .join(" | "),
+      confidence: "high",
+    };
   }
 
   if (Array.isArray(fieldVal)) {
@@ -194,17 +200,29 @@ function parseField(fieldVal: unknown): {
     const items = fieldVal.map((item) => {
       if (typeof item === "object" && item !== null) {
         const o = item as Record<string, unknown>;
-        if (o.year || o.period || o.years) {
-          const period = o.year || o.period || o.years || "";
-          const rent = o.monthly_rent || o.rent || o.amount || "";
-          const perSqft = o.rent_per_sqft || o.per_sqft || "";
-          let line = `${period}`;
-          if (rent)
-            line += `: Rs ${Number(rent).toLocaleString("en-IN")}/mo`;
+        if (o.year || o.period || o.years || o.from_year || o.to_year) {
+          const period = o.year || o.period || o.years || (o.from_year && o.to_year ? `Year ${o.from_year}-${o.to_year}` : o.from_year || o.to_year) || "";
+          const rent = o.monthly_rent || o.mglr_monthly || o.rent || o.amount || "";
+          const perSqft = o.rent_per_sqft || o.mglr_per_sqft || o.mglr_rate_per_sqft || o.per_sqft || "";
+          const revShare = o.revenue_share_net_sales_pct || o.revenue_share_takeaway_dining || o.revenue_share || "";
+          const revOnline = o.revenue_share_online || o.revenue_share_deliveries_pct || "";
+          const type = o.type || "";
+          const details = o.details || "";
+          const condition = o.condition || "";
+          let line = `Year ${period}`;
+          if (type) line += ` (${type})`;
+          if (details) line += `: ${details}`;
+          if (rent) line += `${details ? " | " : ": "}Rs ${Number(rent).toLocaleString("en-IN")}/sqft`;
           if (perSqft) line += ` (Rs ${perSqft}/sqft)`;
+          if (revShare) line += ` | Rev Share: ${revShare}%`;
+          if (revOnline) line += `, Delivery: ${revOnline}%`;
+          if (condition && !details) line += ` [${condition}]`;
           return line;
         }
-        return Object.values(o).join(" | ");
+        return Object.entries(o)
+          .filter(([, v]) => v !== null && v !== undefined && v !== "")
+          .map(([k, v]) => `${k.replace(/_/g, " ")}: ${v}`)
+          .join(" | ");
       }
       return String(item);
     });
@@ -961,7 +979,7 @@ export default function AgreementDetailPage() {
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
               {/* Welcome message */}
               <div className="flex items-start gap-3">
-                <div className="h-7 w-7 rounded-full bg-black flex items-center justify-center flex-shrink-0">
+                <div className="h-7 w-7 rounded-full bg-[#132337] flex items-center justify-center flex-shrink-0">
                   <Bot className="h-4 w-4 text-white" />
                 </div>
                 <div className="flex-1">
@@ -1006,7 +1024,7 @@ export default function AgreementDetailPage() {
               {chatMessages.map((msg, i) => (
                 <div key={i} className="flex items-start gap-3">
                   {msg.role === "assistant" ? (
-                    <div className="h-7 w-7 rounded-full bg-black flex items-center justify-center flex-shrink-0">
+                    <div className="h-7 w-7 rounded-full bg-[#132337] flex items-center justify-center flex-shrink-0">
                       <Bot className="h-4 w-4 text-white" />
                     </div>
                   ) : (
@@ -1022,7 +1040,7 @@ export default function AgreementDetailPage() {
                       className={`rounded-lg p-3 max-w-[85%] ${
                         msg.role === "assistant"
                           ? "bg-neutral-100 rounded-tl-none"
-                          : "bg-black text-white rounded-tr-none ml-auto"
+                          : "bg-[#132337] text-white rounded-tr-none ml-auto"
                       }`}
                     >
                       {msg.role === "assistant" ? (
@@ -1054,7 +1072,7 @@ export default function AgreementDetailPage() {
               {/* Typing indicator */}
               {chatLoading && (
                 <div className="flex items-start gap-3">
-                  <div className="h-7 w-7 rounded-full bg-black flex items-center justify-center flex-shrink-0">
+                  <div className="h-7 w-7 rounded-full bg-[#132337] flex items-center justify-center flex-shrink-0">
                     <Bot className="h-4 w-4 text-white" />
                   </div>
                   <div className="flex-1">

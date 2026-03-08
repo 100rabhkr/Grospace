@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>GroSpace — Technical Overview & Architecture</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+  :root {
+    --black: #000000;
+    --dark: #111111;
+    --gray-900: #1a1a1a;
+    --gray-700: #374151;
+    --gray-500: #6b7280;
+    --gray-300: #d1d5db;
+    --gray-100: #f3f4f6;
+    --gray-50: #f9fafb;
+    --white: #ffffff;
+    --accent: #2563eb;
+    --accent-light: #dbeafe;
+    --green: #059669;
+    --green-light: #d1fae5;
+    --red: #dc2626;
+    --red-light: #fee2e2;
+    --amber: #d97706;
+    --amber-light: #fef3c7;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    color: var(--gray-900);
+    background: var(--white);
+    font-size: 10pt;
+    line-height: 1.6;
+  }
+
+  @page {
+    size: A4;
+    margin: 20mm 18mm 20mm 18mm;
+    @bottom-center {
+      content: "GroSpace Technical Overview — Confidential";
+      font-size: 7pt;
+      color: #999;
+    }
+    @bottom-right {
+      content: counter(page);
+      font-size: 7pt;
+      color: #999;
+    }
+  }
+
+  /* Cover Page */
+  .cover {
+    page-break-after: always;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    min-height: 250mm;
+    text-align: center;
+  }
+  .cover-logo {
+    width: 64px; height: 64px;
+    background: var(--black);
+    border-radius: 16px;
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 24px;
+  }
+  .cover-logo span { color: white; font-size: 28px; font-weight: 800; }
+  .cover h1 { font-size: 36pt; font-weight: 800; letter-spacing: -1px; margin-bottom: 8px; }
+  .cover h2 { font-size: 14pt; font-weight: 400; color: var(--gray-500); margin-bottom: 40px; }
+  .cover-meta { font-size: 9pt; color: var(--gray-500); line-height: 2; }
+  .cover-meta strong { color: var(--gray-700); }
+
+  /* Headings */
+  h1 { font-size: 20pt; font-weight: 700; margin: 30px 0 12px 0; letter-spacing: -0.5px; color: var(--black); }
+  h2 { font-size: 14pt; font-weight: 700; margin: 24px 0 10px 0; color: var(--dark); border-bottom: 2px solid var(--black); padding-bottom: 4px; }
+  h3 { font-size: 11pt; font-weight: 600; margin: 16px 0 8px 0; color: var(--gray-900); }
+  h4 { font-size: 10pt; font-weight: 600; margin: 12px 0 6px 0; color: var(--gray-700); }
+
+  p { margin-bottom: 8px; }
+
+  /* Lists */
+  ul, ol { margin: 4px 0 12px 20px; }
+  li { margin-bottom: 3px; }
+
+  /* Code */
+  code {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 8.5pt;
+    background: var(--gray-100);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--gray-900);
+  }
+  pre {
+    background: var(--gray-900);
+    color: #e5e7eb;
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-size: 8pt;
+    line-height: 1.5;
+    overflow-x: auto;
+    margin: 8px 0 16px 0;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 8px 0 16px 0;
+    font-size: 9pt;
+  }
+  th {
+    background: var(--gray-900);
+    color: var(--white);
+    text-align: left;
+    padding: 8px 10px;
+    font-weight: 600;
+    font-size: 8pt;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  td {
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--gray-300);
+    vertical-align: top;
+  }
+  tr:nth-child(even) td { background: var(--gray-50); }
+
+  /* Cards / Boxes */
+  .box {
+    border: 1px solid var(--gray-300);
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin: 10px 0 16px 0;
+    background: var(--gray-50);
+  }
+  .box-title {
+    font-weight: 700;
+    font-size: 10pt;
+    margin-bottom: 6px;
+  }
+
+  .highlight {
+    background: var(--accent-light);
+    border-left: 3px solid var(--accent);
+    padding: 10px 14px;
+    border-radius: 0 6px 6px 0;
+    margin: 10px 0 16px 0;
+    font-size: 9pt;
+  }
+
+  .warning {
+    background: var(--amber-light);
+    border-left: 3px solid var(--amber);
+    padding: 10px 14px;
+    border-radius: 0 6px 6px 0;
+    margin: 10px 0 16px 0;
+    font-size: 9pt;
+  }
+
+  /* Flow diagrams (text-based) */
+  .flow {
+    background: var(--gray-50);
+    border: 1px solid var(--gray-300);
+    border-radius: 8px;
+    padding: 16px;
+    margin: 10px 0 16px 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8pt;
+    line-height: 1.8;
+    white-space: pre;
+    overflow-x: auto;
+  }
+
+  .tag {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 9999px;
+    font-size: 7.5pt;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+  .tag-done { background: var(--green-light); color: var(--green); }
+  .tag-stub { background: var(--amber-light); color: var(--amber); }
+  .tag-new { background: var(--accent-light); color: var(--accent); }
+
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin: 8px 0 16px 0;
+  }
+  .two-col .box { margin: 0; }
+
+  .page-break { page-break-before: always; }
+
+  .toc a { text-decoration: none; color: var(--gray-900); }
+  .toc a:hover { color: var(--accent); }
+  .toc li { margin-bottom: 5px; }
+  .toc li li { margin-bottom: 2px; font-size: 9pt; color: var(--gray-700); }
+</style>
+</head>
+<body>
+
+<!-- ============================================================ -->
+<!-- COVER PAGE -->
+<!-- ============================================================ -->
+<div class="cover">
+  <div class="cover-logo"><span>G</span></div>
+  <h1>GroSpace</h1>
+  <h2>Technical Overview & System Architecture</h2>
+  <div class="cover-meta">
+    <strong>Version</strong> 1.0.0 — Production Build<br>
+    <strong>Date</strong> March 2026<br>
+    <strong>Stack</strong> Next.js 14 · FastAPI · Supabase · Gemini 2.5 Pro<br>
+    <strong>Deployment</strong> Vercel (Frontend) · Railway (Backend) · Supabase Cloud (DB + Auth)<br>
+    <strong>Document Type</strong> Confidential — Internal Technical Reference
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- TABLE OF CONTENTS -->
+<!-- ============================================================ -->
+<h1>Table of Contents</h1>
+<div class="toc">
+<ol>
+  <li><a href="#overview">System Overview</a></li>
+  <li><a href="#arch">Architecture & Infrastructure</a>
+    <ul>
+      <li>High-Level Architecture Diagram</li>
+      <li>Technology Stack</li>
+      <li>Deployment Topology</li>
+    </ul>
+  </li>
+  <li><a href="#frontend">Frontend Architecture</a>
+    <ul>
+      <li>App Router & Page Map</li>
+      <li>Component Library</li>
+      <li>State Management & API Client</li>
+    </ul>
+  </li>
+  <li><a href="#backend">Backend Architecture</a>
+    <ul>
+      <li>API Endpoint Map (48 endpoints)</li>
+      <li>AI Pipeline (Extraction, Q&A, Risk, Smart Chat)</li>
+      <li>Notification Dispatch (Email + WhatsApp)</li>
+    </ul>
+  </li>
+  <li><a href="#db">Database Schema & Security</a>
+    <ul>
+      <li>Entity Relationship Overview</li>
+      <li>Row-Level Security (RLS)</li>
+      <li>Migration History</li>
+    </ul>
+  </li>
+  <li><a href="#ai">AI/ML Pipeline Deep Dive</a>
+    <ul>
+      <li>Document Extraction Workflow</li>
+      <li>Scanned PDF Processing</li>
+      <li>Smart Dashboard Chat</li>
+    </ul>
+  </li>
+  <li><a href="#workflows">Core Business Workflows</a>
+    <ul>
+      <li>Upload → Extract → Activate Flow</li>
+      <li>Deal Pipeline Lifecycle</li>
+      <li>Alert Generation & Notification Routing</li>
+      <li>Payment Generation & Tracking</li>
+    </ul>
+  </li>
+  <li><a href="#auth">Authentication & Authorization</a></li>
+  <li><a href="#integrations">External Integrations</a></li>
+  <li><a href="#env">Environment Configuration</a></li>
+  <li><a href="#api-ref">API Reference (All 48 Endpoints)</a></li>
+</ol>
+</div>
+
+<div class="page-break"></div>
+
+<!-- ============================================================ -->
+<!-- 1. SYSTEM OVERVIEW -->
+<!-- ============================================================ -->
+<h1 id="overview">1. System Overview</h1>
+
+<p><strong>GroSpace</strong> is an AI-powered commercial real estate lease management platform designed for multi-brand retail operators managing portfolios of 50–500+ outlets across India. It automates lease data extraction, obligation tracking, payment management, risk analysis, and portfolio intelligence.</p>
+
+<div class="two-col">
+  <div class="box">
+    <div class="box-title">What It Does</div>
+    <ul>
+      <li>AI extraction of 60+ structured fields from lease PDFs (including scanned/handwritten)</li>
+      <li>Automated obligation + alert generation from extracted data</li>
+      <li>Deal pipeline (Kanban) for tracking outlet acquisition stages</li>
+      <li>Payment tracking with auto-generation from obligations</li>
+      <li>Portfolio analytics with rent/sqft, rent-to-revenue ratios</li>
+      <li>Smart AI chat for natural language portfolio queries</li>
+      <li>Multi-org, role-based access with Supabase RLS</li>
+    </ul>
+  </div>
+  <div class="box">
+    <div class="box-title">Key Metrics</div>
+    <ul>
+      <li><strong>48</strong> API endpoints</li>
+      <li><strong>18</strong> frontend pages</li>
+      <li><strong>41</strong> frontend API functions</li>
+      <li><strong>60+</strong> extracted lease fields</li>
+      <li><strong>11</strong> alert types</li>
+      <li><strong>6</strong> deal pipeline stages</li>
+      <li><strong>8</strong> risk flag categories</li>
+      <li><strong>4</strong> rent models supported</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- 2. ARCHITECTURE -->
+<!-- ============================================================ -->
+<h1 id="arch">2. Architecture & Infrastructure</h1>
+
+<h2>High-Level Architecture</h2>
+
+<div class="flow">┌─────────────────────────────────────────────────────────────────────────────┐
+│                              CLIENT LAYER                                    │
+│                                                                              │
+│   Browser (Desktop/Mobile)                                                   │
+│   ├── Next.js 14 App Router (React 18, Client Components)                   │
+│   ├── shadcn/ui + Tailwind CSS (B&W Design System)                          │
+│   ├── @hello-pangea/dnd (Drag-and-Drop Pipeline)                            │
+│   └── Supabase JS Client (Auth tokens)                                      │
+│                                                                              │
+│   Deployed on: Vercel (Edge Network, Auto-scaling)                          │
+└──────────────────────────────────┬──────────────────────────────────────────┘
+                                   │ HTTPS (REST API calls)
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                             API LAYER                                        │
+│                                                                              │
+│   FastAPI (Python 3.11, async, single monolith)                             │
+│   ├── Document AI    → Gemini 2.5 Pro (extraction, Q&A, risk, smart chat)   │
+│   ├── Business Logic → CRUD, confirm & activate, payment generation         │
+│   ├── Notifications  → Resend (email) + MSG91 (WhatsApp)                    │
+│   ├── Auth Middleware → Supabase JWT validation                              │
+│   └── Activity Logger→ Non-blocking audit trail                             │
+│                                                                              │
+│   Deployed on: Railway (Docker container, auto-deploy from GitHub)           │
+└──────────────────────────────────┬──────────────────────────────────────────┘
+                                   │ Supabase Client (service_role key)
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            DATA LAYER                                        │
+│                                                                              │
+│   Supabase Cloud                                                             │
+│   ├── PostgreSQL 15    → 12 tables, RLS policies, triggers                  │
+│   ├── Auth             → JWT, email/password, demo mode                     │
+│   ├── Storage          → PDF file storage                                   │
+│   └── Realtime         → (available, not yet used)                          │
+│                                                                              │
+│   + Google AI Platform → Gemini 2.5 Pro (generative AI)                     │
+└─────────────────────────────────────────────────────────────────────────────┘</div>
+
+<h2>Technology Stack</h2>
+
+<table>
+  <tr><th>Layer</th><th>Technology</th><th>Version</th><th>Purpose</th></tr>
+  <tr><td>Frontend Framework</td><td>Next.js (App Router)</td><td>14.2.35</td><td>SSR/SSG React framework, file-based routing</td></tr>
+  <tr><td>UI Library</td><td>React</td><td>18.x</td><td>Component rendering, hooks</td></tr>
+  <tr><td>CSS Framework</td><td>Tailwind CSS</td><td>3.x</td><td>Utility-first styling, responsive design</td></tr>
+  <tr><td>Component Library</td><td>shadcn/ui + Radix</td><td>Latest</td><td>Accessible, unstyled UI primitives</td></tr>
+  <tr><td>Drag & Drop</td><td>@hello-pangea/dnd</td><td>Latest</td><td>Kanban board interactions</td></tr>
+  <tr><td>Backend Framework</td><td>FastAPI</td><td>0.115.6</td><td>Async Python API, auto-docs</td></tr>
+  <tr><td>AI Model</td><td>Gemini 2.5 Pro</td><td>Latest</td><td>Document extraction, Q&A, risk analysis, smart chat</td></tr>
+  <tr><td>PDF Processing</td><td>PyMuPDF + pdf2image</td><td>1.25.1</td><td>Text extraction, page-to-image conversion</td></tr>
+  <tr><td>Database</td><td>PostgreSQL (Supabase)</td><td>15.x</td><td>Primary data store with RLS</td></tr>
+  <tr><td>Authentication</td><td>Supabase Auth</td><td>2.x</td><td>JWT-based auth, session management</td></tr>
+  <tr><td>Email Service</td><td>Resend</td><td>API v1</td><td>Transactional emails (alerts, digest, invites)</td></tr>
+  <tr><td>WhatsApp Service</td><td>MSG91</td><td>API v5</td><td>WhatsApp template messages for alerts</td></tr>
+  <tr><td>Frontend Hosting</td><td>Vercel</td><td>—</td><td>Edge deployment, CDN, auto-SSL</td></tr>
+  <tr><td>Backend Hosting</td><td>Railway</td><td>—</td><td>Docker container hosting, auto-deploy</td></tr>
+</table>
+
+<div class="page-break"></div>
+
+<!-- ============================================================ -->
+<!-- 3. FRONTEND ARCHITECTURE -->
+<!-- ============================================================ -->
+<h1 id="frontend">3. Frontend Architecture</h1>
+
+<h2>App Router Page Map (18 Routes)</h2>
+
+<table>
+  <tr><th>Route</th><th>Type</th><th>Description</th><th>Key Features</th></tr>
+  <tr><td><code>/</code></td><td>Static</td><td>Dashboard</td><td>KPI cards, charts, AI chat, quick actions</td></tr>
+  <tr><td><code>/pipeline</code></td><td>Static</td><td>Deal Pipeline</td><td>6-stage Kanban, drag-drop, mobile list view</td></tr>
+  <tr><td><code>/outlets</code></td><td>Static</td><td>Outlet List</td><td>Paginated, search, grid/table toggle</td></tr>
+  <tr><td><code>/outlets/[id]</code></td><td>Dynamic</td><td>Outlet Detail</td><td>Revenue input, timeline, showcase share</td></tr>
+  <tr><td><code>/agreements</code></td><td>Static</td><td>Agreement List</td><td>Paginated, type/status filters</td></tr>
+  <tr><td><code>/agreements/[id]</code></td><td>Dynamic</td><td>Agreement Detail</td><td>Extracted data, PDF viewer, Q&A, risk flags</td></tr>
+  <tr><td><code>/agreements/upload</code></td><td>Static</td><td>Upload Wizard</td><td>4-step flow, single + bulk mode</td></tr>
+  <tr><td><code>/alerts</code></td><td>Static</td><td>Alerts & Reminders</td><td>Filters, actions, custom reminder CRUD</td></tr>
+  <tr><td><code>/payments</code></td><td>Static</td><td>Payment Records</td><td>Filters, status updates, payment generation</td></tr>
+  <tr><td><code>/reports</code></td><td>Static</td><td>Portfolio Reports</td><td>Sortable table, CSV export</td></tr>
+  <tr><td><code>/settings</code></td><td>Static</td><td>Settings</td><td>Org, team, alert prefs, notification routing</td></tr>
+  <tr><td><code>/organizations</code></td><td>Static</td><td>Org List (Admin)</td><td>Search, create org</td></tr>
+  <tr><td><code>/organizations/[id]</code></td><td>Dynamic</td><td>Org Detail (Admin)</td><td>Outlets, agreements, alerts per org</td></tr>
+  <tr><td><code>/auth/login</code></td><td>Static</td><td>Login/Signup</td><td>Supabase auth + demo mode</td></tr>
+  <tr><td><code>/showcase/[token]</code></td><td>Dynamic</td><td>Public Showcase</td><td>No auth, conditional financials</td></tr>
+</table>
+
+<h2>Component Architecture</h2>
+
+<div class="box">
+  <div class="box-title">Layout Components</div>
+  <ul>
+    <li><code>app-shell.tsx</code> — Root layout wrapper: sidebar (desktop), mobile nav sheet, top bar, responsive content area</li>
+    <li><code>sidebar.tsx</code> — Desktop navigation: 11 nav items, collapsible groups, user profile, <code>hidden lg:flex</code></li>
+    <li><code>mobile-nav.tsx</code> — Mobile Sheet drawer: flat nav list, signout, slide-from-left</li>
+    <li><code>top-bar.tsx</code> — Hamburger menu (mobile), search (desktop), notifications bell</li>
+    <li><code>pagination.tsx</code> — Reusable: first/prev/next/last, page info, used on 4 list pages</li>
+    <li><code>timeline.tsx</code> — Activity timeline: action icons, timestamps, details</li>
+  </ul>
+</div>
+
+<h3>State Management</h3>
+<p>All pages are <strong>"use client"</strong> components using React hooks (<code>useState</code>, <code>useEffect</code>, <code>useCallback</code>, <code>useRef</code>). No global state store — each page fetches its own data via the API client. Optimistic updates are used for drag-and-drop (pipeline) and priority toggling.</p>
+
+<h3>API Client (<code>src/lib/api.ts</code>)</h3>
+<p>Centralized HTTP client with 41 functions. Auto-attaches Supabase JWT from browser session. All calls go through <code>apiFetch()</code> which handles auth headers, error parsing, and JSON response.</p>
+
+<pre>// Pattern used across all API functions
+async function apiFetch(endpoint: string, options: RequestInit = {}) {
+  const token = await getAuthToken();  // Supabase session
+  const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
+  const response = await fetch(`${API_URL}${endpoint}`, { ...options, headers });
+  if (!response.ok) throw new Error(error.detail);
+  return response.json();
+}</pre>
+
+<div class="page-break"></div>
+
+<!-- ============================================================ -->
+<!-- 4. BACKEND ARCHITECTURE -->
+<!-- ============================================================ -->
+<h1 id="backend">4. Backend Architecture</h1>
+
+<h2>FastAPI Monolith Structure</h2>
+
+<p>Single <code>main.py</code> file (~3000 lines) containing all endpoints, schemas, helpers, and AI logic. Deployed as a Docker container on Railway with auto-deploy from GitHub.</p>
+
+<div class="box">
+  <div class="box-title">Module Organization (within main.py)</div>
+  <ul>
+    <li><strong>Schemas</strong> (lines 58–290) — Pydantic models: extraction schema, request/response models</li>
+    <li><strong>Activity Logger</strong> (lines 296–309) — Non-blocking audit trail for all mutations</li>
+    <li><strong>Notification Routing</strong> (lines 316–480) — Channel determination, Resend email, MSG91 WhatsApp</li>
+    <li><strong>Auth Middleware</strong> (lines 482–420) — JWT validation, user extraction, org scoping</li>
+    <li><strong>Document AI Endpoints</strong> — /classify, /extract, /qa, /risk-flags, /upload-and-extract</li>
+    <li><strong>Business CRUD</strong> — Agreements, outlets, alerts, payments, obligations, organizations</li>
+    <li><strong>Pipeline & Showcase</strong> — Deal stages, drag-and-drop, public share tokens</li>
+    <li><strong>Smart AI Chat</strong> — Portfolio-wide natural language queries via Gemini</li>
+    <li><strong>Digest & Invite</strong> — Email digest collection + delivery, team invitation emails</li>
+  </ul>
+</div>
+
+<h2>API Endpoint Map (48 Endpoints)</h2>
+
+<table>
+  <tr><th>Category</th><th>Method</th><th>Endpoint</th><th>Description</th></tr>
+  <tr><td rowspan="2">Health</td><td>GET</td><td><code>/api/health</code></td><td>Health check + config status</td></tr>
+  <tr><td>POST</td><td><code>/api/seed</code></td><td>Seed demo data (6 outlets)</td></tr>
+
+  <tr><td rowspan="5">Document AI</td><td>POST</td><td><code>/api/classify</code></td><td>Classify document type from text</td></tr>
+  <tr><td>POST</td><td><code>/api/extract</code></td><td>Extract 60+ fields from PDF</td></tr>
+  <tr><td>POST</td><td><code>/api/upload-and-extract</code></td><td>Upload file + extract in one call</td></tr>
+  <tr><td>POST</td><td><code>/api/qa</code></td><td>Natural language Q&A on document</td></tr>
+  <tr><td>POST</td><td><code>/api/risk-flags</code></td><td>Analyze extraction for risk flags</td></tr>
+
+  <tr><td rowspan="4">Agreements</td><td>GET</td><td><code>/api/agreements</code></td><td>List (paginated)</td></tr>
+  <tr><td>GET</td><td><code>/api/agreements/:id</code></td><td>Detail with obligations + alerts</td></tr>
+  <tr><td>PATCH</td><td><code>/api/agreements/:id</code></td><td>Update fields (dot-notation merge)</td></tr>
+  <tr><td>POST</td><td><code>/api/confirm-and-activate</code></td><td>Activate → create outlet + obligations + alerts</td></tr>
+
+  <tr><td rowspan="3">Outlets</td><td>GET</td><td><code>/api/outlets</code></td><td>List (paginated)</td></tr>
+  <tr><td>GET</td><td><code>/api/outlets/:id</code></td><td>Detail with agreements + obligations</td></tr>
+  <tr><td>PATCH</td><td><code>/api/outlets/:id</code></td><td>Update revenue, status</td></tr>
+
+  <tr><td rowspan="4">Alerts</td><td>GET</td><td><code>/api/alerts</code></td><td>List (paginated)</td></tr>
+  <tr><td>PATCH</td><td><code>/api/alerts/:id/acknowledge</code></td><td>Mark acknowledged</td></tr>
+  <tr><td>PATCH</td><td><code>/api/alerts/:id/snooze</code></td><td>Snooze N days</td></tr>
+  <tr><td>PATCH</td><td><code>/api/alerts/:id/assign</code></td><td>Assign to user</td></tr>
+
+  <tr><td rowspan="3">Reminders</td><td>POST</td><td><code>/api/reminders</code></td><td>Create custom reminder</td></tr>
+  <tr><td>PATCH</td><td><code>/api/reminders/:id</code></td><td>Update reminder</td></tr>
+  <tr><td>DELETE</td><td><code>/api/reminders/:id</code></td><td>Delete reminder</td></tr>
+
+  <tr><td rowspan="3">Payments</td><td>GET</td><td><code>/api/payments</code></td><td>List (paginated, filterable)</td></tr>
+  <tr><td>PATCH</td><td><code>/api/payments/:id</code></td><td>Update status + paid amount</td></tr>
+  <tr><td>POST</td><td><code>/api/payments/generate</code></td><td>Auto-generate from obligations</td></tr>
+
+  <tr><td>Obligations</td><td>GET</td><td><code>/api/obligations</code></td><td>List (paginated, filterable)</td></tr>
+
+  <tr><td rowspan="3">Pipeline</td><td>GET</td><td><code>/api/pipeline</code></td><td>Outlets grouped by deal stage</td></tr>
+  <tr><td>PATCH</td><td><code>/api/pipeline/move</code></td><td>Move outlet to new stage</td></tr>
+  <tr><td>PATCH</td><td><code>/api/pipeline/:id</code></td><td>Update priority/notes</td></tr>
+
+  <tr><td rowspan="4">Showcase</td><td>POST</td><td><code>/api/showcase</code></td><td>Create share token</td></tr>
+  <tr><td>GET</td><td><code>/api/showcase</code></td><td>List tokens (by outlet)</td></tr>
+  <tr><td>PATCH</td><td><code>/api/showcase/:id</code></td><td>Update token settings</td></tr>
+  <tr><td>GET</td><td><code>/api/showcase/public/:token</code></td><td>Public data (no auth)</td></tr>
+
+  <tr><td>Dashboard</td><td>GET</td><td><code>/api/dashboard</code></td><td>Aggregated KPI stats</td></tr>
+  <tr><td>Reports</td><td>GET</td><td><code>/api/reports</code></td><td>Joined outlet+agreement+payment data</td></tr>
+  <tr><td>Smart Chat</td><td>POST</td><td><code>/api/smart-chat</code></td><td>AI portfolio Q&A via Gemini</td></tr>
+
+  <tr><td rowspan="2">Digest</td><td>POST</td><td><code>/api/digest/send</code></td><td>Collect + send daily digest emails</td></tr>
+  <tr><td>POST</td><td><code>/api/digest/preview</code></td><td>HTML preview of digest</td></tr>
+
+  <tr><td>Activity</td><td>GET</td><td><code>/api/activity-log</code></td><td>Timeline by entity</td></tr>
+
+  <tr><td rowspan="2">Settings</td><td>GET</td><td><code>/api/alert-preferences/:org</code></td><td>Get alert lead times + routing</td></tr>
+  <tr><td>PUT</td><td><code>/api/alert-preferences/:org</code></td><td>Save preferences</td></tr>
+
+  <tr><td rowspan="2">Profile</td><td>GET</td><td><code>/api/profile</code></td><td>Current user profile</td></tr>
+  <tr><td>PATCH</td><td><code>/api/profile</code></td><td>Update profile</td></tr>
+
+  <tr><td rowspan="5">Organizations</td><td>GET</td><td><code>/api/organizations</code></td><td>List all orgs</td></tr>
+  <tr><td>POST</td><td><code>/api/organizations</code></td><td>Create org</td></tr>
+  <tr><td>GET</td><td><code>/api/organizations/:id</code></td><td>Org detail with data</td></tr>
+  <tr><td>GET</td><td><code>/api/organizations/:id/members</code></td><td>List members</td></tr>
+  <tr><td>POST</td><td><code>/api/organizations/:id/invite</code></td><td>Invite + send email</td></tr>
+</table>
+
+<div class="page-break"></div>
+
+<!-- ============================================================ -->
+<!-- 5. DATABASE SCHEMA -->
+<!-- ============================================================ -->
+<h1 id="db">5. Database Schema & Security</h1>
+
+<h2>Entity Relationship Overview</h2>
+
+<div class="flow">organizations (1)
+  ├── profiles (N)          — team members, roles, phone_number
+  ├── outlets (N)           — properties, revenue, deal_stage, deal_priority
+  │   ├── agreements (N)    — extracted data, risk flags, status
+  │   │   └── documents (1) — PDF file reference
+  │   ├── obligations (N)   — rent, CAM, deposits, escalation
+  │   │   └── payment_records (N) — monthly payment tracking
+  │   ├── alerts (N)        — system + custom reminders
+  │   ├── showcase_tokens (N) — public share links
+  │   └── activity_log (N)  — audit trail
+  └── alert_preferences     — JSONB column on organizations</div>
+
+<h2>Core Tables (12)</h2>
+
+<table>
+  <tr><th>Table</th><th>Key Columns</th><th>RLS</th></tr>
+  <tr><td><code>organizations</code></td><td>id, name, logo_url, alert_preferences (JSONB), created_at</td><td>Yes</td></tr>
+  <tr><td><code>profiles</code></td><td>id, email, full_name, role, org_id, phone_number, status</td><td>Yes</td></tr>
+  <tr><td><code>outlets</code></td><td>id, org_id, name, brand_name, city, status, property_type, franchise_model, monthly_net_revenue, deal_stage, deal_priority, deal_stage_entered_at, deal_notes</td><td>Yes</td></tr>
+  <tr><td><code>agreements</code></td><td>id, org_id, outlet_id, type, status, extracted_data (JSONB), risk_flags (JSONB), monthly_rent, cam_monthly, total_monthly_outflow, security_deposit, rent_model, lease dates</td><td>Yes</td></tr>
+  <tr><td><code>documents</code></td><td>id, org_id, agreement_id, file_url, file_name, file_type</td><td>Yes</td></tr>
+  <tr><td><code>obligations</code></td><td>id, org_id, outlet_id, agreement_id, type, frequency, amount, escalation_pct, is_active</td><td>Yes</td></tr>
+  <tr><td><code>payment_records</code></td><td>id, org_id, outlet_id, obligation_id, due_amount, paid_amount, due_date, status, period_month, period_year</td><td>Yes</td></tr>
+  <tr><td><code>alerts</code></td><td>id, org_id, outlet_id, agreement_id, type, severity, title, message, trigger_date, status, snoozed_until, assigned_to</td><td>Yes</td></tr>
+  <tr><td><code>showcase_tokens</code></td><td>id, org_id, outlet_id, token (unique), title, include_financials, is_active, expires_at, created_by</td><td>Yes</td></tr>
+  <tr><td><code>activity_log</code></td><td>id, org_id, user_id, entity_type, entity_id, action, details (JSONB), created_at</td><td>Yes</td></tr>
+</table>
+
+<h2>Row-Level Security (RLS)</h2>
+<p>All tables have RLS enabled. Policies scope data by <code>org_id</code> matched against the authenticated user's profile. The backend uses <code>service_role</code> key to bypass RLS for system operations (confirm & activate, payment generation, alert scheduling).</p>
+
+<div class="highlight">
+  <strong>Migration files:</strong><br>
+  <code>migration_001_initial.sql</code> — Core tables (outlets, agreements, documents, obligations, alerts, profiles, organizations)<br>
+  <code>migration_002_payments.sql</code> — Payment records, activity_log<br>
+  <code>migration_003_pagination.sql</code> — Indexes, pagination support<br>
+  <code>migration_004_deal_pipeline.sql</code> — Deal stage columns, showcase_tokens, alert_preferences JSONB<br>
+  <code>migration_005_phone_rls_fixes.sql</code> — Phone number on profiles, RLS INSERT policies, indexes
+</div>
+
+<div class="page-break"></div>
+
+<!-- ============================================================ -->
+<!-- 6. AI/ML PIPELINE -->
+<!-- ============================================================ -->
+<h1 id="ai">6. AI/ML Pipeline Deep Dive</h1>
+
+<h2>Document Extraction Workflow</h2>
+
+<div class="flow">User uploads PDF
+       │
+       ▼
+┌──────────────────┐     ┌──────────────────┐
+│  PyMuPDF: Extract│────▶│ Text-based PDF?   │
+│  raw text         │     │ (≥100 chars/page) │
+└──────────────────┘     └────────┬──────────┘
+                            Yes ─┘     └─ No (Scanned)
+                            │               │
+                            ▼               ▼
+                    ┌───────────┐   ┌───────────────────┐
+                    │ Text-based│   │ pdf2image: Convert │
+                    │ extraction│   │ pages → PNG images  │
+                    └─────┬─────┘   └─────────┬──────────┘
+                          │                   │
+                          ▼                   ▼
+                   ┌────────────────────────────────┐
+                   │  Gemini 2.5 Pro                 │
+                   │  ├── Prompt: LEASE_EXTRACTION   │
+                   │  │   _SCHEMA (60+ fields)       │
+                   │  ├── Mode: text OR vision        │
+                   │  └── Output: structured JSON     │
+                   └──────────────┬─────────────────┘
+                                  │
+                                  ▼
+                   ┌────────────────────────────────┐
+                   │  Post-processing                │
+                   │  ├── Parse JSON from response    │
+                   │  ├── Extract confidence scores   │
+                   │  ├── Classify document type      │
+                   │  └── Store in agreements table   │
+                   └────────────────────────────────┘</div>
+
+<h3>Extraction Schema (60+ Fields)</h3>
+<p>The extraction schema is organized into 7 sections:</p>
+
+<table>
+  <tr><th>Section</th><th>Fields</th><th>Examples</th></tr>
+  <tr><td>Parties</td><td>7</td><td>lessor_name, lessee_name, brand_name, CIN</td></tr>
+  <tr><td>Premises</td><td>12</td><td>property_name, city, property_type, super_area_sqft, carpet_area</td></tr>
+  <tr><td>Lease Term</td><td>11</td><td>lease_term_years, lock_in_months, fit_out_period, commencement_date</td></tr>
+  <tr><td>Rent</td><td>10</td><td>rent_model, rent_schedule, escalation_percentage, MGLR</td></tr>
+  <tr><td>Charges</td><td>8</td><td>CAM, HVAC, electricity, water, property_tax, signage_fee</td></tr>
+  <tr><td>Deposits</td><td>5</td><td>security_deposit, deposit_interest, installment_schedule</td></tr>
+  <tr><td>Legal</td><td>8+</td><td>termination_clause, exclusivity, non_compete, arbitration</td></tr>
+</table>
+
+<h2>Smart Dashboard Chat (AI Assistant)</h2>
+
+<div class="flow">User asks: "Where am I struggling with escalation?"
+       │
+       ▼
+┌──────────────────────────────────────────────┐
+│  Backend: /api/smart-chat                     │
+│                                               │
+│  1. Query ALL portfolio data:                 │
+│     ├── Outlets (200 limit)                   │
+│     ├── Agreements (active, with risk flags)  │
+│     ├── Obligations (with escalation_pct)     │
+│     ├── Pending Alerts (100 limit)            │
+│     ├── Overdue Payments                      │
+│     └── Activity Log                          │
+│                                               │
+│  2. Compute summary stats:                    │
+│     ├── Total monthly rent/outflow            │
+│     ├── By-city, by-status breakdowns         │
+│     ├── Escalation obligations list           │
+│     └── Risk flags aggregation                │
+│                                               │
+│  3. Build context prompt (2000+ tokens):      │
+│     ├── Portfolio summary                     │
+│     ├── Outlet details                        │
+│     ├── Agreement financials                  │
+│     ├── Escalation data                       │
+│     └── Risk flags + alerts                   │
+│                                               │
+│  4. Send to Gemini 2.5 Pro:                   │
+│     ├── Temperature: 0.3 (factual)            │
+│     ├── Max tokens: 2048                      │
+│     └── System: "You are GroSpace AI..."      │
+│                                               │
+│  5. Return structured answer                  │
+└──────────────────────────────────────────────┘</div>
+
+<div class="page-break"></div>
+
+<!-- ============================================================ -->
+<!-- 7. CORE BUSINESS WORKFLOWS -->
+<!-- ============================================================ -->
+<h1 id="workflows">7. Core Business Workflows</h1>
+
+<h2>Upload → Extract → Activate Flow</h2>
+
+<div class="flow">Step 1: UPLOAD                    Step 2: AI PROCESSING
+┌─────────────────────┐          ┌─────────────────────────────┐
+│ User uploads PDF     │          │ Backend:                     │
+│ (single or bulk)     │─────────▶│ ├── Detect scanned vs text  │
+│ Drag-drop or browse  │          │ ├── Extract via Gemini       │
+└─────────────────────┘          │ ├── Classify document type   │
+                                  │ ├── Analyze risk flags       │
+                                  │ └── Return structured JSON   │
+                                  └──────────────┬───────────────┘
+                                                 │
+Step 3: REVIEW & CONFIRM                         ▼
+┌─────────────────────────────────────────────────────────┐
+│ User reviews extraction:                                 │
+│ ├── Edit any field inline (dot-notation merge)          │
+│ ├── View confidence scores (high/medium/low)            │
+│ ├── Review risk flags (8 categories)                    │
+│ └── Click "Confirm & Activate"                          │
+└──────────────────────────────────┬───────────────────────┘
+                                   │
+Step 4: AUTO-CREATION              ▼
+┌─────────────────────────────────────────────────────────┐
+│ Backend /api/confirm-and-activate:                       │
+│                                                          │
+│ 1. Create/update AGREEMENT (status → active)            │
+│ 2. Create OUTLET (name, address, type, brand)           │
+│ 3. Generate OBLIGATIONS:                                 │
+│    ├── Monthly rent (with escalation schedule)           │
+│    ├── CAM charges                                       │
+│    ├── HVAC charges                                      │
+│    ├── Security deposit installments                     │
+│    └── License renewal fees                              │
+│ 4. Schedule ALERTS:                                      │
+│    ├── Rent due (monthly, configurable lead days)        │
+│    ├── CAM due                                           │
+│    ├── Lease expiry warning                              │
+│    ├── Lock-in expiry                                    │
+│    ├── Renewal window opening                            │
+│    ├── Fit-out deadline                                  │
+│    └── Escalation date                                   │
+│ 5. Dispatch NOTIFICATIONS (email/WhatsApp per config)   │
+│ 6. Log ACTIVITY (agreement_activated)                   │
+└─────────────────────────────────────────────────────────┘</div>
+
+<h2>Alert Generation & Notification Routing</h2>
+
+<div class="flow">Alert Triggered (system or custom)
+       │
+       ▼
+┌──────────────────────────────────────┐
+│ get_notification_channels(org, type) │
+│                                      │
+│ 1. Check per-type route override:    │
+│    routes[alert_type] → {email, wa}  │
+│                                      │
+│ 2. Fall back to severity defaults:   │
+│    high → email: ✓, whatsapp: ✓     │
+│    normal → email: ✓, whatsapp: ✗   │
+└──────────────┬───────────────────────┘
+               │
+    ┌──────────┴──────────┐
+    ▼                     ▼
+┌─────────────┐   ┌──────────────────┐
+│ Resend API  │   │ MSG91 API        │
+│             │   │                  │
+│ POST /emails│   │ POST /whatsapp   │
+│ HTML template│  │ Template message │
+│ To: org     │   │ To: whatsapp_num │
+│   admins    │   │ Vars: title,     │
+└─────────────┘   │  severity, date  │
+                  └──────────────────┘
+               │
+               ▼
+       log_activity(notification_sent, results)</div>
+
+<h2>Payment Generation & Tracking</h2>
+
+<div class="flow">POST /api/payments/generate (months_ahead=3)
+       │
+       ▼
+┌──────────────────────────────────────────┐
+│ For each active obligation:              │
+│ ├── Calculate due dates (monthly/        │
+│ │   quarterly/annual/one-time)           │
+│ ├── Apply escalation if applicable       │
+│ ├── Check if payment record exists       │
+│ │   (dedup by obligation+period)         │
+│ └── Insert new payment_records           │
+└──────────────────┬───────────────────────┘
+                   ▼
+  Payment Lifecycle:
+  upcoming ──▶ due ──▶ paid
+                 │ ──▶ partially_paid
+                 └──▶ overdue</div>
+
+<div class="page-break"></div>
+
+<!-- ============================================================ -->
+<!-- 8. AUTH -->
+<!-- ============================================================ -->
+<h1 id="auth">8. Authentication & Authorization</h1>
+
+<h3>Authentication Flow</h3>
+<table>
+  <tr><th>Mode</th><th>Mechanism</th><th>Token</th></tr>
+  <tr><td>Production</td><td>Supabase Auth (email/password)</td><td>JWT in Authorization header</td></tr>
+  <tr><td>Demo</td><td>Cookie-based bypass (<code>demo_mode=true</code>)</td><td>Cookie checked by middleware</td></tr>
+</table>
+
+<h3>Role Hierarchy</h3>
+<table>
+  <tr><th>Role</th><th>Scope</th><th>Permissions</th></tr>
+  <tr><td><code>platform_admin</code></td><td>All organizations</td><td>Full CRUD on all entities, manage orgs, invite users</td></tr>
+  <tr><td><code>org_admin</code></td><td>Own organization</td><td>Full CRUD within org, invite members, manage settings</td></tr>
+  <tr><td><code>org_member</code></td><td>Own organization</td><td>Read + limited writes (upload, acknowledge alerts)</td></tr>
+</table>
+
+<h3>Middleware Chain</h3>
+<pre>Request → CORS Middleware → Auth Middleware (JWT validation)
+  → Route Handler → Supabase (service_role key, bypasses RLS)
+  → Response</pre>
+
+<!-- ============================================================ -->
+<!-- 9. INTEGRATIONS -->
+<!-- ============================================================ -->
+<h1 id="integrations">9. External Integrations</h1>
+
+<table>
+  <tr><th>Service</th><th>Purpose</th><th>Protocol</th><th>Status</th></tr>
+  <tr><td><strong>Google Gemini 2.5 Pro</strong></td><td>Document extraction, Q&A, risk analysis, smart chat</td><td>google-generativeai SDK</td><td><span class="tag tag-done">Live</span></td></tr>
+  <tr><td><strong>Supabase</strong></td><td>Database, Auth, Storage</td><td>supabase-py + supabase-js</td><td><span class="tag tag-done">Live</span></td></tr>
+  <tr><td><strong>Resend</strong></td><td>Alert emails, digest, invite emails</td><td>REST API (api.resend.com)</td><td><span class="tag tag-new">Ready</span></td></tr>
+  <tr><td><strong>MSG91</strong></td><td>WhatsApp alert messages</td><td>REST API (api.msg91.com)</td><td><span class="tag tag-new">Ready</span></td></tr>
+  <tr><td><strong>Vercel</strong></td><td>Frontend hosting, CDN, SSL</td><td>Git deploy</td><td><span class="tag tag-done">Live</span></td></tr>
+  <tr><td><strong>Railway</strong></td><td>Backend hosting (Docker)</td><td>Git deploy</td><td><span class="tag tag-done">Live</span></td></tr>
+</table>
+
+<!-- ============================================================ -->
+<!-- 10. ENV CONFIG -->
+<!-- ============================================================ -->
+<h1 id="env">10. Environment Configuration</h1>
+
+<h3>Frontend (.env.local)</h3>
+<pre>NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
+NEXT_PUBLIC_API_URL=https://your-backend.railway.app</pre>
+
+<h3>Backend (.env)</h3>
+<pre>SUPABASE_URL=https://xxx.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=eyJ...
+GEMINI_API_KEY=AIza...
+
+# Email (Resend)
+RESEND_API_KEY=re_xxx
+RESEND_FROM_EMAIL=GroSpace &lt;notifications@grospace.app&gt;
+
+# WhatsApp (MSG91)
+MSG91_AUTH_KEY=xxx
+MSG91_WHATSAPP_TEMPLATE_ID=grospace_alert
+MSG91_INTEGRATED_NUMBER=91xxxxxxxxxx
+
+# App
+NEXT_PUBLIC_APP_URL=https://grospace.app
+PORT=8000</pre>
+
+<div class="page-break"></div>
+
+<!-- ============================================================ -->
+<!-- 11. API REFERENCE -->
+<!-- ============================================================ -->
+<h1 id="api-ref">11. Quick Reference: Feature Status</h1>
+
+<table>
+  <tr><th>Feature</th><th>Backend</th><th>Frontend</th><th>Status</th></tr>
+  <tr><td>AI Lease Extraction (60+ fields)</td><td>✓</td><td>✓</td><td><span class="tag tag-done">Done</span></td></tr>
+  <tr><td>Scanned PDF (vision)</td><td>✓</td><td>✓</td><td><span class="tag tag-done">Done</span></td></tr>
+  <tr><td>Document Q&A</td><td>✓</td><td>✓</td><td><span class="tag tag-done">Done</span></td></tr>
+  <tr><td>Risk Flag Analysis (8 checks)</td><td>✓</td><td>✓</td><td><span class="tag tag-done">Done</span></td></tr>
+  <tr><td>Inline Field Editing</td><td>✓</td><td>✓</td><td><span class="tag tag-done">Done</span></td></tr>
+  <tr><td>Bulk Upload (multi-file)</td><td>✓</td><td>✓</td><td><span class="tag tag-done">Done</span></td></tr>
+  <tr><td>Confirm & Activate Flow</td><td>✓</td><td>✓</td><td><span class="tag tag-done">Done</span></td></tr>
+  <tr><td>Outlet Management + Revenue</td><td>✓</td><td>✓</td><td><span class="tag tag-done">Done</span></td></tr>
+  <tr><td>Deal Pipeline (6-stage Kanban)</td><td>✓</td><td>✓</td><td><span class="tag tag-done">Done</span></td></tr>
+  <tr><td>Payment Tracking (CRUD + generate)</td><td>✓</td><td>✓</td><td><span class="tag tag-done">Done</span></td></tr>
+  <tr><td>Obligation Management</td><td>✓</td><td>✓</td><td><span class="tag tag-done">Done</span></td></tr>
+  <tr><td>Alerts (11 types + custom reminders)</td><td>✓</td><td>✓</td><td><span class="tag tag-done">Done</span></td></tr>
+  <tr><td>Notification Routing (email + WhatsApp)</td><td>✓</td><td>✓</td><td><span class="tag tag-done">Done</span></td></tr>
+  <tr><td>Activity Timeline</td><td>✓</td><td>✓</td><td><span class="tag tag-done">Done</span></td></tr>
+  <tr><td>Shareable Showcase (public links)</td><td>✓</td><td>✓</td><td><span class="tag tag-done">Done</span></td></tr>
+  <tr><td>Portfolio Reports</td><td>✓</td><td>✓</td><td><span class="tag tag-done">Done</span></td></tr>
+  <tr><td>Smart AI Chat (Dashboard)</td><td>✓</td><td>✓</td><td><span class="tag tag-new">New</span></td></tr>
+  <tr><td>Email Sending (Resend)</td><td>✓</td><td>—</td><td><span class="tag tag-new">New</span></td></tr>
+  <tr><td>WhatsApp Sending (MSG91)</td><td>✓</td><td>—</td><td><span class="tag tag-new">New</span></td></tr>
+  <tr><td>Multi-org + Team Management</td><td>✓</td><td>✓</td><td><span class="tag tag-done">Done</span></td></tr>
+  <tr><td>Supabase Auth + Demo Mode</td><td>✓</td><td>✓</td><td><span class="tag tag-done">Done</span></td></tr>
+  <tr><td>Pagination (7 endpoints)</td><td>✓</td><td>✓</td><td><span class="tag tag-done">Done</span></td></tr>
+  <tr><td>Mobile Responsive</td><td>—</td><td>✓</td><td><span class="tag tag-done">Done</span></td></tr>
+  <tr><td>Email Digest (daily summary)</td><td>✓</td><td>—</td><td><span class="tag tag-done">Done</span></td></tr>
+</table>
+
+<div style="margin-top: 40px; padding-top: 16px; border-top: 2px solid var(--black); text-align: center;">
+  <p style="font-size: 9pt; color: var(--gray-500);">
+    <strong>GroSpace</strong> — AI-Powered Commercial Real Estate Lease Management<br>
+    Built with Next.js 14 · FastAPI · Supabase · Gemini 2.5 Pro<br>
+    © 2026 GroSpace. All rights reserved. Confidential.
+  </p>
+</div>
+
+</body>
+</html>

@@ -16,6 +16,7 @@ import {
   Loader2,
   AlertTriangle,
 } from "lucide-react";
+import { PageHeader } from "@/components/page-header";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -135,36 +136,21 @@ export default function OrganizationsPage() {
         {/* ----------------------------------------------------------------- */}
         {/* Page Header                                                        */}
         {/* ----------------------------------------------------------------- */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-black rounded-full flex items-center justify-center">
-              <Building2 className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2.5">
-                <h1 className="text-2xl font-bold tracking-tight text-black">
-                  Organizations
-                </h1>
-                <Badge
-                  variant="secondary"
-                  className="bg-neutral-100 text-neutral-600 text-xs"
-                >
-                  {organizations.length}
-                </Badge>
-              </div>
-              <p className="text-sm text-neutral-500 mt-0.5">
-                Manage all registered organizations
-              </p>
-            </div>
-          </div>
+        <PageHeader title="Organizations" description="Manage all registered organizations" backHref="/">
+          <Badge
+            variant="secondary"
+            className="bg-neutral-100 text-neutral-600 text-xs"
+          >
+            {organizations.length}
+          </Badge>
           <Button
             onClick={() => setShowCreateForm(!showCreateForm)}
-            className="gap-1.5 bg-black text-white hover:bg-neutral-800"
+            className="gap-1.5 bg-[#132337] text-white hover:bg-[#152340]"
           >
             <Plus className="w-4 h-4" />
             Create Organization
           </Button>
-        </div>
+        </PageHeader>
 
         {/* ----------------------------------------------------------------- */}
         {/* Create Organization Form                                           */}
@@ -199,7 +185,7 @@ export default function OrganizationsPage() {
                 <Button
                   onClick={handleCreateOrg}
                   disabled={!newOrgName.trim() || creating}
-                  className="gap-1.5 bg-black text-white hover:bg-neutral-800"
+                  className="gap-1.5 bg-[#132337] text-white hover:bg-[#152340]"
                 >
                   {creating ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -246,7 +232,7 @@ export default function OrganizationsPage() {
               </p>
               <Button
                 onClick={() => setShowCreateForm(true)}
-                className="gap-1.5 bg-black text-white hover:bg-neutral-800"
+                className="gap-1.5 bg-[#132337] text-white hover:bg-[#152340]"
               >
                 <Plus className="w-4 h-4" />
                 Create Organization
@@ -285,7 +271,7 @@ export default function OrganizationsPage() {
                   <CardContent className="p-5">
                     {/* Org Identity */}
                     <div className="flex items-center gap-3 mb-4">
-                      <div className="w-11 h-11 rounded-full bg-black flex items-center justify-center shrink-0">
+                      <div className="w-11 h-11 rounded-full bg-[#132337] flex items-center justify-center shrink-0">
                         <span className="text-white text-lg font-bold">
                           {initial}
                         </span>
@@ -305,7 +291,7 @@ export default function OrganizationsPage() {
                     <Link href={`/organizations/${org.id}`}>
                       <Button
                         variant="outline"
-                        className="w-full gap-1.5 text-sm border-neutral-200 text-black hover:bg-black hover:text-white hover:border-black transition-colors"
+                        className="w-full gap-1.5 text-sm border-neutral-200 text-black hover:bg-[#132337] hover:text-white hover:border-[#132337] transition-colors"
                       >
                         View Details
                         <ChevronRight className="w-4 h-4" />

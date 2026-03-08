@@ -36,6 +36,7 @@ import {
   Loader2,
   MessageCircle,
 } from "lucide-react";
+import { PageHeader } from "@/components/page-header";
 import { useUser } from "@/lib/hooks/use-user";
 import {
   getOrganization,
@@ -108,7 +109,7 @@ function getInitials(name: string): string {
 }
 
 const roleLabels: Record<string, { label: string; className: string }> = {
-  platform_admin: { label: "Platform Admin", className: "bg-black text-white" },
+  platform_admin: { label: "Platform Admin", className: "bg-[#132337] text-white" },
   org_admin: { label: "Org Admin", className: "bg-blue-100 text-blue-800" },
   org_member: { label: "Org Member", className: "bg-neutral-100 text-neutral-700" },
 };
@@ -397,17 +398,7 @@ export default function SettingsPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Page Header */}
-      <div className="flex items-center gap-3">
-        <div className="w-9 h-9 bg-black rounded-lg flex items-center justify-center">
-          <Settings className="w-4.5 h-4.5 text-white" />
-        </div>
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">Settings</h1>
-          <p className="text-sm text-neutral-500">
-            Manage your organization, team, alerts, and account preferences
-          </p>
-        </div>
-      </div>
+      <PageHeader title="Settings" description="Manage your organization, team, alerts, and account preferences" backHref="/" />
 
       {/* Tabs */}
       <Tabs defaultValue="organization" className="w-full">
@@ -418,7 +409,7 @@ export default function SettingsPage() {
           </TabsTrigger>
           <TabsTrigger value="team" className="gap-1.5 text-xs sm:text-sm">
             <Users className="w-3.5 h-3.5 hidden sm:inline-block" />
-            Team Members
+            Team & Roles
           </TabsTrigger>
           <TabsTrigger value="alerts" className="gap-1.5 text-xs sm:text-sm">
             <Bell className="w-3.5 h-3.5 hidden sm:inline-block" />
@@ -520,7 +511,7 @@ export default function SettingsPage() {
           {/* Header */}
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-base font-semibold">Team Members</h2>
+              <h2 className="text-base font-semibold">Team & Roles</h2>
               <p className="text-sm text-neutral-500 mt-0.5">
                 {loadingMembers
                   ? "Loading..."
@@ -535,6 +526,49 @@ export default function SettingsPage() {
               Invite Member
             </Button>
           </div>
+
+          {/* Role Tier Overview Card (Task 42) */}
+          {(user?.role === "org_admin" || user?.role === "platform_admin") && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Shield className="w-4 h-4" />
+                  Role Tiers
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="rounded-lg border border-red-200 bg-red-50/50 p-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Badge className="bg-red-100 text-red-800 border-red-200 text-[10px]">System Admin</Badge>
+                    </div>
+                    <p className="text-xs text-neutral-600">Full system access across all organizations</p>
+                    <p className="text-xs text-neutral-400 mt-1">
+                      {teamMembers.filter((m) => m.role === "platform_admin").length} member{teamMembers.filter((m) => m.role === "platform_admin").length !== 1 ? "s" : ""}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Badge className="bg-blue-100 text-blue-800 border-blue-200 text-[10px]">Admin</Badge>
+                    </div>
+                    <p className="text-xs text-neutral-600">Full access within organization, team management</p>
+                    <p className="text-xs text-neutral-400 mt-1">
+                      {teamMembers.filter((m) => m.role === "org_admin").length} member{teamMembers.filter((m) => m.role === "org_admin").length !== 1 ? "s" : ""}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-neutral-200 bg-neutral-50/50 p-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Badge className="bg-neutral-100 text-neutral-700 border-neutral-200 text-[10px]">Member</Badge>
+                    </div>
+                    <p className="text-xs text-neutral-600">Standard view access, limited actions</p>
+                    <p className="text-xs text-neutral-400 mt-1">
+                      {teamMembers.filter((m) => m.role === "org_member").length} member{teamMembers.filter((m) => m.role === "org_member").length !== 1 ? "s" : ""}
+                    </p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Invite Form (inline toggle) */}
           {showInviteForm && (
@@ -637,7 +671,7 @@ export default function SettingsPage() {
                         >
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-2.5">
-                              <div className="w-8 h-8 rounded-full bg-black flex items-center justify-center shrink-0">
+                              <div className="w-8 h-8 rounded-full bg-[#132337] flex items-center justify-center shrink-0">
                                 <span className="text-white text-[10px] font-semibold">
                                   {getInitials(member.full_name || member.email)}
                                 </span>

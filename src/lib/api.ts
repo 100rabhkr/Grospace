@@ -5,7 +5,7 @@
 
 import { createClient } from "@/lib/supabase/client";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
 
 async function getAuthToken(): Promise<string | null> {
   try {
@@ -97,6 +97,16 @@ export async function uploadAndExtract(file: File) {
   return response.json();
 }
 
+/** Get processing time estimate from backend */
+export async function getProcessingEstimate(): Promise<{
+  avg_seconds: number;
+  min_seconds: number;
+  max_seconds: number;
+  sample_count: number;
+}> {
+  return apiFetch("/api/processing-estimate");
+}
+
 /** Check backend health */
 export async function checkHealth() {
   return apiFetch("/api/health");
@@ -109,7 +119,8 @@ export async function confirmAndActivate(data: {
   risk_flags: unknown[];
   confidence: Record<string, string>;
   filename: string;
-  document_text?: string;
+  document_text?: string | null;
+  document_url?: string | null;
 }) {
   return apiFetch("/api/confirm-and-activate", {
     method: "POST",
@@ -626,6 +637,14 @@ export async function bulkMarkPaid(data: {
   });
 }
 
+/** Mark all payments as paid for a given month (YYYY-MM string) */
+export async function markAllPaid(month: string, orgId?: string) {
+  return apiFetch("/api/payments/mark-all-paid", {
+    method: "POST",
+    body: JSON.stringify({ month, org_id: orgId }),
+  });
+}
+
 // ============================================
 // MGLR CALCULATION
 // ============================================
@@ -640,6 +659,49 @@ export async function calculateMGLR(data: {
     method: "POST",
     body: JSON.stringify(data),
   });
+}
+
+// ============================================
+// PROCESSING STATS (Task 43)
+// ============================================
+
+/** Get processing time statistics */
+export async function getProcessingStats() {
+  return apiFetch("/api/processing-stats");
+}
+
+// ============================================
+// FEEDBACK PIPELINE (Task 45)
+// ============================================
+
+/** Submit feedback for an extraction field correction */
+export async function submitFeedback(data: {
+  agreement_id: string;
+  field_name: string;
+  original_value?: string;
+  corrected_value?: string;
+  comment?: string;
+  org_id?: string;
+}) {
+  return apiFetch("/api/feedback", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+/** List feedback entries for an organization */
+export async function listFeedback(orgId?: string) {
+  const params = orgId ? `?org_id=${orgId}` : "";
+  return apiFetch(`/api/feedback${params}`);
+}
+
+// ============================================
+// ROLE TIERS (Task 42)
+// ============================================
+
+/** Get role tier metadata */
+export async function getRoleTiers() {
+  return apiFetch("/api/role-tiers");
 }
 
 // ============================================

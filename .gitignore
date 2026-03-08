@@ -34,9 +34,13 @@ backend/venv/
 backend/__pycache__/
 __pycache__/
 *.pyc
+.venv/
+backend/.venv/
 
 # credentials / deployment secrets
 DEPLOYMENT.md
+backend/google-sheets-credentials.json
+*-credentials.json
 
 # vercel
 .vercel
@@ -44,3 +48,4 @@ DEPLOYMENT.md
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+GroSpace-logo.pdf

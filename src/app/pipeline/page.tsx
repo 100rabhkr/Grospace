@@ -27,6 +27,7 @@ import {
   GripVertical,
   ChevronRight,
 } from "lucide-react";
+import { PageHeader } from "@/components/page-header";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -51,7 +52,7 @@ const STAGES = [
   { key: "lead", label: "Lead", color: "bg-neutral-100 text-neutral-700" },
   { key: "site_visit", label: "Site Visit", color: "bg-blue-100 text-blue-700" },
   { key: "negotiation", label: "Negotiation", color: "bg-amber-100 text-amber-700" },
-  { key: "loi_signed", label: "LOI Signed", color: "bg-purple-100 text-purple-700" },
+  { key: "loi_signed", label: "LOI Signed", color: "bg-blue-100 text-blue-700" },
   { key: "fit_out", label: "Fit-out", color: "bg-indigo-100 text-indigo-700" },
   { key: "operational", label: "Operational", color: "bg-emerald-100 text-emerald-700" },
 ];
@@ -233,13 +234,7 @@ export default function PipelinePage() {
   return (
     <div className="space-y-4 animate-fade-in">
       {/* Header */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">Deal Pipeline</h1>
-          <p className="text-sm text-neutral-500">
-            {totalOutlets} outlet{totalOutlets !== 1 ? "s" : ""} across {STAGES.length} stages
-          </p>
-        </div>
+      <PageHeader title="Pipeline" description={`${totalOutlets} outlet${totalOutlets !== 1 ? "s" : ""} across ${STAGES.length} stages`} backHref="/">
         <div className="flex items-center gap-2">
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-neutral-400" />
@@ -264,7 +259,7 @@ export default function PipelinePage() {
             ))}
           </div>
         </div>
-      </div>
+      </PageHeader>
 
       {/* Mobile List View — stacked cards grouped by stage */}
       <div className="block lg:hidden space-y-4">
