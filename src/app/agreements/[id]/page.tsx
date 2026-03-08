@@ -40,6 +40,7 @@ import {
 import { getAgreement, askDocumentQuestion, updateAgreement } from "@/lib/api";
 import { PdfViewer } from "@/components/pdf-viewer";
 import { EditableField } from "@/components/editable-field";
+import { FeedbackButton } from "@/components/feedback-button";
 import AgreementTimeline from "@/components/agreement-timeline";
 
 // --- Types ---
@@ -729,11 +730,18 @@ export default function AgreementDetailPage() {
                                     {formatFieldLabel(fieldKey)}
                                   </p>
                                 </div>
-                                <EditableField
-                                  value={currentVal}
-                                  isNotFound={currentVal === "Not found"}
-                                  onChange={(v) => handleFieldEdit(sectionKey, fieldKey, v)}
-                                />
+                                <div className="flex items-center gap-1">
+                                  <EditableField
+                                    value={currentVal}
+                                    isNotFound={currentVal === "Not found"}
+                                    onChange={(v) => handleFieldEdit(sectionKey, fieldKey, v)}
+                                  />
+                                  <FeedbackButton
+                                    agreementId={id as string}
+                                    fieldName={dotKey}
+                                    originalValue={displayVal}
+                                  />
+                                </div>
                               </div>
                             );
                           })}

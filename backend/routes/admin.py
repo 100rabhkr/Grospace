@@ -1189,12 +1189,22 @@ async def get_role_tiers():
 # ============================================
 
 def _sync_feedback_to_google_sheets(feedback_data: dict):
-    """Stub: sync feedback to Google Sheets when API key is configured."""
-    api_key = os.getenv("GOOGLE_SHEETS_API_KEY")
-    if not api_key:
-        return {"synced": False, "reason": "GOOGLE_SHEETS_API_KEY not configured"}
-    # TODO: implement Google Sheets API sync
-    return {"synced": False, "reason": "Google Sheets sync not yet implemented"}
+    """Sync feedback to the Feedback tab in Google Sheets."""
+    try:
+        from services.sheets_service import write_feedback_to_sheet
+        result = write_feedback_to_sheet(
+            agreement_id=feedback_data.get("agreement_id", ""),
+            field_name=feedback_data.get("field_name", ""),
+            original_value=feedback_data.get("original_value"),
+            corrected_value=feedback_data.get("corrected_value"),
+            comment=feedback_data.get("comment"),
+            status=feedback_data.get("status", "pending"),
+        )
+        return {"synced": result}
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Feedback Google Sheets sync failed: {e}")
+        return {"synced": False, "reason": str(e)}
 
 
 @router.post("/api/feedback", dependencies=[Depends(require_permission("view_agreements"))])

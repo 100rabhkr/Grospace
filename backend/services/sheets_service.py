@@ -1,5 +1,5 @@
 """
-Google Sheets integration — writes confirmed agreement data to a shared spreadsheet.
+Google Sheets integration — writes confirmed agreement data and feedback to a shared spreadsheet.
 """
 
 import os
@@ -20,9 +20,14 @@ SHEET_HEADERS = [
     "Status", "Document Filename",
 ]
 
+FEEDBACK_HEADERS = [
+    "Timestamp", "Agreement ID", "Field Name",
+    "Original Value", "Corrected Value", "Comment", "Status",
+]
 
-def _get_sheet():
-    """Connect to Google Sheets. No caching — fresh connection each time to avoid stale state."""
+
+def _get_spreadsheet():
+    """Connect to Google Sheets spreadsheet. Fresh connection each time."""
     spreadsheet_id = os.getenv("GOOGLE_SHEETS_SPREADSHEET_ID")
     creds_json_str = os.getenv("GOOGLE_SHEETS_CREDENTIALS_JSON")
     creds_path = os.getenv(
@@ -53,22 +58,55 @@ def _get_sheet():
             return None
 
         client = gspread.authorize(creds)
-        spreadsheet = client.open_by_key(spreadsheet_id)
-        sheet = spreadsheet.sheet1
-
-        # Ensure headers exist
-        try:
-            first_row = sheet.row_values(1)
-            if not first_row or first_row[0] != SHEET_HEADERS[0]:
-                sheet.insert_row(SHEET_HEADERS, 1)
-        except Exception:
-            sheet.insert_row(SHEET_HEADERS, 1)
-
-        return sheet
+        return client.open_by_key(spreadsheet_id)
 
     except Exception as e:
         logger.error(f"Failed to connect to Google Sheets: {e}")
         return None
+
+
+def _get_sheet():
+    """Get the main agreements sheet (Sheet1)."""
+    spreadsheet = _get_spreadsheet()
+    if not spreadsheet:
+        return None
+
+    sheet = spreadsheet.sheet1
+
+    # Ensure headers exist
+    try:
+        first_row = sheet.row_values(1)
+        if not first_row or first_row[0] != SHEET_HEADERS[0]:
+            sheet.insert_row(SHEET_HEADERS, 1)
+    except Exception:
+        sheet.insert_row(SHEET_HEADERS, 1)
+
+    return sheet
+
+
+def _get_feedback_sheet():
+    """Get or create the Feedback sheet tab."""
+    spreadsheet = _get_spreadsheet()
+    if not spreadsheet:
+        return None
+
+    try:
+        sheet = spreadsheet.worksheet("Feedback")
+    except Exception:
+        # Sheet doesn't exist — create it
+        sheet = spreadsheet.add_worksheet(title="Feedback", rows=1000, cols=len(FEEDBACK_HEADERS))
+        sheet.insert_row(FEEDBACK_HEADERS, 1)
+        return sheet
+
+    # Ensure headers exist
+    try:
+        first_row = sheet.row_values(1)
+        if not first_row or first_row[0] != FEEDBACK_HEADERS[0]:
+            sheet.insert_row(FEEDBACK_HEADERS, 1)
+    except Exception:
+        sheet.insert_row(FEEDBACK_HEADERS, 1)
+
+    return sheet
 
 
 def write_agreement_to_sheet(
@@ -133,4 +171,37 @@ def write_agreement_to_sheet(
 
     except Exception as e:
         logger.error(f"Failed to write to Google Sheet: {e}")
+        return False
+
+
+def write_feedback_to_sheet(
+    agreement_id: str,
+    field_name: str,
+    original_value: Optional[str] = None,
+    corrected_value: Optional[str] = None,
+    comment: Optional[str] = None,
+    status: str = "pending",
+) -> bool:
+    """Append a feedback row to the Feedback sheet tab. Returns True on success."""
+    sheet = _get_feedback_sheet()
+    if sheet is None:
+        logger.error("Feedback sheet not available")
+        return False
+
+    try:
+        row = [
+            datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+            agreement_id or "",
+            field_name or "",
+            original_value or "",
+            corrected_value or "",
+            comment or "",
+            status,
+        ]
+        sheet.append_row(row, value_input_option="USER_ENTERED")
+        logger.info(f"Wrote feedback for {agreement_id}/{field_name} to Google Sheet")
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to write feedback to Google Sheet: {e}")
         return False

@@ -3,6 +3,8 @@ CRUD agreements, confirm-and-activate, save-draft endpoints.
 """
 
 
+import uuid
+
 from fastapi import APIRouter, HTTPException, Depends, Query
 from starlette.requests import Request
 
@@ -222,6 +224,21 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
             document_text=req.document_text,
             document_url=req.document_url,
         )
+
+        # Link document to outlet in documents table so it shows on outlet page
+        if req.document_url and req.filename:
+            try:
+                supabase.table("documents").insert({
+                    "id": str(uuid.uuid4()),
+                    "org_id": org_id,
+                    "outlet_id": outlet_id,
+                    "agreement_id": agreement_id,
+                    "file_url": req.document_url,
+                    "filename": req.filename,
+                    "file_type": "lease_agreement",
+                }).execute()
+            except Exception:
+                pass  # non-critical
 
         obligations = generate_obligations(req.extraction, agreement_id, outlet_id, org_id)
         alerts = generate_alerts(req.extraction, agreement_id, outlet_id, org_id)
