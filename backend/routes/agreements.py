@@ -31,14 +31,26 @@ async def test_sheets_write():
     has_creds_json = bool(os.getenv("GOOGLE_SHEETS_CREDENTIALS_JSON"))
     creds_json_preview = (os.getenv("GOOGLE_SHEETS_CREDENTIALS_JSON") or "")[:50]
 
-    # Try direct connection first to get detailed error
+    # Try direct connection — bypass _get_sheet to get real error
     connection_error = None
     try:
-        from services.sheets_service import _get_sheet
-        sheet = _get_sheet()
-        if sheet is None:
-            connection_error = "sheet returned None"
-    except Exception as e:
+        import json as _json
+        import gspread
+        from google.oauth2.service_account import Credentials
+
+        creds_raw = os.getenv("GOOGLE_SHEETS_CREDENTIALS_JSON", "")
+        spreadsheet_id = os.getenv("GOOGLE_SHEETS_SPREADSHEET_ID", "")
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",
+        ]
+        creds_info = _json.loads(creds_raw)
+        creds = Credentials.from_service_account_info(creds_info, scopes=scopes)
+        client = gspread.authorize(creds)
+        spreadsheet = client.open_by_key(spreadsheet_id)
+        sheet = spreadsheet.sheet1
+        connection_error = f"OK — connected to '{spreadsheet.title}', sheet '{sheet.title}'"
+    except Exception:
         connection_error = traceback.format_exc()
 
     try:
