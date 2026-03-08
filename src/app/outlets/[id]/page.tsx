@@ -676,7 +676,7 @@ export default function OutletDetailPage() {
                   const ratio = ((primaryRent / outlet.monthly_net_revenue) * 100).toFixed(1);
                   return (
                     <span className="ml-3 text-xs">
-                      Rent-to-Revenue: <span className={`font-semibold ${Number(ratio) > 25 ? "text-red-600" : "text-emerald-600"}`}>{ratio}%</span>
+                      Rent-to-Revenue: <span className={`font-semibold ${Number(ratio) >= 18 ? "text-red-600" : Number(ratio) >= 12 ? "text-amber-600" : "text-emerald-600"}`}>{ratio}%</span>
                     </span>
                   );
                 }

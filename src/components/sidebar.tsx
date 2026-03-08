@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import Image from "next/image";
+import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
   Store,
@@ -53,6 +54,7 @@ const roleLabels: Record<string, string> = {
 
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
   const { user, loading: userLoading } = useUser();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
     Outlets: true,
@@ -62,12 +64,10 @@ export function Sidebar() {
   return (
     <aside className="w-[240px] h-screen bg-white border-r border-neutral-100 flex flex-col shrink-0">
       {/* Logo */}
-      <div className="h-14 flex items-center px-5 border-b border-neutral-100">
-        <Link href="/" className="flex items-center gap-2">
-          <div className="w-7 h-7 bg-black rounded-lg flex items-center justify-center">
-            <span className="text-white text-xs font-bold">G</span>
-          </div>
-          <span className="text-lg font-semibold tracking-tight">GroSpace</span>
+      <div className="h-14 flex items-center px-5 border-b border-neutral-100/60">
+        <Link href="/" className="flex items-center gap-2.5">
+          <Image src="/logo.png" alt="GroSpace" width={28} height={28} className="rounded-lg" />
+          <span className="text-[17px] font-semibold tracking-tight text-[#132337]">GroSpace</span>
         </Link>
       </div>
 
@@ -85,17 +85,16 @@ export function Sidebar() {
 
             return (
               <div key={item.label}>
-                <Link
-                  href={item.href}
+                <div
                   className={cn(
-                    "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                    "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 ease-out cursor-pointer",
                     isActive
-                      ? "bg-neutral-900 text-white"
-                      : "text-neutral-500 hover:text-black hover:bg-neutral-50"
+                      ? "bg-[#132337] text-white shadow-sm"
+                      : "text-neutral-500 hover:text-[#132337] hover:bg-slate-50/80"
                   )}
-                  onClick={(e) => {
+                  onClick={() => {
+                    router.push(item.href);
                     if (hasChildren) {
-                      e.preventDefault();
                       setExpanded((prev) => ({
                         ...prev,
                         [item.label]: !prev[item.label],
@@ -111,9 +110,16 @@ export function Sidebar() {
                         "w-3.5 h-3.5 transition-transform",
                         isExpanded && "rotate-180"
                       )}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setExpanded((prev) => ({
+                          ...prev,
+                          [item.label]: !prev[item.label],
+                        }));
+                      }}
                     />
                   )}
-                </Link>
+                </div>
                 {hasChildren && isExpanded && (
                   <div className="ml-6 mt-0.5 space-y-0.5">
                     {item.children!.map((child) => (
@@ -147,8 +153,8 @@ export function Sidebar() {
             className={cn(
               "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
               pathname === "/organizations"
-                ? "bg-neutral-900 text-white"
-                : "text-neutral-500 hover:text-black hover:bg-neutral-50"
+                ? "bg-[#132337] text-white shadow-sm"
+                : "text-neutral-500 hover:text-[#132337] hover:bg-slate-50/80"
             )}
           >
             <Building2 className="w-4 h-4" />
@@ -160,7 +166,7 @@ export function Sidebar() {
       {/* User */}
       <div className="p-3 border-t border-neutral-100">
         <div className="flex items-center gap-2.5 px-2 py-1.5">
-          <div className="w-7 h-7 rounded-full bg-black flex items-center justify-center">
+          <div className="w-7 h-7 rounded-full bg-[#132337] flex items-center justify-center">
             {userLoading ? (
               <span className="text-white text-[10px] font-semibold">...</span>
             ) : (

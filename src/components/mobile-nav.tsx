@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import Image from "next/image";
+import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
   Store,
@@ -49,17 +49,21 @@ const roleLabels: Record<string, string> = {
 
 export function MobileNav({ open, onOpenChange }: MobileNavProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const { user, loading: userLoading } = useUser();
+
+  function handleNavClick(href: string) {
+    onOpenChange(false);
+    router.push(href);
+  }
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="left" className="w-[280px] p-0">
         <SheetHeader className="p-4 border-b border-neutral-100">
-          <SheetTitle className="flex items-center gap-2">
-            <div className="w-7 h-7 bg-black rounded-lg flex items-center justify-center">
-              <span className="text-white text-xs font-bold">G</span>
-            </div>
-            <span className="text-lg font-semibold tracking-tight">GroSpace</span>
+          <SheetTitle className="flex items-center gap-2.5">
+            <Image src="/logo.png" alt="GroSpace" width={28} height={28} className="rounded-lg" />
+            <span className="text-[17px] font-semibold tracking-tight text-[#132337]">GroSpace</span>
           </SheetTitle>
         </SheetHeader>
 
@@ -72,20 +76,20 @@ export function MobileNav({ open, onOpenChange }: MobileNavProps) {
               const Icon = item.icon;
 
               return (
-                <Link
+                <button
                   key={item.href + item.label}
-                  href={item.href}
-                  onClick={() => onOpenChange(false)}
+                  type="button"
+                  onClick={() => handleNavClick(item.href)}
                   className={cn(
-                    "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
+                    "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors w-full text-left",
                     isActive
-                      ? "bg-neutral-900 text-white"
-                      : "text-neutral-500 hover:text-black hover:bg-neutral-50"
+                      ? "bg-[#132337] text-white"
+                      : "text-neutral-500 hover:text-[#132337] hover:bg-slate-50"
                   )}
                 >
                   <Icon className="w-4 h-4" />
                   <span>{item.label}</span>
-                </Link>
+                </button>
               );
             })}
           </div>
@@ -94,7 +98,7 @@ export function MobileNav({ open, onOpenChange }: MobileNavProps) {
         {/* User section */}
         <div className="p-3 border-t border-neutral-100 mt-auto">
           <div className="flex items-center gap-2.5 px-2 py-1.5">
-            <div className="w-7 h-7 rounded-full bg-black flex items-center justify-center">
+            <div className="w-7 h-7 rounded-full bg-[#132337] flex items-center justify-center">
               <span className="text-white text-[10px] font-semibold">
                 {user?.initials || "??"}
               </span>

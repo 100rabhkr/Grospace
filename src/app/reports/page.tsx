@@ -30,7 +30,9 @@ import {
   X,
   AlertTriangle,
   Loader2,
+  Search,
 } from "lucide-react";
+import { PageHeader } from "@/components/page-header";
 
 // ---------- Types ----------
 
@@ -43,11 +45,13 @@ type ReportRow = {
   property_type: string;
   franchise_model: string;
   outlet_status: string;
+  agreement_status: string;
   super_area: number;
   monthly_rent: number;
   rent_per_sqft: number;
   monthly_cam: number;
   total_outflow: number;
+  security_deposit: number | null;
   lease_expiry: string;
   days_to_expiry: number | null;
   revenue: number | null;
@@ -93,11 +97,16 @@ function statusColor(status: string): string {
   return map[status] || "bg-neutral-100 text-neutral-600";
 }
 
-function rentToRevenueColor(pct: number | null): string {
-  if (pct === null) return "text-neutral-400";
-  if (pct < 12) return "text-emerald-700 bg-emerald-50";
-  if (pct <= 18) return "text-amber-700 bg-amber-50";
-  return "text-red-700 bg-red-50";
+function agreementStatusColor(status: string): string {
+  const map: Record<string, string> = {
+    active: "bg-emerald-100 text-emerald-800",
+    draft: "bg-neutral-100 text-neutral-600",
+    pending: "bg-amber-100 text-amber-800",
+    expired: "bg-red-100 text-red-800",
+    terminated: "bg-red-100 text-red-800",
+    renewed: "bg-green-100 text-green-800",
+  };
+  return map[status] || "bg-neutral-100 text-neutral-600";
 }
 
 function daysToExpiryColor(days: number | null): string {
@@ -122,6 +131,7 @@ export default function ReportsPage() {
   const [error, setError] = useState<string | null>(null);
 
   // Filters
+  const [searchQuery, setSearchQuery] = useState<string>("");
   const [brandFilter, setBrandFilter] = useState<string>("all");
   const [cityFilter, setCityFilter] = useState<string>("all");
   const [propertyTypeFilter, setPropertyTypeFilter] = useState<string>("all");
@@ -176,6 +186,10 @@ export default function ReportsPage() {
   const filteredData = useMemo(() => {
     let data = allData;
 
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      data = data.filter((r) => r.outlet_name.toLowerCase().includes(q));
+    }
     if (brandFilter !== "all") data = data.filter((r) => r.brand === brandFilter);
     if (cityFilter !== "all") data = data.filter((r) => r.city === cityFilter);
     if (propertyTypeFilter !== "all") data = data.filter((r) => r.property_type === propertyTypeFilter);
@@ -201,7 +215,7 @@ export default function ReportsPage() {
     });
 
     return sorted;
-  }, [allData, brandFilter, cityFilter, propertyTypeFilter, modelFilter, statusFilter, expiryMin, expiryMax, hasOverdueFilter, hasRiskFilter, sortField, sortDirection]);
+  }, [allData, searchQuery, brandFilter, cityFilter, propertyTypeFilter, modelFilter, statusFilter, expiryMin, expiryMax, hasOverdueFilter, hasRiskFilter, sortField, sortDirection]);
 
   // ---------- Sort handler ----------
 
@@ -224,16 +238,21 @@ export default function ReportsPage() {
   const exportCSV = useCallback(() => {
     const headers = [
       "Outlet Name", "Brand", "City", "State", "Property Type", "Model Type",
-      "Status", "Super Area (sqft)", "Monthly Rent", "Rent/sqft", "Monthly CAM",
-      "Total Outflow", "Lease Expiry", "Days to Expiry", "Revenue",
+      "Outlet Status", "Agreement Status", "Monthly Rent", "CAM",
+      "Total Monthly Outflow", "Area (sqft)", "Rent/sqft", "Security Deposit",
+      "Lease Expiry Date", "Days to Expiry", "Revenue",
       "Rent-to-Revenue %", "Risk Flags", "Overdue Amount",
     ];
 
     const rows = filteredData.map((r) => [
       `"${r.outlet_name}"`, `"${r.brand}"`, `"${r.city}"`, `"${r.state}"`,
       `"${statusLabel(r.property_type)}"`, r.franchise_model,
-      `"${statusLabel(r.outlet_status)}"`, r.super_area,
-      r.monthly_rent, r.rent_per_sqft, r.monthly_cam, r.total_outflow,
+      `"${statusLabel(r.outlet_status)}"`,
+      `"${statusLabel(r.agreement_status || "")}"`,
+      r.monthly_rent, r.monthly_cam, r.total_outflow,
+      r.super_area,
+      r.rent_per_sqft,
+      r.security_deposit ?? "N/A",
       r.lease_expiry || "N/A",
       r.days_to_expiry !== null ? r.days_to_expiry : "N/A",
       r.revenue ?? "N/A",
@@ -256,6 +275,7 @@ export default function ReportsPage() {
   // ---------- Clear filters ----------
 
   function clearFilters() {
+    setSearchQuery("");
     setBrandFilter("all");
     setCityFilter("all");
     setPropertyTypeFilter("all");
@@ -268,6 +288,7 @@ export default function ReportsPage() {
   }
 
   const hasActiveFilters =
+    searchQuery.trim() !== "" ||
     brandFilter !== "all" || cityFilter !== "all" || propertyTypeFilter !== "all" ||
     modelFilter !== "all" || statusFilter !== "all" || expiryMin !== "" ||
     expiryMax !== "" || hasOverdueFilter !== "all" || hasRiskFilter !== "all";
@@ -282,21 +303,17 @@ export default function ReportsPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* ---------- Header ---------- */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <FileSpreadsheet className="h-6 w-6 text-neutral-700" />
-          <h1 className="text-xl font-semibold tracking-tight text-black">Outlet Report</h1>
-          {!loading && (
-            <Badge variant="secondary" className="text-sm">
-              {filteredData.length} outlets
-            </Badge>
-          )}
-        </div>
+      <PageHeader title="Outlet Report" backHref="/">
+        {!loading && (
+          <Badge variant="secondary" className="text-sm">
+            {filteredData.length} outlets
+          </Badge>
+        )}
         <Button onClick={exportCSV} disabled={loading || filteredData.length === 0}>
           <Download className="h-4 w-4 mr-2" />
           Export CSV
         </Button>
-      </div>
+      </PageHeader>
 
       {/* Error State */}
       {error && (
@@ -315,6 +332,18 @@ export default function ReportsPage() {
       {/* ---------- Filter Bar ---------- */}
       <Card>
         <CardContent className="pt-6">
+          {/* Search input for outlet name */}
+          <div className="relative mb-4">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              type="text"
+              placeholder="Search outlet name..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9 h-9"
+            />
+          </div>
+
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             <Select value={brandFilter} onValueChange={setBrandFilter}>
               <SelectTrigger><SelectValue placeholder="Brand" /></SelectTrigger>
@@ -349,7 +378,7 @@ export default function ReportsPage() {
             </Select>
 
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger><SelectValue placeholder="Status" /></SelectTrigger>
+              <SelectTrigger><SelectValue placeholder="Outlet Status" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Statuses</SelectItem>
                 {uniqueStatuses.map((s) => <SelectItem key={s} value={s}>{statusLabel(s)}</SelectItem>)}
@@ -429,47 +458,50 @@ export default function ReportsPage() {
                     <TableHead className="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("city")}>
                       <span className="flex items-center">City<SortIcon field="city" /></span>
                     </TableHead>
-                    <TableHead className="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("state")}>
-                      <span className="flex items-center">State<SortIcon field="state" /></span>
-                    </TableHead>
                     <TableHead className="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("property_type")}>
-                      <span className="flex items-center">Property<SortIcon field="property_type" /></span>
+                      <span className="flex items-center">Property Type<SortIcon field="property_type" /></span>
                     </TableHead>
                     <TableHead className="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("franchise_model")}>
-                      <span className="flex items-center">Model<SortIcon field="franchise_model" /></span>
+                      <span className="flex items-center">Model Type<SortIcon field="franchise_model" /></span>
                     </TableHead>
                     <TableHead className="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("outlet_status")}>
-                      <span className="flex items-center">Status<SortIcon field="outlet_status" /></span>
+                      <span className="flex items-center">Outlet Status<SortIcon field="outlet_status" /></span>
                     </TableHead>
-                    <TableHead className="cursor-pointer select-none whitespace-nowrap text-right" onClick={() => handleSort("super_area")}>
-                      <span className="flex items-center justify-end">Area (sqft)<SortIcon field="super_area" /></span>
+                    <TableHead className="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("agreement_status")}>
+                      <span className="flex items-center">Agreement Status<SortIcon field="agreement_status" /></span>
                     </TableHead>
                     <TableHead className="cursor-pointer select-none whitespace-nowrap text-right" onClick={() => handleSort("monthly_rent")}>
-                      <span className="flex items-center justify-end">Rent<SortIcon field="monthly_rent" /></span>
-                    </TableHead>
-                    <TableHead className="cursor-pointer select-none whitespace-nowrap text-right" onClick={() => handleSort("rent_per_sqft")}>
-                      <span className="flex items-center justify-end">Rent/sqft<SortIcon field="rent_per_sqft" /></span>
+                      <span className="flex items-center justify-end">Monthly Rent<SortIcon field="monthly_rent" /></span>
                     </TableHead>
                     <TableHead className="cursor-pointer select-none whitespace-nowrap text-right" onClick={() => handleSort("monthly_cam")}>
                       <span className="flex items-center justify-end">CAM<SortIcon field="monthly_cam" /></span>
                     </TableHead>
                     <TableHead className="cursor-pointer select-none whitespace-nowrap text-right" onClick={() => handleSort("total_outflow")}>
-                      <span className="flex items-center justify-end">Total Outflow<SortIcon field="total_outflow" /></span>
+                      <span className="flex items-center justify-end">Total Monthly Outflow<SortIcon field="total_outflow" /></span>
+                    </TableHead>
+                    <TableHead className="cursor-pointer select-none whitespace-nowrap text-right" onClick={() => handleSort("super_area")}>
+                      <span className="flex items-center justify-end">Area (sqft)<SortIcon field="super_area" /></span>
+                    </TableHead>
+                    <TableHead className="cursor-pointer select-none whitespace-nowrap text-right" onClick={() => handleSort("rent_per_sqft")}>
+                      <span className="flex items-center justify-end">Rent/sqft<SortIcon field="rent_per_sqft" /></span>
+                    </TableHead>
+                    <TableHead className="cursor-pointer select-none whitespace-nowrap text-right" onClick={() => handleSort("security_deposit")}>
+                      <span className="flex items-center justify-end">Security Deposit<SortIcon field="security_deposit" /></span>
                     </TableHead>
                     <TableHead className="cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort("lease_expiry")}>
-                      <span className="flex items-center">Lease Expiry<SortIcon field="lease_expiry" /></span>
+                      <span className="flex items-center">Lease Expiry Date<SortIcon field="lease_expiry" /></span>
                     </TableHead>
                     <TableHead className="cursor-pointer select-none whitespace-nowrap text-right" onClick={() => handleSort("days_to_expiry")}>
-                      <span className="flex items-center justify-end">Days Left<SortIcon field="days_to_expiry" /></span>
+                      <span className="flex items-center justify-end">Days to Expiry<SortIcon field="days_to_expiry" /></span>
+                    </TableHead>
+                    <TableHead className="cursor-pointer select-none whitespace-nowrap text-right" onClick={() => handleSort("risk_flags_count")}>
+                      <span className="flex items-center justify-end">Risk Flags<SortIcon field="risk_flags_count" /></span>
                     </TableHead>
                     <TableHead className="cursor-pointer select-none whitespace-nowrap text-right" onClick={() => handleSort("revenue")}>
                       <span className="flex items-center justify-end">Revenue<SortIcon field="revenue" /></span>
                     </TableHead>
                     <TableHead className="cursor-pointer select-none whitespace-nowrap text-right" onClick={() => handleSort("rent_to_revenue")}>
                       <span className="flex items-center justify-end">Rent/Rev %<SortIcon field="rent_to_revenue" /></span>
-                    </TableHead>
-                    <TableHead className="cursor-pointer select-none whitespace-nowrap text-right" onClick={() => handleSort("risk_flags_count")}>
-                      <span className="flex items-center justify-end">Risks<SortIcon field="risk_flags_count" /></span>
                     </TableHead>
                     <TableHead className="cursor-pointer select-none whitespace-nowrap text-right" onClick={() => handleSort("overdue_amount")}>
                       <span className="flex items-center justify-end">Overdue<SortIcon field="overdue_amount" /></span>
@@ -479,7 +511,7 @@ export default function ReportsPage() {
                 <TableBody>
                   {filteredData.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={18} className="text-center py-12 text-muted-foreground">
+                      <TableCell colSpan={19} className="text-center py-12 text-muted-foreground">
                         No outlets match your filters.
                       </TableCell>
                     </TableRow>
@@ -489,7 +521,6 @@ export default function ReportsPage() {
                         <TableCell className="font-medium whitespace-nowrap">{row.outlet_name}</TableCell>
                         <TableCell className="whitespace-nowrap">{row.brand}</TableCell>
                         <TableCell className="whitespace-nowrap">{row.city}</TableCell>
-                        <TableCell className="whitespace-nowrap">{row.state}</TableCell>
                         <TableCell className="whitespace-nowrap">
                           <Badge variant="outline" className="text-[11px] font-normal">{statusLabel(row.property_type)}</Badge>
                         </TableCell>
@@ -499,20 +530,30 @@ export default function ReportsPage() {
                         <TableCell className="whitespace-nowrap">
                           <Badge className={`${statusColor(row.outlet_status)} border-0 text-[11px]`}>{statusLabel(row.outlet_status)}</Badge>
                         </TableCell>
-                        <TableCell className="text-right whitespace-nowrap tabular-nums">
-                          {row.super_area > 0 ? row.super_area.toLocaleString("en-IN") : "--"}
+                        <TableCell className="whitespace-nowrap">
+                          {row.agreement_status ? (
+                            <Badge className={`${agreementStatusColor(row.agreement_status)} border-0 text-[11px]`}>{statusLabel(row.agreement_status)}</Badge>
+                          ) : (
+                            <span className="text-neutral-400 text-xs">--</span>
+                          )}
                         </TableCell>
                         <TableCell className="text-right whitespace-nowrap tabular-nums">
                           {row.monthly_rent > 0 ? formatCurrency(row.monthly_rent) : "--"}
-                        </TableCell>
-                        <TableCell className="text-right whitespace-nowrap tabular-nums">
-                          {row.rent_per_sqft > 0 ? `Rs ${row.rent_per_sqft}` : "--"}
                         </TableCell>
                         <TableCell className="text-right whitespace-nowrap tabular-nums">
                           {row.monthly_cam > 0 ? formatCurrency(row.monthly_cam) : "--"}
                         </TableCell>
                         <TableCell className="text-right whitespace-nowrap tabular-nums font-medium">
                           {row.total_outflow > 0 ? formatCurrency(row.total_outflow) : "--"}
+                        </TableCell>
+                        <TableCell className="text-right whitespace-nowrap tabular-nums">
+                          {row.super_area > 0 ? row.super_area.toLocaleString("en-IN") : "--"}
+                        </TableCell>
+                        <TableCell className="text-right whitespace-nowrap tabular-nums">
+                          {row.rent_per_sqft > 0 ? `Rs ${row.rent_per_sqft}` : "--"}
+                        </TableCell>
+                        <TableCell className="text-right whitespace-nowrap tabular-nums">
+                          {row.security_deposit != null && row.security_deposit > 0 ? formatCurrency(row.security_deposit) : "--"}
                         </TableCell>
                         <TableCell className="whitespace-nowrap">
                           {row.lease_expiry ? formatDate(row.lease_expiry) : "--"}
@@ -526,18 +567,6 @@ export default function ReportsPage() {
                             <span className="text-neutral-400">--</span>
                           )}
                         </TableCell>
-                        <TableCell className="text-right whitespace-nowrap tabular-nums">
-                          {row.revenue !== null ? formatCurrency(row.revenue) : "--"}
-                        </TableCell>
-                        <TableCell className="text-right whitespace-nowrap">
-                          {row.rent_to_revenue !== null ? (
-                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium tabular-nums ${rentToRevenueColor(row.rent_to_revenue)}`}>
-                              {row.rent_to_revenue.toFixed(1)}%
-                            </span>
-                          ) : (
-                            <span className="text-neutral-400">--</span>
-                          )}
-                        </TableCell>
                         <TableCell className="text-right whitespace-nowrap">
                           {row.risk_flags_count > 0 ? (
                             <span className="inline-flex items-center gap-1 text-amber-700">
@@ -546,6 +575,18 @@ export default function ReportsPage() {
                             </span>
                           ) : (
                             <span className="text-neutral-300 text-xs">0</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right whitespace-nowrap tabular-nums">
+                          {row.revenue !== null ? formatCurrency(row.revenue) : "--"}
+                        </TableCell>
+                        <TableCell className="text-right whitespace-nowrap">
+                          {row.rent_to_revenue !== null ? (
+                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium tabular-nums ${row.rent_to_revenue < 12 ? "text-emerald-700 bg-emerald-50" : row.rent_to_revenue <= 18 ? "text-amber-700 bg-amber-50" : "text-red-700 bg-red-50"}`}>
+                              {row.rent_to_revenue.toFixed(1)}%
+                            </span>
+                          ) : (
+                            <span className="text-neutral-400">--</span>
                           )}
                         </TableCell>
                         <TableCell className="text-right whitespace-nowrap tabular-nums">

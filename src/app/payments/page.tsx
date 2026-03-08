@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { listPayments, updatePayment, generatePayments, bulkMarkPaid } from "@/lib/api";
+import { listPayments, updatePayment, generatePayments, bulkMarkPaid, markAllPaid } from "@/lib/api";
 import { Pagination } from "@/components/pagination";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -38,6 +38,7 @@ import {
   X,
   CalendarDays,
 } from "lucide-react";
+import { PageHeader } from "@/components/page-header";
 
 // ---------- Types ----------
 
@@ -119,6 +120,7 @@ export default function PaymentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [bulkMarking, setBulkMarking] = useState(false);
+  const [markingAllMonth, setMarkingAllMonth] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -228,6 +230,31 @@ export default function PaymentsPage() {
     }
   }
 
+  // ---------- Mark All Paid This Month ----------
+
+  async function handleMarkAllPaidThisMonth() {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth() + 1;
+    const monthStr = `${year}-${String(month).padStart(2, "0")}`;
+    const monthLabel = now.toLocaleString("en-IN", { month: "long", year: "numeric" });
+
+    const confirmed = window.confirm(
+      `Mark ALL payments for ${monthLabel} as paid?\n\nThis will update every unpaid payment record for this month across all outlets.`
+    );
+    if (!confirmed) return;
+
+    try {
+      setMarkingAllMonth(true);
+      await markAllPaid(monthStr);
+      await fetchPayments();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to mark all as paid for this month");
+    } finally {
+      setMarkingAllMonth(false);
+    }
+  }
+
   // ---------- Filter logic ----------
 
   const uniqueOutlets = useMemo(() => {
@@ -279,40 +306,47 @@ export default function PaymentsPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Wallet className="h-6 w-6 text-neutral-700" />
-          <h1 className="text-xl font-semibold tracking-tight text-black">Payments</h1>
-          {!loading && (
-            <Badge variant="secondary" className="text-sm">
-              {total}
-            </Badge>
+      <PageHeader title="Payments" backHref="/">
+        {!loading && (
+          <Badge variant="secondary" className="text-sm">
+            {total}
+          </Badge>
+        )}
+        <Button
+          onClick={handleMarkAllPaidThisMonth}
+          disabled={markingAllMonth || loading}
+          variant="default"
+          size="sm"
+        >
+          {markingAllMonth ? (
+            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+          ) : (
+            <CalendarDays className="h-4 w-4 mr-2" />
           )}
-        </div>
-        <div className="flex gap-2">
-          <Button
-            onClick={handleBulkMarkPaid}
-            disabled={bulkMarking || loading}
-            variant="default"
-            size="sm"
-          >
-            {bulkMarking ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <CheckCircle2 className="h-4 w-4 mr-2" />
-            )}
-            {bulkMarking ? "Marking..." : "Mark All as Paid"}
-          </Button>
-          <Button onClick={handleGenerate} disabled={generating} variant="outline" size="sm">
-            {generating ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <RefreshCw className="h-4 w-4 mr-2" />
-            )}
-            {generating ? "Generating..." : "Generate Payments"}
-          </Button>
-        </div>
-      </div>
+          {markingAllMonth ? "Marking..." : "Mark All Paid This Month"}
+        </Button>
+        <Button
+          onClick={handleBulkMarkPaid}
+          disabled={bulkMarking || loading}
+          variant="outline"
+          size="sm"
+        >
+          {bulkMarking ? (
+            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+          ) : (
+            <CheckCircle2 className="h-4 w-4 mr-2" />
+          )}
+          {bulkMarking ? "Marking..." : "Mark Filtered as Paid"}
+        </Button>
+        <Button onClick={handleGenerate} disabled={generating} variant="outline" size="sm">
+          {generating ? (
+            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+          ) : (
+            <RefreshCw className="h-4 w-4 mr-2" />
+          )}
+          {generating ? "Generating..." : "Generate Payments"}
+        </Button>
+      </PageHeader>
 
       {/* Error */}
       {error && (

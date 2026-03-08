@@ -34,6 +34,7 @@ import {
   Loader2,
   AlertTriangle,
 } from "lucide-react";
+import { PageHeader } from "@/components/page-header";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -148,15 +149,15 @@ function RentToRevenueBadge({ ratio }: { ratio: number | null }) {
     );
   }
   const color =
-    ratio < 15
+    ratio < 12
       ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-      : ratio <= 30
+      : ratio < 18
       ? "bg-amber-50 text-amber-700 border-amber-200"
       : "bg-red-50 text-red-700 border-red-200";
   const label =
-    ratio < 15
+    ratio < 12
       ? "Healthy"
-      : ratio <= 30
+      : ratio < 18
       ? "Medium"
       : "High";
   return (
@@ -279,25 +280,20 @@ export default function OutletsPage() {
     <div className="animate-fade-in">
       <div>
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <h1 className="text-xl font-semibold text-black tracking-tight">
-              Outlets
-            </h1>
-            <Badge
-              variant="secondary"
-              className="bg-neutral-100 text-neutral-700 font-medium"
-            >
-              {filteredOutlets.length} of {outlets.length}
-            </Badge>
-          </div>
+        <PageHeader title="Outlets" backHref="/">
+          <Badge
+            variant="secondary"
+            className="bg-neutral-100 text-neutral-700 font-medium"
+          >
+            {filteredOutlets.length} of {outlets.length}
+          </Badge>
           <Link href="/agreements/upload">
-            <Button className="bg-black text-white hover:bg-neutral-800">
+            <Button className="bg-[#132337] text-white hover:bg-[#152340]">
               <Plus className="h-4 w-4 mr-1" />
               Add Outlet
             </Button>
           </Link>
-        </div>
+        </PageHeader>
 
         {/* Filter Bar */}
         <div className="flex flex-col lg:flex-row items-start lg:items-center gap-3 mb-6">
@@ -380,7 +376,7 @@ export default function OutletsPage() {
               onClick={() => setViewMode("card")}
               className={
                 viewMode === "card"
-                  ? "bg-black text-white hover:bg-neutral-800 h-8 w-8"
+                  ? "bg-[#132337] text-white hover:bg-[#152340] h-8 w-8"
                   : "text-neutral-500 hover:text-black h-8 w-8"
               }
             >
@@ -392,7 +388,7 @@ export default function OutletsPage() {
               onClick={() => setViewMode("table")}
               className={
                 viewMode === "table"
-                  ? "bg-black text-white hover:bg-neutral-800 h-8 w-8"
+                  ? "bg-[#132337] text-white hover:bg-[#152340] h-8 w-8"
                   : "text-neutral-500 hover:text-black h-8 w-8"
               }
             >

@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/tooltip";
 import { listAgreements } from "@/lib/api";
 import { Pagination } from "@/components/pagination";
+import { PageHeader } from "@/components/page-header";
 
 // --- Types ---
 
@@ -261,24 +262,19 @@ export default function AgreementsPage() {
     <TooltipProvider>
       <div className="space-y-6 animate-fade-in">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <h1 className="text-xl font-semibold tracking-tight">
-              Agreements
-            </h1>
-            {!loading && (
-              <Badge variant="secondary" className="text-sm font-medium">
-                {total}
-              </Badge>
-            )}
-          </div>
+        <PageHeader title="Agreements" backHref="/">
+          {!loading && (
+            <Badge variant="secondary" className="text-sm font-medium">
+              {total}
+            </Badge>
+          )}
           <Link href="/agreements/upload">
             <Button className="gap-2">
               <Upload className="h-4 w-4" />
               Upload Agreement
             </Button>
           </Link>
-        </div>
+        </PageHeader>
 
         {/* Error State */}
         {error && (

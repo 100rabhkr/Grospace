@@ -5,33 +5,33 @@
 @layer base {
   :root {
     --background: 0 0% 100%;
-    --foreground: 0 0% 5%;
+    --foreground: 220 25% 10%;
     --card: 0 0% 100%;
-    --card-foreground: 0 0% 5%;
+    --card-foreground: 220 25% 10%;
     --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 5%;
-    --primary: 0 0% 9%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 0 0% 96%;
-    --secondary-foreground: 0 0% 9%;
-    --muted: 0 0% 96.5%;
-    --muted-foreground: 0 0% 40%;
-    --accent: 0 0% 96%;
-    --accent-foreground: 0 0% 9%;
+    --popover-foreground: 220 25% 10%;
+    --primary: 218 56% 17%;
+    --primary-foreground: 210 20% 98%;
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 218 56% 17%;
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 10% 46%;
+    --accent: 215 20% 95%;
+    --accent-foreground: 218 56% 17%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 92%;
-    --input: 0 0% 92%;
-    --ring: 0 0% 5%;
-    --chart-1: 220 70% 50%;
-    --chart-2: 160 60% 45%;
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 218 56% 17%;
+    --chart-1: 218 70% 48%;
+    --chart-2: 160 60% 42%;
     --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
-    --radius: 0.5rem;
-    --sidebar: 0 0% 99%;
-    --shadow-card: 0 1px 3px 0 rgb(0 0 0 / 0.04), 0 1px 2px -1px rgb(0 0 0 / 0.04);
-    --shadow-card-hover: 0 4px 12px 0 rgb(0 0 0 / 0.06), 0 1px 3px 0 rgb(0 0 0 / 0.04);
+    --chart-4: 200 65% 50%;
+    --chart-5: 340 70% 52%;
+    --radius: 0.625rem;
+    --sidebar: 220 20% 98%;
+    --shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.03), 0 1px 3px -1px rgb(0 0 0 / 0.02);
+    --shadow-card-hover: 0 8px 24px -4px rgb(0 0 0 / 0.08), 0 2px 6px -1px rgb(0 0 0 / 0.03);
   }
 }
 
@@ -39,42 +39,69 @@
   * {
     @apply border-border;
   }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
   body {
     @apply bg-background text-foreground;
   }
+
   ::selection {
-    background: hsl(0 0% 90%);
+    background: hsl(218 50% 90%);
+  }
+
+  /* GPU-accelerated transitions for 60fps */
+  button, a, [role="button"] {
+    -webkit-tap-highlight-color: transparent;
   }
 }
 
 /* Clean scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #d4d4d4;
-  border-radius: 3px;
+  background: hsl(220 10% 82%);
+  border-radius: 100px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #a3a3a3;
+  background: hsl(220 10% 66%);
 }
 
-/* Subtle page fade-in */
+/* 60fps page transitions */
 @keyframes fadeInUp {
   from {
     opacity: 0;
-    transform: translateY(4px);
+    transform: translate3d(0, 6px, 0);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translate3d(0, 0, 0);
   }
 }
 
 .animate-fade-in {
-  animation: fadeInUp 0.3s ease-out;
+  animation: fadeInUp 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+}
+
+/* Smooth card hover lift — GPU layer */
+@layer utilities {
+  .hover-lift {
+    transition: transform 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+                box-shadow 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    will-change: transform;
+  }
+  .hover-lift:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-card-hover);
+  }
 }

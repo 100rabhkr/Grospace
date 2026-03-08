@@ -1,0 +1,37 @@
+import { defineConfig, devices } from "@playwright/test";
+
+export default defineConfig({
+  testDir: "./e2e",
+  fullyParallel: true,
+  forbidOnly: !!process.env.CI,
+  retries: process.env.CI ? 2 : 0,
+  workers: process.env.CI ? 1 : undefined,
+  reporter: "html",
+
+  use: {
+    baseURL: "http://localhost:3000",
+    trace: "on-first-retry",
+    screenshot: "only-on-failure",
+    // Generous timeout — pages may need to hydrate or call APIs
+    actionTimeout: 10_000,
+  },
+
+  // Give each test 30 seconds
+  timeout: 30_000,
+
+  projects: [
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+    },
+  ],
+
+  // Optionally start the dev server before running tests
+  // Uncomment the block below if you want Playwright to launch `next dev` automatically.
+  // webServer: {
+  //   command: "npm run dev",
+  //   url: "http://localhost:3000",
+  //   reuseExistingServer: !process.env.CI,
+  //   timeout: 120_000,
+  // },
+});

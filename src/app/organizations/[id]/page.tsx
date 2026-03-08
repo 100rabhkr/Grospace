@@ -102,7 +102,7 @@ function statusColor(status: string): string {
     expired: "bg-red-50 text-red-700",
     closed: "bg-neutral-100 text-neutral-500",
     draft: "bg-neutral-100 text-neutral-600",
-    pipeline: "bg-violet-50 text-violet-700",
+    pipeline: "bg-blue-50 text-blue-700",
     pending: "bg-amber-50 text-amber-700",
   };
   return map[status] || "bg-neutral-100 text-neutral-600";
@@ -205,7 +205,7 @@ export default function OrganizationDetailPage() {
 
         {/* Header */}
         <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-full bg-black flex items-center justify-center shrink-0">
+          <div className="w-14 h-14 rounded-full bg-[#132337] flex items-center justify-center shrink-0">
             <span className="text-white text-2xl font-bold">{initial}</span>
           </div>
           <div>

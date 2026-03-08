@@ -961,7 +961,7 @@ export default function AgreementDetailPage() {
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
               {/* Welcome message */}
               <div className="flex items-start gap-3">
-                <div className="h-7 w-7 rounded-full bg-black flex items-center justify-center flex-shrink-0">
+                <div className="h-7 w-7 rounded-full bg-[#132337] flex items-center justify-center flex-shrink-0">
                   <Bot className="h-4 w-4 text-white" />
                 </div>
                 <div className="flex-1">
@@ -1006,7 +1006,7 @@ export default function AgreementDetailPage() {
               {chatMessages.map((msg, i) => (
                 <div key={i} className="flex items-start gap-3">
                   {msg.role === "assistant" ? (
-                    <div className="h-7 w-7 rounded-full bg-black flex items-center justify-center flex-shrink-0">
+                    <div className="h-7 w-7 rounded-full bg-[#132337] flex items-center justify-center flex-shrink-0">
                       <Bot className="h-4 w-4 text-white" />
                     </div>
                   ) : (
@@ -1022,7 +1022,7 @@ export default function AgreementDetailPage() {
                       className={`rounded-lg p-3 max-w-[85%] ${
                         msg.role === "assistant"
                           ? "bg-neutral-100 rounded-tl-none"
-                          : "bg-black text-white rounded-tr-none ml-auto"
+                          : "bg-[#132337] text-white rounded-tr-none ml-auto"
                       }`}
                     >
                       {msg.role === "assistant" ? (
@@ -1054,7 +1054,7 @@ export default function AgreementDetailPage() {
               {/* Typing indicator */}
               {chatLoading && (
                 <div className="flex items-start gap-3">
-                  <div className="h-7 w-7 rounded-full bg-black flex items-center justify-center flex-shrink-0">
+                  <div className="h-7 w-7 rounded-full bg-[#132337] flex items-center justify-center flex-shrink-0">
                     <Bot className="h-4 w-4 text-white" />
                   </div>
                   <div className="flex-1">

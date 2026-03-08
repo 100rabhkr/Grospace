@@ -48,13 +48,25 @@ export function useUser() {
 
     async function setDemoUser() {
       const orgId = await fetchFirstOrgId();
+
+      // Read role/name from demo cookies (set by tiered login)
+      const cookies = document.cookie.split(";").reduce((acc, c) => {
+        const [k, v] = c.trim().split("=");
+        if (k && v) acc[k] = decodeURIComponent(v);
+        return acc;
+      }, {} as Record<string, string>);
+
+      const demoRole = (cookies["grospace-demo-role"] || "platform_admin") as UserData["role"];
+      const demoName = cookies["grospace-demo-name"] || "Demo Admin";
+      const demoTitle = cookies["grospace-demo-title"] || "";
+
       setUser({
         id: "demo-user",
-        email: "admin@grospace.com",
-        fullName: "Demo Admin",
-        role: "platform_admin",
+        email: cookies["grospace-demo-role"] ? `${demoTitle.toLowerCase()}@grospace.in` : "admin@grospace.com",
+        fullName: demoName,
+        role: demoRole,
         orgId,
-        initials: "DA",
+        initials: getInitials(demoName),
       });
       setLoading(false);
     }

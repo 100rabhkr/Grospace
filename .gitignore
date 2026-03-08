@@ -37,6 +37,8 @@ __pycache__/
 
 # credentials / deployment secrets
 DEPLOYMENT.md
+backend/google-sheets-credentials.json
+*-credentials.json
 
 # vercel
 .vercel
