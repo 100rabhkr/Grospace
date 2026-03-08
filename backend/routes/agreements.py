@@ -144,6 +144,7 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
             org_id=org_id,
             outlet_id=outlet_id,
             document_text=req.document_text,
+            document_url=req.document_url,
         )
 
         obligations = generate_obligations(req.extraction, agreement_id, outlet_id, org_id)

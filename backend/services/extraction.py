@@ -876,7 +876,8 @@ def create_outlet_from_extraction(extraction: dict, org_id: str) -> str:
 
 
 def create_agreement_record(extraction: dict, doc_type: str, risk_flags: list, confidence: dict,
-                            filename: str, org_id: str, outlet_id: str, document_text: Optional[str] = None) -> str:
+                            filename: str, org_id: str, outlet_id: str, document_text: Optional[str] = None,
+                            document_url: Optional[str] = None) -> str:
     """Create an agreement record. Returns agreement_id."""
     parties = get_section(extraction, "parties")
     lease_term = get_section(extraction, "lease_term")
@@ -912,6 +913,7 @@ def create_agreement_record(extraction: dict, doc_type: str, risk_flags: list, c
         "type": doc_type,
         "status": "active",
         "document_filename": filename,
+        "document_url": document_url,
         "extracted_data": extraction,
         "extraction_status": "confirmed",
         "extraction_confidence": confidence,

@@ -88,11 +88,24 @@ async def upload_and_extract(request: Request, file: UploadFile = File(...)):
                 "error": "Uploaded file is empty.",
             }
 
+        # Upload file to Supabase storage so it can be viewed later
+        document_url = None
+        try:
+            storage_path = f"uploads/{uuid.uuid4()}{file_ext}"
+            supabase.storage.from_("documents").upload(storage_path, file_bytes, {
+                "content-type": content_type or "application/octet-stream"
+            })
+            document_url = supabase.storage.from_("documents").get_public_url(storage_path)
+        except Exception:
+            pass  # Storage upload is non-critical
+
         start_time = time.time()
         result = await process_document(file_bytes, filename)
         duration = round(time.time() - start_time, 2)
         _processing_times.append(duration)
         result["processing_duration_seconds"] = duration
+        if document_url:
+            result["document_url"] = document_url
         return result
 
     except Exception as e:

@@ -181,11 +181,17 @@ function parseField(fieldVal: unknown): {
         return { displayVal: "Not found", confidence: "not_found" };
       }
       if (typeof val === "object") {
-        return { displayVal: JSON.stringify(val), confidence: conf };
+        return { displayVal: parseField(val).displayVal, confidence: conf };
       }
       return { displayVal: String(val), confidence: conf };
     }
-    return { displayVal: JSON.stringify(obj), confidence: "high" };
+    return {
+      displayVal: Object.entries(obj)
+        .filter(([, v]) => v !== null && v !== undefined && v !== "")
+        .map(([k, v]) => `${k.replace(/_/g, " ")}: ${v}`)
+        .join(" | "),
+      confidence: "high",
+    };
   }
 
   if (Array.isArray(fieldVal)) {
@@ -194,17 +200,29 @@ function parseField(fieldVal: unknown): {
     const items = fieldVal.map((item) => {
       if (typeof item === "object" && item !== null) {
         const o = item as Record<string, unknown>;
-        if (o.year || o.period || o.years) {
-          const period = o.year || o.period || o.years || "";
-          const rent = o.monthly_rent || o.rent || o.amount || "";
-          const perSqft = o.rent_per_sqft || o.per_sqft || "";
-          let line = `${period}`;
-          if (rent)
-            line += `: Rs ${Number(rent).toLocaleString("en-IN")}/mo`;
+        if (o.year || o.period || o.years || o.from_year || o.to_year) {
+          const period = o.year || o.period || o.years || (o.from_year && o.to_year ? `Year ${o.from_year}-${o.to_year}` : o.from_year || o.to_year) || "";
+          const rent = o.monthly_rent || o.mglr_monthly || o.rent || o.amount || "";
+          const perSqft = o.rent_per_sqft || o.mglr_per_sqft || o.mglr_rate_per_sqft || o.per_sqft || "";
+          const revShare = o.revenue_share_net_sales_pct || o.revenue_share_takeaway_dining || o.revenue_share || "";
+          const revOnline = o.revenue_share_online || o.revenue_share_deliveries_pct || "";
+          const type = o.type || "";
+          const details = o.details || "";
+          const condition = o.condition || "";
+          let line = `Year ${period}`;
+          if (type) line += ` (${type})`;
+          if (details) line += `: ${details}`;
+          if (rent) line += `${details ? " | " : ": "}Rs ${Number(rent).toLocaleString("en-IN")}/sqft`;
           if (perSqft) line += ` (Rs ${perSqft}/sqft)`;
+          if (revShare) line += ` | Rev Share: ${revShare}%`;
+          if (revOnline) line += `, Delivery: ${revOnline}%`;
+          if (condition && !details) line += ` [${condition}]`;
           return line;
         }
-        return Object.values(o).join(" | ");
+        return Object.entries(o)
+          .filter(([, v]) => v !== null && v !== undefined && v !== "")
+          .map(([k, v]) => `${k.replace(/_/g, " ")}: ${v}`)
+          .join(" | ");
       }
       return String(item);
     });

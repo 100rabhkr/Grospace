@@ -102,8 +102,14 @@ function parseField(fieldVal: unknown): { displayVal: string; confidence: Confid
       }
       return { displayVal: String(val), confidence: conf };
     }
-    // Generic object without value key
-    return { displayVal: JSON.stringify(obj), confidence: "high" };
+    // Generic object without value key — format as key-value pairs
+    return {
+      displayVal: Object.entries(obj)
+        .filter(([, v]) => v !== null && v !== undefined && v !== "")
+        .map(([k, v]) => `${k.replace(/_/g, " ")}: ${v}`)
+        .join(" | "),
+      confidence: "high",
+    };
   }
 
   // Handle arrays (e.g. rent_schedule)
@@ -580,6 +586,7 @@ export default function UploadAgreementPage() {
         confidence: item.result.confidence,
         filename: item.result.filename,
         document_text: item.result.document_text,
+        document_url: item.result.document_url,
       });
       setBulkFiles((prev) => prev.map((f, idx) => idx === index ? { ...f, status: "done", activationResult: activation } : f));
     } catch (err) {
@@ -1381,6 +1388,7 @@ export default function UploadAgreementPage() {
                       confidence: result.confidence,
                       filename: result.filename,
                       document_text: result.document_text,
+                      document_url: result.document_url,
                     });
                     setActivationResult(res);
                     setStep(4);

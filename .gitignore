@@ -48,3 +48,4 @@ backend/google-sheets-credentials.json
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+GroSpace-logo.pdf

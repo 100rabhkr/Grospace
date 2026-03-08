@@ -5,7 +5,7 @@
 
 import { createClient } from "@/lib/supabase/client";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
 
 async function getAuthToken(): Promise<string | null> {
   try {
@@ -120,6 +120,7 @@ export async function confirmAndActivate(data: {
   confidence: Record<string, string>;
   filename: string;
   document_text?: string | null;
+  document_url?: string | null;
 }) {
   return apiFetch("/api/confirm-and-activate", {
     method: "POST",
