@@ -3,6 +3,7 @@ Google Sheets integration — writes confirmed agreement data to a shared spread
 """
 
 import os
+import json
 import logging
 from datetime import datetime
 from typing import Optional
@@ -34,6 +35,7 @@ def _get_sheet():
     _initialized = True
 
     spreadsheet_id = os.getenv("GOOGLE_SHEETS_SPREADSHEET_ID")
+    creds_json_str = os.getenv("GOOGLE_SHEETS_CREDENTIALS_JSON")
     creds_path = os.getenv(
         "GOOGLE_SHEETS_CREDENTIALS_PATH",
         os.path.join(os.path.dirname(os.path.dirname(__file__)), "google-sheets-credentials.json"),
@@ -41,10 +43,6 @@ def _get_sheet():
 
     if not spreadsheet_id:
         logger.warning("GOOGLE_SHEETS_SPREADSHEET_ID not set — Google Sheets integration disabled")
-        return None
-
-    if not os.path.exists(creds_path):
-        logger.warning(f"Google Sheets credentials file not found at {creds_path}")
         return None
 
     try:
@@ -55,7 +53,19 @@ def _get_sheet():
             "https://www.googleapis.com/auth/spreadsheets",
             "https://www.googleapis.com/auth/drive",
         ]
-        creds = Credentials.from_service_account_file(creds_path, scopes=scopes)
+
+        # Try env var JSON first (for Railway/cloud), then fall back to file
+        if creds_json_str:
+            creds_info = json.loads(creds_json_str)
+            creds = Credentials.from_service_account_info(creds_info, scopes=scopes)
+            logger.info("Using Google Sheets credentials from env var")
+        elif os.path.exists(creds_path):
+            creds = Credentials.from_service_account_file(creds_path, scopes=scopes)
+            logger.info("Using Google Sheets credentials from file")
+        else:
+            logger.warning("No Google Sheets credentials found (no env var or file)")
+            return None
+
         client = gspread.authorize(creds)
         spreadsheet = client.open_by_key(spreadsheet_id)
         _sheet = spreadsheet.sheet1

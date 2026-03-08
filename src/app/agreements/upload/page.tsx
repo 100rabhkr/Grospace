@@ -97,7 +97,8 @@ function parseField(fieldVal: unknown): { displayVal: string; confidence: Confid
         return { displayVal: "Not found", confidence: "not_found" };
       }
       if (typeof val === "object") {
-        return { displayVal: JSON.stringify(val), confidence: conf };
+        // Recursively parse arrays/objects (e.g. rent_schedule wrapped in {value, confidence})
+        return { displayVal: parseField(val).displayVal, confidence: conf };
       }
       return { displayVal: String(val), confidence: conf };
     }
@@ -113,16 +114,24 @@ function parseField(fieldVal: unknown): { displayVal: string; confidence: Confid
       if (typeof item === "object" && item !== null) {
         // Try to format rent schedule items
         const o = item as Record<string, unknown>;
-        if (o.year || o.period || o.years) {
-          const period = o.year || o.period || o.years || "";
-          const rent = o.monthly_rent || o.rent || o.amount || "";
-          const perSqft = o.rent_per_sqft || o.per_sqft || "";
+        if (o.year || o.period || o.years || o.from_year || o.to_year) {
+          const period = o.year || o.period || o.years || (o.from_year && o.to_year ? `Year ${o.from_year}-${o.to_year}` : o.from_year || o.to_year) || "";
+          const rent = o.monthly_rent || o.mglr_monthly || o.rent || o.amount || "";
+          const perSqft = o.rent_per_sqft || o.mglr_per_sqft || o.per_sqft || "";
+          const revShare = o.revenue_share_takeaway_dining || o.revenue_share || "";
+          const revOnline = o.revenue_share_online || "";
           let line = `${period}`;
           if (rent) line += `: Rs ${Number(rent).toLocaleString("en-IN")}/mo`;
           if (perSqft) line += ` (Rs ${perSqft}/sqft)`;
+          if (revShare) line += ` | Rev Share: ${revShare}%`;
+          if (revOnline) line += `, Online: ${revOnline}%`;
           return line;
         }
-        return Object.values(o).join(" | ");
+        // Format other objects as key-value pairs
+        return Object.entries(o)
+          .filter(([, v]) => v !== null && v !== undefined && v !== "")
+          .map(([k, v]) => `${k.replace(/_/g, " ")}: ${v}`)
+          .join(" | ");
       }
       return String(item);
     });
