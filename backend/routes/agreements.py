@@ -211,8 +211,9 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
                 status="active",
                 document_filename=req.filename,
             )
-        except Exception:
-            pass  # Google Sheets write is non-critical
+        except Exception as sheets_err:
+            import logging
+            logging.getLogger(__name__).error(f"Google Sheets write failed: {sheets_err}")
 
         return {
             "status": "activated",

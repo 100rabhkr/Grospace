@@ -95,9 +95,14 @@ async def upload_and_extract(request: Request, file: UploadFile = File(...)):
             supabase.storage.from_("documents").upload(storage_path, file_bytes, {
                 "content-type": content_type or "application/octet-stream"
             })
-            document_url = supabase.storage.from_("documents").get_public_url(storage_path)
-        except Exception:
-            pass  # Storage upload is non-critical
+            # Use signed URL (valid 1 year) since bucket may be private
+            signed = supabase.storage.from_("documents").create_signed_url(storage_path, 31536000)
+            document_url = signed.get("signedURL") or signed.get("signedUrl")
+            if not document_url:
+                document_url = supabase.storage.from_("documents").get_public_url(storage_path)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Storage upload failed: {e}")
 
         start_time = time.time()
         result = await process_document(file_bytes, filename)
