@@ -1207,7 +1207,7 @@ def _sync_feedback_to_google_sheets(feedback_data: dict):
         return {"synced": False, "reason": str(e)}
 
 
-@router.post("/api/feedback", dependencies=[Depends(require_permission("view_agreements"))])
+@router.post("/feedback", dependencies=[Depends(require_permission("view_agreements"))])
 async def submit_feedback(
     req: FeedbackRequest,
     authorization: Optional[str] = Header(None),
@@ -1236,7 +1236,7 @@ async def submit_feedback(
     return {"success": True, "feedback_id": result.data[0]["id"] if result.data else None}
 
 
-@router.get("/api/feedback", dependencies=[Depends(require_permission("view_agreements"))])
+@router.get("/feedback", dependencies=[Depends(require_permission("view_agreements"))])
 async def list_feedback(
     org_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
