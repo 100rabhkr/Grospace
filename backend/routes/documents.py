@@ -405,7 +405,10 @@ async def upload_outlet_document(
         supabase.storage.from_("documents").upload(storage_path, file_bytes, {
             "content-type": file.content_type or "application/octet-stream"
         })
-        file_url = supabase.storage.from_("documents").get_public_url(storage_path)
+        signed = supabase.storage.from_("documents").create_signed_url(storage_path, 31536000)
+        file_url = signed.get("signedURL") or signed.get("signedUrl")
+        if not file_url:
+            file_url = supabase.storage.from_("documents").get_public_url(storage_path)
     except Exception:
         file_url = f"storage://{storage_path}"
 
