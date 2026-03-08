@@ -11,12 +11,12 @@ from dateutil.relativedelta import relativedelta
 from fastapi import APIRouter, HTTPException, Depends, Header, Query, Form
 from starlette.requests import Request
 
-from core.config import supabase, model, limiter, log_activity, PORTFOLIO_QA_SCHEMA
+from core.config import supabase, model, limiter, PORTFOLIO_QA_SCHEMA
 from core.models import (
     CurrentUser, UpdateOrganizationRequest, InviteMemberRequest,
     PortfolioQARequest, SmartChatRequest, FeedbackRequest,
 )
-from core.dependencies import get_current_user, get_org_filter, require_permission
+from core.dependencies import get_current_user, require_permission
 from services.extraction import get_num, get_or_create_demo_org
 from services.email_service import send_email_via_resend
 import google.generativeai as genai
@@ -181,7 +181,7 @@ async def dashboard_stats():
     """Get dashboard statistics."""
     outlets = supabase.table("outlets").select("id, name, status, city, property_type, franchise_model, monthly_net_revenue, deal_stage").execute()
     agreements = supabase.table("agreements").select("id, outlet_id, status, monthly_rent, cam_monthly, total_monthly_outflow, lease_expiry_date, risk_flags").execute()
-    obligations = supabase.table("obligations").select("id, type, amount, is_active").execute()
+    supabase.table("obligations").select("id, type, amount, is_active").execute()
     alerts = supabase.table("alerts").select("id, type, severity, status, trigger_date").execute()
     payments = supabase.table("payment_records").select("id, status, due_amount").execute()
 
@@ -496,12 +496,12 @@ async def seed_demo_data():
              "trigger_date": (today + timedelta(days=3)).isoformat(), "lead_days": 7,
              "reference_date": (today + timedelta(days=10)).isoformat()},
             {"outlet_idx": 1, "agr_idx": 1, "type": "rent_due", "severity": "medium",
-             "title": f"Rent due - Phoenix MarketCity",
+             "title": "Rent due - Phoenix MarketCity",
              "message": "Monthly rent payment of Rs. 3,50,000 + CAM Rs. 72,600 due.",
              "trigger_date": (today + timedelta(days=5)).isoformat(), "lead_days": 7,
              "reference_date": (today + timedelta(days=12)).isoformat()},
             {"outlet_idx": 4, "agr_idx": 4, "type": "rent_due", "severity": "medium",
-             "title": f"Rent due - Palladium Chennai",
+             "title": "Rent due - Palladium Chennai",
              "message": "Monthly rent payment of Rs. 1,75,000 + CAM Rs. 41,600 due.",
              "trigger_date": (today + timedelta(days=8)).isoformat(), "lead_days": 7,
              "reference_date": (today + timedelta(days=15)).isoformat()},

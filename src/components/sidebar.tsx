@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
@@ -65,7 +66,7 @@ export function Sidebar() {
       {/* Logo */}
       <div className="h-14 flex items-center px-5 border-b border-neutral-100/60">
         <Link href="/" className="flex items-center gap-2.5">
-          <img src="/logo.svg" alt="GroSpace" width={28} height={28} />
+          <Image src="/logo.svg" alt="GroSpace" width={28} height={28} />
           <span className="text-[17px] font-semibold tracking-tight text-[#132337]">GroSpace</span>
         </Link>
       </div>

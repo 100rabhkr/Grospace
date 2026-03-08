@@ -3,7 +3,6 @@ Core configuration: environment variables, constants, shared clients, and helper
 """
 
 import os
-import json
 from dotenv import load_dotenv
 from supabase import create_client, Client
 import google.generativeai as genai

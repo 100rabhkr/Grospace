@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
@@ -61,7 +62,7 @@ export function MobileNav({ open, onOpenChange }: MobileNavProps) {
       <SheetContent side="left" className="w-[280px] p-0">
         <SheetHeader className="p-4 border-b border-neutral-100">
           <SheetTitle className="flex items-center gap-2.5">
-            <img src="/logo.svg" alt="GroSpace" width={28} height={28} />
+            <Image src="/logo.svg" alt="GroSpace" width={28} height={28} />
             <span className="text-[17px] font-semibold tracking-tight text-[#132337]">GroSpace</span>
           </SheetTitle>
         </SheetHeader>
