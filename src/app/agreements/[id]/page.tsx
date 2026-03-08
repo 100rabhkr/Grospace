@@ -737,7 +737,7 @@ export default function AgreementDetailPage() {
                                     onChange={(v) => handleFieldEdit(sectionKey, fieldKey, v)}
                                   />
                                   <FeedbackButton
-                                    agreementId={id as string}
+                                    agreementId={agreementId}
                                     fieldName={dotKey}
                                     originalValue={displayVal}
                                   />
