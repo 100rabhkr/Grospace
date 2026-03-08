@@ -21,6 +21,61 @@ from services.sheets_service import write_agreement_to_sheet
 router = APIRouter(prefix="/api", tags=["agreements"])
 
 
+@router.get("/test-sheets")
+async def test_sheets_write():
+    """Debug endpoint to test Google Sheets integration."""
+    import os
+    import logging
+    logger = logging.getLogger(__name__)
+
+    has_spreadsheet_id = bool(os.getenv("GOOGLE_SHEETS_SPREADSHEET_ID"))
+    has_creds_json = bool(os.getenv("GOOGLE_SHEETS_CREDENTIALS_JSON"))
+    has_creds_file = os.path.exists(
+        os.path.join(os.path.dirname(os.path.dirname(__file__)), "google-sheets-credentials.json")
+    )
+
+    try:
+        result = write_agreement_to_sheet(
+            agreement_id="test-debug",
+            outlet_name="Debug Test",
+            city="Test City",
+            state="Test State",
+            landlord="Test",
+            tenant="Test",
+            brand="Test",
+            property_type="Test",
+            monthly_rent=1000,
+            security_deposit=5000,
+            cam_monthly=500,
+            lease_start="2024-01-01",
+            lease_end="2029-01-01",
+            lock_in_months=12,
+            escalation_pct=10,
+            rent_model="fixed",
+            area_sqft=500,
+            rent_per_sqft=2,
+            total_monthly_outflow=1500,
+            risk_flags_count=0,
+            status="test",
+            document_filename="test.pdf",
+        )
+        return {
+            "write_result": result,
+            "has_spreadsheet_id": has_spreadsheet_id,
+            "has_creds_json": has_creds_json,
+            "has_creds_file": has_creds_file,
+        }
+    except Exception as e:
+        logger.error(f"Test sheets write failed: {e}")
+        return {
+            "write_result": False,
+            "error": str(e),
+            "has_spreadsheet_id": has_spreadsheet_id,
+            "has_creds_json": has_creds_json,
+            "has_creds_file": has_creds_file,
+        }
+
+
 @router.get("/agreements", dependencies=[Depends(require_permission("view_agreements"))])
 async def list_agreements(
     page: int = Query(1, ge=1),
