@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback, memo, useRef, useEffect } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import {
   ComposableMap,
   Geographies,
@@ -224,7 +224,7 @@ function StateGeographies({
   onStateClick?: (stateName: string) => void;
 }) {
   return (
-    <Geographies geography={INDIA_GEO_URL} {...{ disableOptimization: true } as any}>
+    <Geographies geography={INDIA_GEO_URL} {...({ disableOptimization: true } as Record<string, unknown>)}>
       {({ geographies }) =>
         geographies.map((geo) => {
           const stateName = geo.properties?.ST_NM || geo.properties?.NAME_1 || "";
