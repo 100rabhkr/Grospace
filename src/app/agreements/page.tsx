@@ -262,7 +262,7 @@ export default function AgreementsPage() {
     <TooltipProvider>
       <div className="space-y-6 animate-fade-in">
         {/* Header */}
-        <PageHeader title="Agreements" backHref="/">
+        <PageHeader title="Agreements">
           {!loading && (
             <Badge variant="secondary" className="text-sm font-medium">
               {total}

@@ -146,7 +146,7 @@ export default function AIAssistantPage() {
       <PageHeader
         title="GrowBot AI"
         description="Your intelligent real estate portfolio assistant"
-        backHref="/"
+       
       >
         <Badge variant="outline" className="text-xs gap-1">
           <Sparkles className="w-3 h-3" />

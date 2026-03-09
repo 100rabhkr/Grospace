@@ -378,7 +378,7 @@ export default function AlertsPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
-      <PageHeader title="Alerts" backHref="/">
+      <PageHeader title="Alerts">
         {!loading && (
           <Badge variant="secondary" className="text-sm">
             {total}

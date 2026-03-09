@@ -7,11 +7,10 @@ import { Button } from "@/components/ui/button";
 interface PageHeaderProps {
   title: string;
   description?: string;
-  backHref?: string;
   children?: React.ReactNode;
 }
 
-export function PageHeader({ title, description, backHref, children }: PageHeaderProps) {
+export function PageHeader({ title, description, children }: PageHeaderProps) {
   const router = useRouter();
 
   return (

@@ -524,7 +524,7 @@ export default function SettingsPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Page Header */}
-      <PageHeader title="Settings" description="Manage your organization, team, alerts, and account preferences" backHref="/" />
+      <PageHeader title="Settings" description="Manage your organization, team, alerts, and account preferences" />
 
       {/* Tabs */}
       <Tabs defaultValue="organization" className="w-full">
@@ -1130,25 +1130,6 @@ export default function SettingsPage() {
                 </div>
               ) : (
                 <>
-                  {/* WhatsApp Number */}
-                  <div className="grid gap-2 max-w-md">
-                    <Label htmlFor="wa-number" className="flex items-center gap-1.5">
-                      <MessageCircle className="w-3.5 h-3.5" />
-                      WhatsApp Number
-                    </Label>
-                    <Input
-                      id="wa-number"
-                      placeholder="+91 98765 43210"
-                      value={whatsappNumber}
-                      onChange={(e) => setWhatsappNumber(e.target.value)}
-                    />
-                    <p className="text-xs text-neutral-400">
-                      Used for WhatsApp alerts via MSG91 (not yet active)
-                    </p>
-                  </div>
-
-                  <Separator />
-
                   {/* Default Routing */}
                   <div>
                     <p className="text-sm font-medium mb-3">Default Routing</p>
@@ -1166,13 +1147,6 @@ export default function SettingsPage() {
                             />
                             <span className="text-xs text-neutral-500">Email</span>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <Switch
-                              checked={defaultHighSeverity.whatsapp}
-                              onCheckedChange={(v) => setDefaultHighSeverity((p) => ({ ...p, whatsapp: v }))}
-                            />
-                            <span className="text-xs text-neutral-500">WhatsApp</span>
-                          </div>
                         </div>
                       </div>
                       <div className="flex items-center justify-between">
@@ -1187,13 +1161,6 @@ export default function SettingsPage() {
                               onCheckedChange={(v) => setDefaultNormal((p) => ({ ...p, email: v }))}
                             />
                             <span className="text-xs text-neutral-500">Email</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Switch
-                              checked={defaultNormal.whatsapp}
-                              onCheckedChange={(v) => setDefaultNormal((p) => ({ ...p, whatsapp: v }))}
-                            />
-                            <span className="text-xs text-neutral-500">WhatsApp</span>
                           </div>
                         </div>
                       </div>
@@ -1211,7 +1178,6 @@ export default function SettingsPage() {
                         <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">Alert Type</span>
                         <div className="flex items-center gap-6">
                           <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wide w-14 text-center">Email</span>
-                          <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wide w-14 text-center">WhatsApp</span>
                         </div>
                       </div>
                       {NOTIFICATION_ALERT_TYPES.map((at, idx) => {
@@ -1229,12 +1195,6 @@ export default function SettingsPage() {
                                 <Switch
                                   checked={route.email}
                                   onCheckedChange={() => toggleRoute(at.key, "email")}
-                                />
-                              </div>
-                              <div className="w-14 flex justify-center">
-                                <Switch
-                                  checked={route.whatsapp}
-                                  onCheckedChange={() => toggleRoute(at.key, "whatsapp")}
                                 />
                               </div>
                             </div>

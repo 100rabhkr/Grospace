@@ -397,7 +397,7 @@ export default function ReportsPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* ---------- Header ---------- */}
-      <PageHeader title="Outlet Report" backHref="/">
+      <PageHeader title="Outlet Report">
         {!loading && (
           <Badge variant="secondary" className="text-sm">
             {filteredData.length} outlets

@@ -280,7 +280,7 @@ export default function OutletsPage() {
     <div className="animate-fade-in">
       <div>
         {/* Header */}
-        <PageHeader title="Outlets" backHref="/">
+        <PageHeader title="Outlets">
           <Badge
             variant="secondary"
             className="bg-neutral-100 text-neutral-700 font-medium"

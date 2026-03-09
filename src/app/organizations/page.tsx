@@ -136,7 +136,7 @@ export default function OrganizationsPage() {
         {/* ----------------------------------------------------------------- */}
         {/* Page Header                                                        */}
         {/* ----------------------------------------------------------------- */}
-        <PageHeader title="Organizations" description="Manage all registered organizations" backHref="/">
+        <PageHeader title="Organizations" description="Manage all registered organizations">
           <Badge
             variant="secondary"
             className="bg-neutral-100 text-neutral-600 text-xs"

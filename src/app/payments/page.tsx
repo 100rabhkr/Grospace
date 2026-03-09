@@ -306,7 +306,7 @@ export default function PaymentsPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
-      <PageHeader title="Payments" backHref="/">
+      <PageHeader title="Payments">
         {!loading && (
           <Badge variant="secondary" className="text-sm">
             {total}
