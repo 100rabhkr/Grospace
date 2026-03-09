@@ -23,7 +23,7 @@ import { useUser } from "@/lib/hooks/use-user";
 
 const navItems = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
-  { label: "AI Assistant", href: "/ai-assistant", icon: Bot },
+  { label: "GrowBot AI", href: "/ai-assistant", icon: Bot },
   {
     label: "Outlets",
     href: "/outlets",

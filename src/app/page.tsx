@@ -635,6 +635,12 @@ export default function Dashboard() {
       {/* -------------------------------------------------------------- */}
       <div className="flex flex-wrap items-center gap-2">
         {/* Common actions for all roles */}
+        <Link href="/ai-assistant">
+          <Button variant="outline" size="sm" className="gap-1.5 text-xs">
+            <Sparkles className="h-3.5 w-3.5" />
+            GrowBot AI
+          </Button>
+        </Link>
         <Link href="/agreements/upload">
           <Button variant="outline" size="sm" className="gap-1.5 text-xs">
             <Upload className="h-3.5 w-3.5" />
