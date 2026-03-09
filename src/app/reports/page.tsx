@@ -86,26 +86,26 @@ function statusLabel(s: string): string {
 
 function statusColor(status: string): string {
   const map: Record<string, string> = {
-    pipeline: "bg-neutral-100 text-neutral-600",
-    fit_out: "bg-blue-100 text-blue-800",
+    pipeline: "bg-[#f4f6f9] text-[#132337]",
+    fit_out: "bg-[#f4f6f9] text-[#132337]",
     operational: "bg-emerald-100 text-emerald-800",
     up_for_renewal: "bg-amber-100 text-amber-800",
     renewed: "bg-green-100 text-green-800",
     closed: "bg-red-100 text-red-800",
   };
-  return map[status] || "bg-neutral-100 text-neutral-600";
+  return map[status] || "bg-[#f4f6f9] text-[#132337]";
 }
 
 function agreementStatusColor(status: string): string {
   const map: Record<string, string> = {
     active: "bg-emerald-100 text-emerald-800",
-    draft: "bg-neutral-100 text-neutral-600",
+    draft: "bg-[#f4f6f9] text-[#132337]",
     pending: "bg-amber-100 text-amber-800",
     expired: "bg-red-100 text-red-800",
     terminated: "bg-red-100 text-red-800",
     renewed: "bg-green-100 text-green-800",
   };
-  return map[status] || "bg-neutral-100 text-neutral-600";
+  return map[status] || "bg-[#f4f6f9] text-[#132337]";
 }
 
 function daysToExpiryColor(days: number | null): string {
@@ -552,7 +552,7 @@ export default function ReportsPage() {
             <div className="overflow-x-auto">
               <Table id="reports-table">
                 <TableHeader>
-                  <TableRow className="bg-neutral-50/80">
+                  <TableRow className="bg-[#f4f6f9]">
                     <TableHead className="cursor-pointer select-none whitespace-nowrap min-w-[180px]" onClick={() => handleSort("outlet_name")}>
                       <span className="flex items-center">Outlet Name<SortIcon field="outlet_name" /></span>
                     </TableHead>

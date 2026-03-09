@@ -11,7 +11,7 @@ const geistSans = localFont({
 
 export const metadata: Metadata = {
   title: "GroSpace",
-  description: "GroSpace AI-first Lease & Outlet Management Platform",
+  description: "GroBot-first Lease & Outlet Management Platform",
 };
 
 export default function RootLayout({
@@ -21,7 +21,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${geistSans.variable} font-sans antialiased bg-white text-black`}>
+      <body className={`${geistSans.variable} font-sans antialiased bg-background text-foreground`}>
         <AppShell>{children}</AppShell>
       </body>
     </html>

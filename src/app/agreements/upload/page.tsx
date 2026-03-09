@@ -174,7 +174,7 @@ type ExtractionResult = {
 const processingSteps = [
   { label: "Uploading document", duration: 1500 },
   { label: "Scanning document content", duration: 3000 },
-  { label: "Running GroSpace AI analysis", duration: 5000 },
+  { label: "Running GroBot analysis", duration: 5000 },
   { label: "Classifying document type", duration: 3000 },
   { label: "Extracting key terms & dates", duration: 5000 },
   { label: "Analyzing financial data", duration: 4000 },
@@ -262,7 +262,7 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
     <Card className="max-w-lg mx-auto">
       <CardContent className="pt-8 pb-10 flex flex-col items-center text-center">
         <div className="mb-6">
-          <div className="h-16 w-16 rounded-full bg-neutral-100 flex items-center justify-center">
+          <div className="h-16 w-16 rounded-full bg-[#f4f6f9] flex items-center justify-center">
             <Loader2 className="h-8 w-8 text-black animate-spin" />
           </div>
         </div>
@@ -271,12 +271,12 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
           {currentStageLabel}
         </h2>
         <p className="text-sm text-muted-foreground mb-1">
-          Powered by GroSpace AI
+          Powered by GroBot
         </p>
 
         {/* Processing time estimate & live timer (Task 43) */}
         <div className="flex items-center gap-3 mb-4">
-          <span className="text-xs text-neutral-500 bg-neutral-100 px-3 py-1.5 rounded-full">
+          <span className="text-xs text-[#6b7280] bg-[#f4f6f9] px-3 py-1.5 rounded-full">
             Estimated: {estimatedRangeLow}-{estimatedRangeHigh} seconds
           </span>
           <span className="text-xs font-semibold tabular-nums bg-[#132337] text-white px-3 py-1.5 rounded-full">
@@ -285,7 +285,7 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
         </div>
 
         {/* Remaining time hint */}
-        <p className="text-xs text-neutral-400 mb-3">
+        <p className="text-xs text-[#9ca3af] mb-3">
           {isOverEstimate
             ? "Taking longer than expected, please wait..."
             : remainingSec > 0
@@ -296,10 +296,10 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
         {/* Progress bar with percentage */}
         <div className="w-full max-w-xs mb-5">
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-xs font-medium text-neutral-700">{currentStageLabel}</span>
+            <span className="text-xs font-medium text-[#132337]">{currentStageLabel}</span>
             <span className="text-xs font-semibold tabular-nums">{Math.round(progressPct)}%</span>
           </div>
-          <div className="h-2 bg-neutral-100 rounded-full overflow-hidden">
+          <div className="h-2 bg-[#f4f6f9] rounded-full overflow-hidden">
             <div
               className="h-full bg-[#132337] rounded-full transition-all duration-700 ease-out"
               style={{ width: `${progressPct}%` }}
@@ -414,7 +414,7 @@ export default function UploadAgreementPage() {
         );
       default:
         return (
-          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-neutral-500 bg-neutral-50 border border-neutral-200 rounded-full px-1.5 py-0.5">
+          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-[#6b7280] bg-[#f4f6f9] border border-[#e4e8ef] rounded-full px-1.5 py-0.5">
             <Eye className="h-3 w-3" />
             N/A
           </span>
@@ -525,7 +525,7 @@ export default function UploadAgreementPage() {
       <div className="flex items-center gap-0">
         {[
           { num: 1, label: "Upload Document" },
-          { num: 2, label: "GroSpace AI Processing" },
+          { num: 2, label: "GroBot Processing" },
           { num: 3, label: "Review & Confirm" },
           { num: 4, label: "Activated" },
         ].map((s, i) => (
@@ -537,14 +537,14 @@ export default function UploadAgreementPage() {
                     ? "bg-emerald-600 text-white"
                     : step === s.num
                     ? "bg-[#132337] text-white"
-                    : "bg-neutral-200 text-neutral-500"
+                    : "bg-[#e4e8ef] text-[#6b7280]"
                 }`}
               >
                 {step > s.num ? <Check className="h-4 w-4" /> : s.num}
               </div>
               <span
                 className={`text-sm font-medium ${
-                  step >= s.num ? "text-black" : "text-neutral-400"
+                  step >= s.num ? "text-black" : "text-[#9ca3af]"
                 }`}
               >
                 {s.label}
@@ -553,7 +553,7 @@ export default function UploadAgreementPage() {
             {i < 3 && (
               <div
                 className={`mx-4 h-px w-16 ${
-                  step > s.num ? "bg-emerald-600" : "bg-neutral-200"
+                  step > s.num ? "bg-emerald-600" : "bg-[#e4e8ef]"
                 }`}
               />
             )}
@@ -599,12 +599,12 @@ export default function UploadAgreementPage() {
                   onClick={() => fileInputRef.current?.click()}
                   className={`flex flex-col items-center justify-center border-2 border-dashed rounded-xl p-14 cursor-pointer transition-all ${
                     isDragOver
-                      ? "border-black bg-neutral-50 scale-[1.01]"
-                      : "border-neutral-300 hover:border-neutral-400 hover:bg-neutral-50/50"
+                      ? "border-black bg-[#f4f6f9] scale-[1.01]"
+                      : "border-neutral-300 hover:border-neutral-400 hover:bg-[#f4f6f9]/50"
                   }`}
                 >
-                  <div className="h-14 w-14 rounded-full bg-neutral-100 flex items-center justify-center mb-4">
-                    <CloudUpload className="h-7 w-7 text-neutral-400" />
+                  <div className="h-14 w-14 rounded-full bg-[#f4f6f9] flex items-center justify-center mb-4">
+                    <CloudUpload className="h-7 w-7 text-[#9ca3af]" />
                   </div>
                   <p className="text-sm font-medium text-black mb-1">
                     Drag and drop your document here
@@ -615,9 +615,9 @@ export default function UploadAgreementPage() {
                   <Badge variant="outline" className="text-xs font-normal">PDF or image up to 50MB</Badge>
                 </div>
               ) : (
-                <div className="flex items-center gap-3 p-4 rounded-xl border bg-neutral-50">
-                  <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${selectedFile?.type?.startsWith("image/") ? "bg-blue-100" : "bg-red-100"}`}>
-                    <FileText className={`h-5 w-5 ${selectedFile?.type?.startsWith("image/") ? "text-blue-600" : "text-red-600"}`} />
+                <div className="flex items-center gap-3 p-4 rounded-xl border bg-[#f4f6f9]">
+                  <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${selectedFile?.type?.startsWith("image/") ? "bg-[#f4f6f9]" : "bg-red-100"}`}>
+                    <FileText className={`h-5 w-5 ${selectedFile?.type?.startsWith("image/") ? "text-[#132337]" : "text-red-600"}`} />
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate">{selectedFile.name}</p>
@@ -644,7 +644,7 @@ export default function UploadAgreementPage() {
               disabled={!selectedFile}
               className="gap-2 px-6"
             >
-              Start GroSpace AI Extraction
+              Start GroBot Extraction
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
@@ -681,19 +681,19 @@ export default function UploadAgreementPage() {
           {/* Stats bar */}
           {stats && (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div className="text-center p-3 rounded-lg border bg-white">
+              <div className="text-center p-3 rounded-lg border bg-[#fafbfd]">
                 <p className="text-2xl font-bold">{stats.total}</p>
                 <p className="text-[11px] text-muted-foreground">Fields Extracted</p>
               </div>
-              <div className="text-center p-3 rounded-lg border bg-white">
+              <div className="text-center p-3 rounded-lg border bg-[#fafbfd]">
                 <p className="text-2xl font-bold text-emerald-600">{stats.highConf}</p>
                 <p className="text-[11px] text-muted-foreground">High Confidence</p>
               </div>
-              <div className="text-center p-3 rounded-lg border bg-white">
+              <div className="text-center p-3 rounded-lg border bg-[#fafbfd]">
                 <p className="text-2xl font-bold text-amber-600">{stats.medConf + stats.lowConf}</p>
                 <p className="text-[11px] text-muted-foreground">Needs Review</p>
               </div>
-              <div className="text-center p-3 rounded-lg border bg-white">
+              <div className="text-center p-3 rounded-lg border bg-[#fafbfd]">
                 <p className="text-2xl font-bold text-red-600">{result.risk_flags.length}</p>
                 <p className="text-[11px] text-muted-foreground">Risk Flags</p>
               </div>
@@ -705,10 +705,10 @@ export default function UploadAgreementPage() {
             {/* LEFT SIDE: PDF Viewer */}
             <div className="w-full lg:w-1/2 lg:sticky lg:top-4 lg:self-start">
               <Card className="overflow-hidden">
-                <div className="flex items-center justify-between px-4 py-2.5 bg-neutral-50 border-b">
+                <div className="flex items-center justify-between px-4 py-2.5 bg-[#f4f6f9] border-b">
                   <div className="flex items-center gap-2">
-                    <FileText className="h-4 w-4 text-neutral-500" />
-                    <span className="text-xs font-medium text-neutral-700 truncate max-w-[200px]">
+                    <FileText className="h-4 w-4 text-[#6b7280]" />
+                    <span className="text-xs font-medium text-[#132337] truncate max-w-[200px]">
                       {result.filename}
                     </span>
                   </div>
@@ -722,7 +722,7 @@ export default function UploadAgreementPage() {
                     >
                       <ZoomOut className="h-3.5 w-3.5" />
                     </Button>
-                    <span className="text-xs font-medium text-neutral-500 w-10 text-center tabular-nums">
+                    <span className="text-xs font-medium text-[#6b7280] w-10 text-center tabular-nums">
                       {pdfZoom}%
                     </span>
                     <Button
@@ -736,7 +736,7 @@ export default function UploadAgreementPage() {
                     </Button>
                   </div>
                 </div>
-                <div className="bg-neutral-100 overflow-auto" style={{ height: "calc(100vh - 320px)", minHeight: "400px" }}>
+                <div className="bg-[#f4f6f9] overflow-auto" style={{ height: "calc(100vh - 320px)", minHeight: "400px" }}>
                   {fileUrl && selectedFile?.type === "application/pdf" ? (
                     <iframe
                       src={`${fileUrl}#toolbar=0&view=FitH`}
@@ -763,7 +763,7 @@ export default function UploadAgreementPage() {
                       />
                     </div>
                   ) : (
-                    <div className="flex flex-col items-center justify-center h-full text-neutral-400">
+                    <div className="flex flex-col items-center justify-center h-full text-[#9ca3af]">
                       <FileText className="h-12 w-12 mb-3" />
                       <p className="text-sm font-medium">Preview not available</p>
                       <p className="text-xs mt-1">The uploaded document cannot be previewed in the browser.</p>
@@ -777,7 +777,7 @@ export default function UploadAgreementPage() {
             <div className="w-full lg:w-1/2 space-y-3">
               {/* Section controls */}
               <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-neutral-700">Extracted Data</h2>
+                <h2 className="text-sm font-semibold text-[#132337]">Extracted Data</h2>
                 <div className="flex items-center gap-1">
                   <Button variant="ghost" size="sm" className="text-xs h-7 px-2" onClick={expandAllSections}>
                     Expand All
@@ -804,9 +804,9 @@ export default function UploadAgreementPage() {
                       {result.risk_flags.length}
                     </Badge>
                     {collapsedSections["_risk_flags"] ? (
-                      <ChevronDown className="h-4 w-4 text-neutral-400" />
+                      <ChevronDown className="h-4 w-4 text-[#9ca3af]" />
                     ) : (
-                      <ChevronUp className="h-4 w-4 text-neutral-400" />
+                      <ChevronUp className="h-4 w-4 text-[#9ca3af]" />
                     )}
                   </button>
                   <div
@@ -891,10 +891,10 @@ export default function UploadAgreementPage() {
                   <Card key={sectionKey} className="overflow-hidden">
                     {/* Section Header (clickable to toggle) */}
                     <button
-                      className="w-full flex items-center gap-2 px-4 py-3 hover:bg-neutral-50/80 transition-colors text-left"
+                      className="w-full flex items-center gap-2 px-4 py-3 hover:bg-[#f4f6f9]/80 transition-colors text-left"
                       onClick={() => toggleSection(sectionKey)}
                     >
-                      <Icon className="h-4 w-4 text-neutral-500 flex-shrink-0" />
+                      <Icon className="h-4 w-4 text-[#6b7280] flex-shrink-0" />
                       <span className="text-sm font-semibold flex-1">{config.title}</span>
                       <div className="flex items-center gap-1.5 mr-1">
                         {sectionStats.high > 0 && (
@@ -920,9 +920,9 @@ export default function UploadAgreementPage() {
                         {fields.length} {fields.length === 1 ? "field" : "fields"}
                       </Badge>
                       {isCollapsed ? (
-                        <ChevronDown className="h-4 w-4 text-neutral-400 flex-shrink-0" />
+                        <ChevronDown className="h-4 w-4 text-[#9ca3af] flex-shrink-0" />
                       ) : (
-                        <ChevronUp className="h-4 w-4 text-neutral-400 flex-shrink-0" />
+                        <ChevronUp className="h-4 w-4 text-[#9ca3af] flex-shrink-0" />
                       )}
                     </button>
 
@@ -957,10 +957,10 @@ export default function UploadAgreementPage() {
                             }
 
                             return (
-                              <div key={fieldKey} className={`min-w-0 group/field rounded-lg p-2.5 -mx-1 transition-colors ${isNotFound ? "opacity-50" : "hover:bg-neutral-50"}`}>
+                              <div key={fieldKey} className={`min-w-0 group/field rounded-lg p-2.5 -mx-1 transition-colors ${isNotFound ? "opacity-50" : "hover:bg-[#f4f6f9]"}`}>
                                 <div className="flex items-center gap-1.5 mb-1">
                                   <ConfidenceDot level={confidence} />
-                                  <p className="text-[10px] text-neutral-400 uppercase tracking-wider font-semibold flex-1">
+                                  <p className="text-[10px] text-[#9ca3af] uppercase tracking-wider font-semibold flex-1">
                                     {formatFieldLabel(fieldKey)}
                                   </p>
                                   <span className="opacity-0 group-hover/field:opacity-100 transition-opacity">
@@ -973,7 +973,7 @@ export default function UploadAgreementPage() {
                                   />
                                 </div>
                                 {isNotFound ? (
-                                  <p className="text-xs text-neutral-300 italic pl-4">Not found in document</p>
+                                  <p className="text-xs text-[#d1d5db] italic pl-4">Not found in document</p>
                                 ) : isBool ? (
                                   <div className="pl-4">
                                     <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${displayVal === "Yes" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600"}`}>
@@ -984,8 +984,8 @@ export default function UploadAgreementPage() {
                                   <div className="pl-4 space-y-1 mt-1">
                                     {formattedVal.split("\n").filter(Boolean).map((line, idx) => (
                                       <div key={idx} className="flex items-start gap-2">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-blue-400 mt-1.5 flex-shrink-0" />
-                                        <span className="text-sm text-neutral-700 font-medium">{line}</span>
+                                        <span className="w-1.5 h-1.5 rounded-full bg-[#132337] mt-1.5 flex-shrink-0" />
+                                        <span className="text-sm text-[#132337] font-medium">{line}</span>
                                       </div>
                                     ))}
                                   </div>

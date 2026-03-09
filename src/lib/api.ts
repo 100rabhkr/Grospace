@@ -594,6 +594,18 @@ export async function deleteDocument(documentId: string) {
 }
 
 // ============================================
+// SEED / DEMO DATA
+// ============================================
+
+export async function seedDemoData() {
+  return apiFetch("/api/admin/seed", { method: "POST" });
+}
+
+export async function removeSeedData() {
+  return apiFetch("/api/admin/seed", { method: "DELETE" });
+}
+
+// ============================================
 // PORTFOLIO Q&A
 // ============================================
 

@@ -608,10 +608,10 @@ async def seed_demo_data():
             "entity_type": "system",
             "action": "seed_demo_data",
             "details": {
-                "outlets_created": len(created_outlets),
-                "agreements_created": len(created_agreements),
-                "obligations_created": len(all_obligations),
-                "alerts_created": len(all_alerts),
+                "outlet_ids": [o["id"] for o in created_outlets],
+                "agreement_ids": [a["id"] for a in created_agreements],
+                "obligation_ids": [o["id"] for o in all_obligations],
+                "alert_ids": [a["id"] for a in all_alerts],
             }
         }).execute()
 
@@ -624,6 +624,61 @@ async def seed_demo_data():
             "message": "Demo data seeded successfully! Check Dashboard, Outlets, Agreements, and Alerts pages.",
         }
 
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/seed", dependencies=[Depends(require_permission("manage_org_settings"))])
+async def remove_seed_data():
+    """Remove only demo/seeded data by looking up IDs stored during seeding."""
+    try:
+        # Find all seed_demo_data activity log entries to get seeded IDs
+        logs = supabase.table("activity_log").select("id,details").eq("action", "seed_demo_data").execute()
+        if not logs.data:
+            return {"status": "nothing", "message": "No demo data found to remove."}
+
+        all_alert_ids = []
+        all_obligation_ids = []
+        all_agreement_ids = []
+        all_outlet_ids = []
+        log_ids = []
+
+        for log in logs.data:
+            details = log.get("details", {})
+            all_alert_ids.extend(details.get("alert_ids", []))
+            all_obligation_ids.extend(details.get("obligation_ids", []))
+            all_agreement_ids.extend(details.get("agreement_ids", []))
+            all_outlet_ids.extend(details.get("outlet_ids", []))
+            log_ids.append(log["id"])
+
+        # Delete in order: alerts → obligations → agreements → outlets (FK deps)
+        counts = {}
+        for table, ids in [("alerts", all_alert_ids), ("obligations", all_obligation_ids),
+                           ("agreements", all_agreement_ids), ("outlets", all_outlet_ids)]:
+            removed = 0
+            for uid in ids:
+                try:
+                    supabase.table(table).delete().eq("id", uid).execute()
+                    removed += 1
+                except Exception:
+                    pass
+            counts[table] = removed
+
+        # Clean up the seed log entries too
+        for lid in log_ids:
+            try:
+                supabase.table("activity_log").delete().eq("id", lid).execute()
+            except Exception:
+                pass
+
+        return {
+            "status": "removed",
+            "alerts_removed": counts["alerts"],
+            "obligations_removed": counts["obligations"],
+            "agreements_removed": counts["agreements"],
+            "outlets_removed": counts["outlets"],
+            "message": "Demo data removed successfully! Your real data is untouched.",
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -804,7 +859,7 @@ async def portfolio_qa_endpoint(request: Request, req: PortfolioQARequest, autho
                 rows = []
 
         answer_prompt = (
-            "You are a helpful portfolio analytics assistant for a commercial real estate management platform.\n"
+            "You are GroBot, a portfolio analytics assistant built by 360Labs for commercial real estate management. If asked who built you, say 360Labs.\n"
             f"The user asked: \"{req.question}\"\n\n"
             f"The database query returned these results:\n{json.dumps(rows[:50], indent=2, default=str)}\n\n"
             "Rules:\n"
@@ -919,7 +974,8 @@ async def smart_chat(request: Request, req: SmartChatRequest, user: Optional[Cur
     city_counts = json.dumps({c: len([o for o in outlets if o.get("city") == c]) for c in set(o.get("city", "Unknown") for o in outlets)})
     pipeline_counts = json.dumps({s: len([o for o in outlets if o.get("deal_stage") == s]) for s in set(o.get("deal_stage", "lead") for o in outlets)})
 
-    context = f"""You are GroBot AI, a smart assistant for commercial real estate lease management.
+    context = f"""You are GroBot, a smart AI assistant for commercial real estate lease management, built by 360Labs.
+If anyone asks who built you, who made you, or who you are, say: "I am GroBot, an advanced AI assistant purpose-built for commercial real estate portfolio management. I was developed by 360Labs using state-of-the-art large language model technology, fine-tuned specifically for lease management, F&B operations, and retail real estate analytics."
 The user manages a portfolio of {len(outlets)} outlet(s) with {len(agreements)} agreement(s).
 
 PORTFOLIO SUMMARY:
@@ -971,7 +1027,7 @@ answer from your knowledge. Never say you can't answer — always provide helpfu
             # Fallback: try a direct general-knowledge answer
             try:
                 fallback_resp = model.generate_content(
-                    f"You are GroBot AI, an expert assistant for commercial real estate, F&B chains, and retail operations. Answer this question helpfully:\n\n{question}",
+                    f"You are GroBot, an advanced AI assistant built by 360Labs for commercial real estate, F&B chains, and retail operations. If asked who built you or who you are, say you were developed by 360Labs. Answer this question helpfully:\n\n{question}",
                     generation_config={"temperature": 0.3, "max_output_tokens": 2048},
                 )
                 answer = fallback_resp.text
@@ -983,7 +1039,7 @@ answer from your knowledge. Never say you can't answer — always provide helpfu
         # Final fallback: try simpler prompt without portfolio context
         try:
             fallback_resp = model.generate_content(
-                f"You are GroBot AI, a helpful real estate and business assistant. Answer concisely:\n\n{question}",
+                f"You are GroBot, an advanced AI assistant built by 360Labs for real estate and business. If asked who built you, say 360Labs. Answer concisely:\n\n{question}",
                 generation_config={"temperature": 0.3, "max_output_tokens": 2048},
             )
             answer = fallback_resp.text

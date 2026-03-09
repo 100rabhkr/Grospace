@@ -56,19 +56,19 @@ interface PipelineOutlet {
 type StageMap = Record<string, PipelineOutlet[]>;
 
 const STAGES = [
-  { key: "lead", label: "Lead", color: "bg-neutral-100 text-neutral-700" },
-  { key: "site_visit", label: "Site Visit", color: "bg-blue-100 text-blue-700" },
-  { key: "negotiation", label: "Negotiation", color: "bg-amber-100 text-amber-700" },
-  { key: "loi", label: "LOI", color: "bg-purple-100 text-purple-700" },
-  { key: "agreement", label: "Agreement", color: "bg-cyan-100 text-cyan-700" },
-  { key: "fitout", label: "Fitout", color: "bg-indigo-100 text-indigo-700" },
-  { key: "operational", label: "Operational", color: "bg-emerald-100 text-emerald-700" },
+  { key: "lead", label: "Lead", color: "bg-[#f4f6f9] text-[#132337]" },
+  { key: "site_visit", label: "Site Visit", color: "bg-[#f4f6f9] text-[#132337]" },
+  { key: "negotiation", label: "Negotiation", color: "bg-[#f4f6f9] text-[#132337]" },
+  { key: "loi", label: "LOI", color: "bg-[#f4f6f9] text-[#132337]" },
+  { key: "agreement", label: "Agreement", color: "bg-[#f4f6f9] text-[#132337]" },
+  { key: "fitout", label: "Fitout", color: "bg-[#f4f6f9] text-[#132337]" },
+  { key: "operational", label: "Operational", color: "bg-[#f4f6f9] text-[#132337]" },
 ];
 
 const PRIORITY_COLORS: Record<string, string> = {
   high: "bg-red-50 text-red-700 border-red-200",
   medium: "bg-amber-50 text-amber-700 border-amber-200",
-  low: "bg-blue-50 text-blue-700 border-blue-200",
+  low: "bg-[#f4f6f9] text-[#132337] border-[#e4e8ef]",
 };
 
 // ---------------------------------------------------------------------------
@@ -330,7 +330,7 @@ export default function PipelinePage() {
                 {outlets.map((outlet) => (
                   <div
                     key={outlet.id}
-                    className="bg-white rounded-lg border border-neutral-200 p-3"
+                    className="bg-[#fafbfd] rounded-lg border border-[#e4e8ef] p-3"
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
@@ -437,15 +437,15 @@ export default function PipelinePage() {
               return (
                 <div
                   key={stage.key}
-                  className="flex-shrink-0 w-[300px] bg-neutral-50 rounded-lg border border-neutral-200"
+                  className="flex-shrink-0 w-[300px] bg-[#f4f6f9] rounded-lg border border-[#e4e8ef]"
                 >
                   {/* Column Header */}
-                  <div className="flex items-center justify-between p-3 border-b border-neutral-200">
+                  <div className="flex items-center justify-between p-3 border-b border-[#e4e8ef]">
                     <div className="flex items-center gap-2">
                       <Badge variant="outline" className={`text-xs font-semibold ${stage.color}`}>
                         {stage.label}
                       </Badge>
-                      <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-neutral-200 text-[11px] font-semibold text-neutral-600">{outlets.length}</span>
+                      <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-[#e4e8ef] text-[11px] font-semibold text-neutral-600">{outlets.length}</span>
                     </div>
                   </div>
 
@@ -456,7 +456,7 @@ export default function PipelinePage() {
                         ref={provided.innerRef}
                         {...provided.droppableProps}
                         className={`p-2 space-y-2 min-h-[100px] transition-colors ${
-                          snapshot.isDraggingOver ? "bg-blue-50/50" : ""
+                          snapshot.isDraggingOver ? "bg-[#f4f6f9]/50" : ""
                         }`}
                       >
                         {outlets.map((outlet, index) => (
@@ -464,12 +464,12 @@ export default function PipelinePage() {
                             {(dragProvided, dragSnapshot) => (
                               <PortalAwareDraggable provided={dragProvided} snapshot={dragSnapshot}>
                                 <div
-                                  className={`bg-white rounded-xl border-l-4 border p-3.5 ${
+                                  className={`bg-[#fafbfd] rounded-xl border-l-4 border p-3.5 ${
                                     dragSnapshot.isDragging
-                                      ? "shadow-xl border-blue-300 border-l-blue-400 w-[284px]"
-                                      : `shadow-sm hover:shadow-md border-neutral-200 ${
+                                      ? "shadow-xl border-[#e4e8ef] border-l-[#132337] w-[284px]"
+                                      : `shadow-sm hover:shadow-md border-[#e4e8ef] ${
                                           (outlet.deal_priority || "medium") === "high" ? "border-l-red-500" :
-                                          (outlet.deal_priority || "medium") === "low" ? "border-l-blue-400" :
+                                          (outlet.deal_priority || "medium") === "low" ? "border-l-[#132337]" :
                                           "border-l-amber-400"
                                         }`
                                   }`}

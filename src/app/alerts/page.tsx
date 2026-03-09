@@ -111,7 +111,7 @@ function severityDotColor(severity: AlertSeverity): string {
     case "medium":
       return "bg-amber-500";
     case "low":
-      return "bg-blue-500";
+      return "bg-[#132337]";
     case "info":
       return "bg-neutral-400";
     default:
@@ -120,14 +120,14 @@ function severityDotColor(severity: AlertSeverity): string {
 }
 
 function statusColor(status: string): string {
-  if (!status) return "bg-neutral-100 text-neutral-600";
+  if (!status) return "bg-neutral-100 text-[#132337]";
   const map: Record<string, string> = {
     pending: "bg-amber-100 text-amber-800",
     sent: "bg-blue-100 text-blue-800",
     acknowledged: "bg-emerald-100 text-emerald-800",
-    snoozed: "bg-neutral-100 text-neutral-600",
+    snoozed: "bg-neutral-100 text-[#132337]",
   };
-  return map[status] || "bg-neutral-100 text-neutral-600";
+  return map[status] || "bg-neutral-100 text-[#132337]";
 }
 
 function statusLabel(status: string): string {
@@ -173,24 +173,24 @@ function AlertsSkeleton() {
           <CardContent className="py-4 px-5">
             <div className="flex items-start gap-4">
               <div className="flex flex-col items-center gap-1 pt-1">
-                <div className="h-3 w-3 rounded-full bg-neutral-200 animate-pulse" />
-                <div className="h-2 w-8 bg-neutral-200 rounded animate-pulse" />
+                <div className="h-3 w-3 rounded-full bg-[#e4e8ef] animate-pulse" />
+                <div className="h-2 w-8 bg-[#e4e8ef] rounded animate-pulse" />
               </div>
               <div className="flex-1 space-y-3">
                 <div className="flex items-start justify-between">
                   <div className="space-y-2 flex-1">
-                    <div className="h-4 bg-neutral-200 rounded animate-pulse w-3/4 max-w-[320px]" />
-                    <div className="h-3 bg-neutral-200 rounded animate-pulse w-1/2 max-w-[200px]" />
+                    <div className="h-4 bg-[#e4e8ef] rounded animate-pulse w-3/4 max-w-[320px]" />
+                    <div className="h-3 bg-[#e4e8ef] rounded animate-pulse w-1/2 max-w-[200px]" />
                   </div>
-                  <div className="h-5 w-20 bg-neutral-200 rounded animate-pulse" />
+                  <div className="h-5 w-20 bg-[#e4e8ef] rounded animate-pulse" />
                 </div>
-                <div className="h-3 bg-neutral-200 rounded animate-pulse w-full max-w-[400px]" />
+                <div className="h-3 bg-[#e4e8ef] rounded animate-pulse w-full max-w-[400px]" />
                 <div className="h-px bg-neutral-100" />
                 <div className="flex items-center justify-between">
-                  <div className="h-3 w-32 bg-neutral-200 rounded animate-pulse" />
+                  <div className="h-3 w-32 bg-[#e4e8ef] rounded animate-pulse" />
                   <div className="flex gap-2">
-                    <div className="h-7 w-24 bg-neutral-200 rounded animate-pulse" />
-                    <div className="h-7 w-20 bg-neutral-200 rounded animate-pulse" />
+                    <div className="h-7 w-24 bg-[#e4e8ef] rounded animate-pulse" />
+                    <div className="h-7 w-20 bg-[#e4e8ef] rounded animate-pulse" />
                   </div>
                 </div>
               </div>
@@ -522,7 +522,7 @@ export default function AlertsPage() {
             {/* Date group header */}
             <div className="flex items-center gap-2 pt-2">
               <CalendarDays className="h-4 w-4 text-muted-foreground" />
-              <h2 className="text-sm font-semibold text-neutral-600">
+              <h2 className="text-sm font-semibold text-[#132337]">
                 {group.date === "unknown"
                   ? "No Date"
                   : formatDate(group.date)}
@@ -604,7 +604,7 @@ export default function AlertsPage() {
                           {alert.message}
                         </p>
 
-                        <div className="flex items-center justify-between mt-3 pt-3 border-t border-neutral-100">
+                        <div className="flex items-center justify-between mt-3 pt-3 border-t border-[#e4e8ef]">
                           <div className="flex items-center gap-4 text-xs text-muted-foreground">
                             <div className="flex items-center gap-1.5">
                               <CalendarDays className="h-3.5 w-3.5" />

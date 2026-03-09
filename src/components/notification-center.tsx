@@ -74,9 +74,9 @@ function severityDot(severity: string): string {
     case "medium":
       return "bg-amber-500";
     case "low":
-      return "bg-blue-500";
+      return "bg-[#132337]";
     default:
-      return "bg-neutral-400";
+      return "bg-[#132337]/40";
   }
 }
 
@@ -147,7 +147,7 @@ function NotificationItem({
 
   return (
     <div
-      className="flex items-start gap-3 px-4 py-3 hover:bg-neutral-50 cursor-pointer transition-colors group border-b border-neutral-50 last:border-0"
+      className="flex items-start gap-3 px-4 py-3 hover:bg-[#f4f6f9] cursor-pointer transition-colors group border-b border-[#e4e8ef]/50 last:border-0"
       onClick={handleClick}
     >
       {/* Severity dot */}
@@ -157,19 +157,19 @@ function NotificationItem({
 
       {/* Icon */}
       <div className="shrink-0 mt-0.5">
-        <Icon className="w-4 h-4 text-neutral-400" />
+        <Icon className="w-4 h-4 text-[#132337]/40" />
       </div>
 
       {/* Content */}
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-neutral-900 truncate leading-tight">
+        <p className="text-sm font-medium text-[#132337] truncate leading-tight">
           {displayTitle}
         </p>
-        <p className="text-xs text-neutral-500 mt-0.5 line-clamp-2 leading-relaxed">
+        <p className="text-xs text-[#132337]/50 mt-0.5 line-clamp-2 leading-relaxed">
           {displaySub}
         </p>
         <div className="flex items-center gap-2 mt-1">
-          <span className="text-[10px] text-neutral-400">
+          <span className="text-[10px] text-[#132337]/40">
             {relativeTime(alert.trigger_date || alert.created_at || "")}
           </span>
           <Badge variant="outline" className="text-[9px] h-4 px-1.5 font-normal">
@@ -180,14 +180,14 @@ function NotificationItem({
 
       {/* Acknowledge on hover */}
       <button
-        className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-1 p-1 rounded hover:bg-neutral-200"
+        className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-1 p-1 rounded hover:bg-[#e4e8ef]"
         title="Acknowledge"
         onClick={(e) => {
           e.stopPropagation();
           onAcknowledge(alert.id);
         }}
       >
-        <CheckCheck className="w-3.5 h-3.5 text-neutral-400" />
+        <CheckCheck className="w-3.5 h-3.5 text-[#132337]/40" />
       </button>
     </div>
   );
@@ -207,7 +207,7 @@ function NotificationGroup({
   if (alerts.length === 0) return null;
   return (
     <div>
-      <p className="text-[11px] font-semibold uppercase tracking-wider text-neutral-400 px-4 py-2">
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-[#132337]/40 px-4 py-2">
         {title}
       </p>
       {alerts.map((alert) => (
@@ -319,9 +319,9 @@ export function NotificationCenter() {
         className="w-[380px] p-0 overflow-hidden"
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-100">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[#e4e8ef]">
           <div className="flex items-center gap-2">
-            <h3 className="text-sm font-semibold text-neutral-900">
+            <h3 className="text-sm font-semibold text-[#132337]">
               Notifications
             </h3>
             {unreadCount > 0 && (
@@ -334,7 +334,7 @@ export function NotificationCenter() {
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 text-xs text-neutral-500 hover:text-neutral-900"
+              className="h-7 text-xs text-[#132337]/50 hover:text-[#132337]"
               onClick={handleMarkAllRead}
               disabled={markingAll}
             >
@@ -352,15 +352,15 @@ export function NotificationCenter() {
         <ScrollArea className="max-h-[400px]">
           {loading && alerts.length === 0 ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="w-5 h-5 animate-spin text-neutral-400" />
+              <Loader2 className="w-5 h-5 animate-spin text-[#132337]/40" />
             </div>
           ) : unreadCount === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
-              <Bell className="w-8 h-8 text-neutral-200 mb-3" />
-              <p className="text-sm font-medium text-neutral-500">
+              <Bell className="w-8 h-8 text-[#e4e8ef] mb-3" />
+              <p className="text-sm font-medium text-[#132337]/50">
                 All caught up!
               </p>
-              <p className="text-xs text-neutral-400 mt-1">
+              <p className="text-xs text-[#132337]/40 mt-1">
                 No pending notifications
               </p>
             </div>
@@ -389,12 +389,12 @@ export function NotificationCenter() {
         </ScrollArea>
 
         {/* Footer */}
-        <div className="px-4 py-2.5 border-t border-neutral-100 bg-neutral-50/50">
+        <div className="px-4 py-2.5 border-t border-[#e4e8ef] bg-[#f4f6f9]/50">
           <Link href="/alerts" onClick={() => setOpen(false)}>
             <Button
               variant="ghost"
               size="sm"
-              className="w-full text-xs text-neutral-600 hover:text-neutral-900"
+              className="w-full text-xs text-[#132337]/60 hover:text-[#132337]"
             >
               View all alerts
             </Button>

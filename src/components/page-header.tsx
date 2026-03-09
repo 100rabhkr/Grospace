@@ -19,7 +19,7 @@ export function PageHeader({ title, description, children }: PageHeaderProps) {
         <Button
           variant="ghost"
           size="icon"
-          className="h-8 w-8 shrink-0 text-neutral-400 hover:text-[#132337] hover:bg-slate-100"
+          className="h-8 w-8 shrink-0 text-neutral-400 hover:text-foreground hover:bg-slate-100"
           onClick={() => router.back()}
         >
           <ArrowLeft className="h-4 w-4" />

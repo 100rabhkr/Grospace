@@ -125,7 +125,7 @@ export default function AIAssistantPage() {
       }
       if (line.startsWith("- ") || line.startsWith("• ")) {
         return (
-          <li key={i} className="text-sm text-neutral-700 ml-4 list-disc">
+          <li key={i} className="text-sm text-[#132337]/70 ml-4 list-disc">
             {line.replace(/^[-•]\s*/, "").replace(/\*\*(.*?)\*\*/g, "$1")}
           </li>
         );
@@ -134,7 +134,7 @@ export default function AIAssistantPage() {
         return <br key={i} />;
       }
       return (
-        <p key={i} className="text-sm text-neutral-700">
+        <p key={i} className="text-sm text-[#132337]/70">
           {line.replace(/\*\*(.*?)\*\*/g, "$1")}
         </p>
       );
@@ -144,13 +144,13 @@ export default function AIAssistantPage() {
   return (
     <div className="flex flex-col h-[calc(100vh-32px)] animate-fade-in">
       <PageHeader
-        title="GroBot AI"
+        title="GroBot"
         description="Your intelligent real estate portfolio assistant"
        
       >
         <Badge variant="outline" className="text-xs gap-1">
           <Sparkles className="w-3 h-3" />
-          Powered by Gemini
+          Powered by 360Labs
         </Badge>
       </PageHeader>
 
@@ -158,13 +158,13 @@ export default function AIAssistantPage() {
         {messages.length === 0 ? (
           /* Welcome screen with suggestions */
           <div className="flex flex-col items-center justify-center h-full max-w-2xl mx-auto px-4">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center mb-4">
+            <div className="w-14 h-14 rounded-2xl bg-[#132337] flex items-center justify-center mb-4">
               <Bot className="w-7 h-7 text-white" />
             </div>
-            <h2 className="text-xl font-semibold text-neutral-800 mb-1">
-              GroBot AI
+            <h2 className="text-xl font-semibold text-[#132337] mb-1">
+              GroBot
             </h2>
-            <p className="text-sm text-neutral-500 text-center mb-6">
+            <p className="text-sm text-[#132337]/50 text-center mb-6">
               Ask me anything about your portfolio, agreements, outlets, payments, or real estate in general.
             </p>
 
@@ -174,8 +174,8 @@ export default function AIAssistantPage() {
                 return (
                   <Card key={cat.label} className="p-3">
                     <div className="flex items-center gap-2 mb-2">
-                      <Icon className="w-4 h-4 text-neutral-500" />
-                      <span className="text-xs font-semibold text-neutral-600">
+                      <Icon className="w-4 h-4 text-[#132337]/50" />
+                      <span className="text-xs font-semibold text-[#132337]/60">
                         {cat.label}
                       </span>
                     </div>
@@ -184,7 +184,7 @@ export default function AIAssistantPage() {
                         <button
                           key={q}
                           onClick={() => handleSend(q)}
-                          className="w-full text-left text-xs text-neutral-500 hover:text-neutral-800 hover:bg-neutral-50 rounded px-2 py-1.5 transition-colors"
+                          className="w-full text-left text-xs text-[#132337]/50 hover:text-[#132337] hover:bg-[#f4f6f9] rounded px-2 py-1.5 transition-colors"
                         >
                           {q}
                         </button>
@@ -204,7 +204,7 @@ export default function AIAssistantPage() {
                 className={`flex gap-3 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
               >
                 {msg.role === "ai" && (
-                  <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <div className="w-7 h-7 rounded-lg bg-[#132337] flex items-center justify-center flex-shrink-0 mt-0.5">
                     <Bot className="w-3.5 h-3.5 text-white" />
                   </div>
                 )}
@@ -212,7 +212,7 @@ export default function AIAssistantPage() {
                   className={`max-w-[80%] rounded-xl px-4 py-3 ${
                     msg.role === "user"
                       ? "bg-[#132337] text-white"
-                      : "bg-neutral-50 border border-neutral-200"
+                      : "bg-[#fafbfd] border border-[#e4e8ef]"
                   }`}
                 >
                   {msg.role === "user" ? (
@@ -222,21 +222,21 @@ export default function AIAssistantPage() {
                   )}
                 </div>
                 {msg.role === "user" && (
-                  <div className="w-7 h-7 rounded-lg bg-neutral-200 flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <User className="w-3.5 h-3.5 text-neutral-600" />
+                  <div className="w-7 h-7 rounded-lg bg-[#e4e8ef] flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <User className="w-3.5 h-3.5 text-[#132337]/60" />
                   </div>
                 )}
               </div>
             ))}
             {loading && (
               <div className="flex gap-3">
-                <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center flex-shrink-0">
+                <div className="w-7 h-7 rounded-lg bg-[#132337] flex items-center justify-center flex-shrink-0">
                   <Bot className="w-3.5 h-3.5 text-white" />
                 </div>
-                <div className="bg-neutral-50 border border-neutral-200 rounded-xl px-4 py-3">
+                <div className="bg-[#fafbfd] border border-[#e4e8ef] rounded-xl px-4 py-3">
                   <div className="flex items-center gap-2">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin text-neutral-400" />
-                    <span className="text-xs text-neutral-400">Analyzing your portfolio...</span>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-[#132337]/40" />
+                    <span className="text-xs text-[#132337]/40">Analyzing your portfolio...</span>
                   </div>
                 </div>
               </div>
@@ -247,7 +247,7 @@ export default function AIAssistantPage() {
       </div>
 
       {/* Input area */}
-      <div className="border-t border-neutral-200 bg-white p-4">
+      <div className="border-t border-[#e4e8ef] bg-[#fafbfd] p-4">
         <div className="max-w-3xl mx-auto">
           <form
             onSubmit={(e) => {
@@ -279,7 +279,7 @@ export default function AIAssistantPage() {
                   key={q}
                   onClick={() => handleSend(q)}
                   disabled={loading}
-                  className="text-[10px] text-neutral-400 hover:text-neutral-600 border border-neutral-200 rounded-full px-3 py-1 whitespace-nowrap transition-colors disabled:opacity-50"
+                  className="text-[10px] text-[#132337]/40 hover:text-[#132337]/60 border border-[#e4e8ef] rounded-full px-3 py-1 whitespace-nowrap transition-colors disabled:opacity-50"
                 >
                   {q}
                 </button>

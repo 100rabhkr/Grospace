@@ -114,18 +114,18 @@ export default function LoginPage() {
   ];
 
   const features = [
-    { icon: Bot, label: "GroBot AI", desc: "AI-powered lease intelligence" },
+    { icon: Bot, label: "GroBot", desc: "AI-powered lease intelligence" },
     { icon: Building2, label: "Portfolio Ops", desc: "Manage outlets & locations" },
     { icon: FileText, label: "Smart Extraction", desc: "Auto-extract from documents" },
     { icon: TrendingUp, label: "Deal Pipeline", desc: "Track deals end-to-end" },
   ];
 
   return (
-    <div className="min-h-screen flex bg-white">
+    <div className="min-h-screen flex bg-[#f4f6f9]">
       {/* Left panel — premium branding */}
       <div className="hidden lg:flex lg:w-[48%] relative overflow-hidden flex-col justify-between p-12"
         style={{
-          background: "linear-gradient(135deg, #0a1628 0%, #132337 40%, #1a3050 70%, #0f2440 100%)",
+          background: "linear-gradient(135deg, #0c1829 0%, #132337 40%, #1a2d42 70%, #132337 100%)",
         }}
       >
         {/* Animated gradient orbs */}
@@ -133,7 +133,7 @@ export default function LoginPage() {
           <div
             className="absolute w-[600px] h-[600px] rounded-full opacity-[0.07]"
             style={{
-              background: "radial-gradient(circle, #3b82f6 0%, transparent 70%)",
+              background: "radial-gradient(circle, #ffffff 0%, transparent 70%)",
               top: "-15%",
               right: "-10%",
               animation: mounted ? "float1 20s ease-in-out infinite" : "none",
@@ -142,7 +142,7 @@ export default function LoginPage() {
           <div
             className="absolute w-[500px] h-[500px] rounded-full opacity-[0.05]"
             style={{
-              background: "radial-gradient(circle, #6366f1 0%, transparent 70%)",
+              background: "radial-gradient(circle, #ffffff 0%, transparent 70%)",
               bottom: "-10%",
               left: "-5%",
               animation: mounted ? "float2 25s ease-in-out infinite" : "none",
@@ -151,7 +151,7 @@ export default function LoginPage() {
           <div
             className="absolute w-[300px] h-[300px] rounded-full opacity-[0.04]"
             style={{
-              background: "radial-gradient(circle, #06b6d4 0%, transparent 70%)",
+              background: "radial-gradient(circle, #ffffff 0%, transparent 70%)",
               top: "40%",
               left: "30%",
               animation: mounted ? "float3 18s ease-in-out infinite" : "none",
@@ -186,13 +186,13 @@ export default function LoginPage() {
               transform: mounted ? "translateY(0)" : "translateY(20px)",
             }}
           >
-            <p className="text-blue-400/80 text-sm font-medium tracking-wide uppercase mb-4">
+            <p className="text-white/50 text-sm font-medium tracking-wide uppercase mb-4">
               Your real estate, made smarter
             </p>
             <h1 className="text-[44px] leading-[1.08] font-bold text-white tracking-tight">
               AI-native
               <br />
-              <span className="bg-gradient-to-r from-blue-400 via-indigo-400 to-purple-400 bg-clip-text text-transparent">
+              <span className="text-white/80">
                 Real Estate
               </span>
               <br />
@@ -218,13 +218,13 @@ export default function LoginPage() {
               return (
                 <div
                   key={feat.label}
-                  className="group flex items-center gap-3 px-4 py-3 rounded-xl border border-white/[0.06] bg-white/[0.03] hover:bg-white/[0.06] hover:border-white/[0.12] transition-all duration-300"
+                  className="group flex items-center gap-3 px-4 py-3 rounded-xl border border-white/[0.06] bg-[#fafbfd]/[0.03] hover:bg-[#fafbfd]/[0.06] hover:border-white/[0.12] transition-all duration-300"
                   style={{
                     animationDelay: `${i * 100}ms`,
                   }}
                 >
-                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500/20 to-indigo-500/20 flex items-center justify-center flex-shrink-0 group-hover:from-blue-500/30 group-hover:to-indigo-500/30 transition-all duration-300">
-                    <Icon className="w-3.5 h-3.5 text-blue-400" />
+                  <div className="w-8 h-8 rounded-lg bg-[#fafbfd]/[0.08] flex items-center justify-center flex-shrink-0 group-hover:bg-[#fafbfd]/[0.12] transition-all duration-300">
+                    <Icon className="w-3.5 h-3.5 text-white/60" />
                   </div>
                   <div>
                     <p className="text-xs font-semibold text-white/80">{feat.label}</p>
@@ -243,7 +243,7 @@ export default function LoginPage() {
             }}
           >
             <span>Powered by 360Labs</span>
-            <span className="w-px h-3 bg-white/10" />
+            <span className="w-px h-3 bg-[#fafbfd]/10" />
             <span>Trusted by India&apos;s leading F&B chains</span>
           </div>
         </div>
@@ -269,7 +269,7 @@ export default function LoginPage() {
 
       {/* Right panel — form */}
       <div className="flex-1 flex items-center justify-center px-6 sm:px-12 relative"
-        style={{ background: "linear-gradient(180deg, #fafbfc 0%, #f5f7fa 50%, #f0f2f5 100%)" }}
+        style={{ background: "linear-gradient(180deg, #f8f9fb 0%, #f4f6f9 50%, #f0f2f6 100%)" }}
       >
         {/* Subtle pattern */}
         <div className="absolute inset-0 opacity-[0.3]" style={{
@@ -298,7 +298,7 @@ export default function LoginPage() {
                 </svg>
               </div>
               <h3 className="text-xl font-bold text-[#132337]">Thank you!</h3>
-              <p className="mt-3 text-sm text-slate-500 leading-relaxed">
+              <p className="mt-3 text-sm text-[#132337]/50 leading-relaxed">
                 Your account is pending approval. We&apos;ll notify you once your access is granted.
               </p>
               <button
@@ -307,7 +307,7 @@ export default function LoginPage() {
                   setSignupSuccess(false);
                   setMode("login");
                 }}
-                className="mt-6 text-sm text-slate-400 hover:text-[#132337] transition-colors duration-200"
+                className="mt-6 text-sm text-[#132337]/40 hover:text-[#132337] transition-colors duration-200"
               >
                 Back to sign in
               </button>
@@ -318,7 +318,7 @@ export default function LoginPage() {
                 <h2 className="text-[28px] font-bold text-[#132337] tracking-tight">
                   {mode === "login" ? "Welcome back" : "Create account"}
                 </h2>
-                <p className="text-sm text-slate-400 mt-2">
+                <p className="text-sm text-[#132337]/40 mt-2">
                   {mode === "login"
                     ? "Enter your credentials to access your portfolio"
                     : "Get started with GroSpace"}
@@ -329,7 +329,7 @@ export default function LoginPage() {
                 {mode === "signup" && (
                   <>
                     <div className="space-y-1.5">
-                      <Label htmlFor="fullName" className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Full Name</Label>
+                      <Label htmlFor="fullName" className="text-[11px] font-semibold text-[#132337]/50 uppercase tracking-wider">Full Name</Label>
                       <Input
                         id="fullName"
                         type="text"
@@ -337,11 +337,11 @@ export default function LoginPage() {
                         value={fullName}
                         onChange={(e) => setFullName(e.target.value)}
                         required
-                        className="h-12 bg-white border-slate-200/80 rounded-xl text-sm placeholder:text-slate-300 focus:border-blue-500 focus:ring-blue-500/10 transition-all duration-200 shadow-sm"
+                        className="h-12 bg-[#fafbfd] border-[#e4e8ef] rounded-xl text-sm placeholder:text-[#132337]/30 focus:border-[#132337]/40 focus:ring-[#132337]/10 transition-all duration-200 shadow-sm"
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <Label htmlFor="company" className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Company</Label>
+                      <Label htmlFor="company" className="text-[11px] font-semibold text-[#132337]/50 uppercase tracking-wider">Company</Label>
                       <Input
                         id="company"
                         type="text"
@@ -349,25 +349,25 @@ export default function LoginPage() {
                         value={company}
                         onChange={(e) => setCompany(e.target.value)}
                         required
-                        className="h-12 bg-white border-slate-200/80 rounded-xl text-sm placeholder:text-slate-300 focus:border-blue-500 focus:ring-blue-500/10 transition-all duration-200 shadow-sm"
+                        className="h-12 bg-[#fafbfd] border-[#e4e8ef] rounded-xl text-sm placeholder:text-[#132337]/30 focus:border-[#132337]/40 focus:ring-[#132337]/10 transition-all duration-200 shadow-sm"
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <Label htmlFor="phone" className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Phone</Label>
+                      <Label htmlFor="phone" className="text-[11px] font-semibold text-[#132337]/50 uppercase tracking-wider">Phone</Label>
                       <Input
                         id="phone"
                         type="tel"
                         placeholder="+91 98765 43210"
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
-                        className="h-12 bg-white border-slate-200/80 rounded-xl text-sm placeholder:text-slate-300 focus:border-blue-500 focus:ring-blue-500/10 transition-all duration-200 shadow-sm"
+                        className="h-12 bg-[#fafbfd] border-[#e4e8ef] rounded-xl text-sm placeholder:text-[#132337]/30 focus:border-[#132337]/40 focus:ring-[#132337]/10 transition-all duration-200 shadow-sm"
                       />
                     </div>
                   </>
                 )}
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="email" className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Email</Label>
+                  <Label htmlFor="email" className="text-[11px] font-semibold text-[#132337]/50 uppercase tracking-wider">Email</Label>
                   <Input
                     id="email"
                     type="email"
@@ -375,14 +375,14 @@ export default function LoginPage() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     required
-                    className="h-12 bg-white border-slate-200/80 rounded-xl text-sm placeholder:text-slate-300 focus:border-blue-500 focus:ring-blue-500/10 transition-all duration-200 shadow-sm"
+                    className="h-12 bg-[#fafbfd] border-[#e4e8ef] rounded-xl text-sm placeholder:text-[#132337]/30 focus:border-[#132337]/40 focus:ring-[#132337]/10 transition-all duration-200 shadow-sm"
                   />
                 </div>
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
-                    <Label htmlFor="password" className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Password</Label>
+                    <Label htmlFor="password" className="text-[11px] font-semibold text-[#132337]/50 uppercase tracking-wider">Password</Label>
                     {mode === "login" && (
-                      <button type="button" className="text-[11px] text-blue-500 hover:text-blue-700 transition-colors font-medium">
+                      <button type="button" className="text-[11px] text-[#132337]/50 hover:text-[#132337] transition-colors font-medium">
                         Forgot password?
                       </button>
                     )}
@@ -395,7 +395,7 @@ export default function LoginPage() {
                     onChange={(e) => setPassword(e.target.value)}
                     required
                     minLength={6}
-                    className="h-12 bg-white border-slate-200/80 rounded-xl text-sm placeholder:text-slate-300 focus:border-blue-500 focus:ring-blue-500/10 transition-all duration-200 shadow-sm"
+                    className="h-12 bg-[#fafbfd] border-[#e4e8ef] rounded-xl text-sm placeholder:text-[#132337]/30 focus:border-[#132337]/40 focus:ring-[#132337]/10 transition-all duration-200 shadow-sm"
                   />
                 </div>
 
@@ -408,7 +408,7 @@ export default function LoginPage() {
 
                 <Button
                   type="submit"
-                  className="w-full h-12 bg-gradient-to-r from-[#132337] to-[#1e3a5f] hover:from-[#1a2f47] hover:to-[#254a73] text-white rounded-xl font-semibold text-sm shadow-lg shadow-[#132337]/20 hover:shadow-xl hover:shadow-[#132337]/30 active:scale-[0.98] transition-all duration-200 group"
+                  className="w-full h-12 bg-[#132337] hover:bg-[#1a2d42] text-white rounded-xl font-semibold text-sm shadow-lg shadow-[#132337]/20 hover:shadow-xl active:scale-[0.98] transition-all duration-200 group"
                   disabled={loading}
                 >
                   {loading ? (
@@ -426,10 +426,10 @@ export default function LoginPage() {
                 <div className="mt-8">
                   <div className="relative mb-5">
                     <div className="absolute inset-0 flex items-center">
-                      <span className="w-full border-t border-slate-200/60" />
+                      <span className="w-full border-t border-[#e4e8ef]" />
                     </div>
                     <div className="relative flex justify-center">
-                      <span className="px-4 text-[10px] font-semibold uppercase tracking-widest text-slate-300" style={{ background: "linear-gradient(180deg, #fafbfc, #f5f7fa)" }}>Demo Access</span>
+                      <span className="px-4 text-[10px] font-semibold uppercase tracking-widest text-[#132337]/30" style={{ background: "linear-gradient(180deg, #f8f9fb, #f4f6f9)" }}>Demo Access</span>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2.5">
@@ -441,14 +441,14 @@ export default function LoginPage() {
                           type="button"
                           disabled={loading}
                           onClick={() => handleDemoLogin(acc.email, acc.password)}
-                          className="group flex items-center gap-3 px-3.5 py-3 rounded-xl border border-slate-200/60 bg-white/80 backdrop-blur-sm hover:border-blue-200 hover:bg-white hover:shadow-md text-left transition-all duration-200 disabled:opacity-50"
+                          className="group flex items-center gap-3 px-3.5 py-3 rounded-xl border border-[#e4e8ef] bg-[#fafbfd]/80 backdrop-blur-sm hover:border-[#132337]/20 hover:bg-[#fafbfd] hover:shadow-sm text-left transition-all duration-200 disabled:opacity-50"
                         >
-                          <div className="w-8 h-8 rounded-lg bg-slate-100 group-hover:bg-blue-50 flex items-center justify-center transition-colors duration-200">
-                            <Icon className="w-3.5 h-3.5 text-slate-400 group-hover:text-blue-600 transition-colors duration-200" />
+                          <div className="w-8 h-8 rounded-lg bg-[#f4f6f9] group-hover:bg-[#e4e8ef]/60 flex items-center justify-center transition-colors duration-200">
+                            <Icon className="w-3.5 h-3.5 text-[#132337]/40 group-hover:text-[#132337] transition-colors duration-200" />
                           </div>
                           <div>
                             <p className="text-xs font-semibold text-[#132337]">{acc.label}</p>
-                            <p className="text-[10px] text-slate-400">{acc.desc}</p>
+                            <p className="text-[10px] text-[#132337]/40">{acc.desc}</p>
                           </div>
                         </button>
                       );
@@ -461,12 +461,12 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={() => setMode(mode === "login" ? "signup" : "login")}
-                  className="text-sm text-slate-400 hover:text-[#132337] transition-colors duration-200"
+                  className="text-sm text-[#132337]/40 hover:text-[#132337] transition-colors duration-200"
                 >
                   {mode === "login"
                     ? "Don\u2019t have an account? "
                     : "Already have an account? "}
-                  <span className="font-semibold text-blue-600 hover:text-blue-700">
+                  <span className="font-semibold text-[#132337]">
                     {mode === "login" ? "Sign up" : "Sign in"}
                   </span>
                 </button>
@@ -474,7 +474,7 @@ export default function LoginPage() {
             </>
           )}
 
-          <p className="text-[10px] text-slate-300 text-center mt-8 tracking-wide">
+          <p className="text-[10px] text-[#132337]/30 text-center mt-8 tracking-wide">
             Built with care by 360Labs
           </p>
         </div>

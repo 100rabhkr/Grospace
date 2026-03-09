@@ -33,6 +33,8 @@ import {
   Users,
   Activity,
   Settings,
+  ChevronDown,
+  Map,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -113,7 +115,7 @@ function propertyTypeColor(type: string): string {
 function SkeletonBlock({ className }: { className?: string }) {
   return (
     <div
-      className={`animate-pulse rounded-md bg-neutral-200/60 ${className ?? ""}`}
+      className={`animate-pulse rounded-md bg-[#e4e8ef]/50 ${className ?? ""}`}
     />
   );
 }
@@ -199,7 +201,7 @@ function EmptyState() {
 
       <Card className="border-dashed">
         <CardContent className="p-8 flex flex-col items-center text-center">
-          <div className="w-12 h-12 rounded-full bg-neutral-100 flex items-center justify-center mb-4">
+          <div className="w-12 h-12 rounded-full bg-[#f4f6f9] flex items-center justify-center mb-4">
             <Rocket className="h-6 w-6 text-neutral-400" />
           </div>
           <h2 className="text-lg font-semibold mb-1">Get Started with GroSpace</h2>
@@ -237,7 +239,7 @@ interface ChatMessage {
 }
 
 // ---------------------------------------------------------------------------
-// GroBot AI Chat Component
+// GroBot Chat Component
 // ---------------------------------------------------------------------------
 
 function SmartAIChat() {
@@ -288,7 +290,7 @@ function SmartAIChat() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-neutral-600" />
-            <CardTitle className="text-sm font-semibold">GroBot AI</CardTitle>
+            <CardTitle className="text-sm font-semibold">GroBot</CardTitle>
           </div>
           <Badge variant="outline" className="text-[10px]">
             {isOpen ? "Collapse" : "Expand"}
@@ -302,7 +304,7 @@ function SmartAIChat() {
       {isOpen && (
         <CardContent className="p-4 pt-2">
           {/* Chat Messages */}
-          <div className="border border-neutral-200 rounded-lg bg-neutral-50/50 h-[300px] overflow-y-auto p-3 mb-3 space-y-3">
+          <div className="border border-[#e4e8ef] rounded-lg bg-[#f4f6f9]/50 h-[300px] overflow-y-auto p-3 mb-3 space-y-3">
             {messages.length === 0 && (
               <div className="flex flex-col items-center justify-center h-full text-center gap-3">
                 <MessageSquare className="h-8 w-8 text-neutral-300" />
@@ -319,7 +321,7 @@ function SmartAIChat() {
                 className={`flex gap-2 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
               >
                 {msg.role === "ai" && (
-                  <div className="w-6 h-6 rounded-full bg-[#132337] flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <div className="w-6 h-6 rounded-full bg-slate-800 flex items-center justify-center flex-shrink-0 mt-0.5">
                     <Sparkles className="w-3 h-3 text-white" />
                   </div>
                 )}
@@ -327,13 +329,13 @@ function SmartAIChat() {
                   className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
                     msg.role === "user"
                       ? "bg-[#132337] text-white"
-                      : "bg-white border border-neutral-200 text-neutral-700"
+                      : "bg-[#fafbfd] border border-[#e4e8ef] text-neutral-700"
                   }`}
                 >
                   <div className="whitespace-pre-wrap">{msg.content}</div>
                 </div>
                 {msg.role === "user" && (
-                  <div className="w-6 h-6 rounded-full bg-neutral-200 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <div className="w-6 h-6 rounded-full bg-[#e4e8ef] flex items-center justify-center flex-shrink-0 mt-0.5">
                     <User className="w-3 h-3 text-neutral-600" />
                   </div>
                 )}
@@ -342,10 +344,10 @@ function SmartAIChat() {
 
             {loading && (
               <div className="flex gap-2">
-                <div className="w-6 h-6 rounded-full bg-[#132337] flex items-center justify-center flex-shrink-0">
+                <div className="w-6 h-6 rounded-full bg-slate-800 flex items-center justify-center flex-shrink-0">
                   <Sparkles className="w-3 h-3 text-white" />
                 </div>
-                <div className="bg-white border border-neutral-200 rounded-lg px-3 py-2">
+                <div className="bg-[#fafbfd] border border-[#e4e8ef] rounded-lg px-3 py-2">
                   <Loader2 className="w-4 h-4 animate-spin text-neutral-400" />
                 </div>
               </div>
@@ -362,7 +364,7 @@ function SmartAIChat() {
                   onClick={() => {
                     setInput(s);
                   }}
-                  className="text-xs bg-white border border-neutral-200 rounded-full px-3 py-1.5 text-neutral-600 hover:bg-neutral-50 hover:border-neutral-300 transition-colors"
+                  className="text-xs bg-[#fafbfd] border border-[#e4e8ef] rounded-full px-3 py-1.5 text-neutral-600 hover:bg-[#f4f6f9] hover:border-[#e4e8ef] transition-colors"
                 >
                   {s}
                 </button>
@@ -416,6 +418,7 @@ export default function Dashboard() {
     outlets: { name: string; status: string; rent?: number }[];
   } | null>(null);
   const [propertyTypeCounts, setPropertyTypeCounts] = useState<Record<string, number>>({});
+  const mapSectionRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -486,17 +489,17 @@ export default function Dashboard() {
   const roleTierConfig: Record<string, { badge: string; color: string; icon: JSX.Element }> = {
     platform_admin: {
       badge: "System Admin",
-      color: "bg-red-100 text-red-800 border-red-200",
+      color: "bg-[#132337]/10 text-[#132337] border-[#132337]/20",
       icon: <Shield className="h-3 w-3" />,
     },
     org_admin: {
       badge: "Admin",
-      color: "bg-blue-100 text-blue-800 border-blue-200",
+      color: "bg-[#132337]/[0.08] text-[#132337]/80 border-[#132337]/[0.15]",
       icon: <Users className="h-3 w-3" />,
     },
     org_member: {
       badge: "Member",
-      color: "bg-neutral-100 text-neutral-700 border-neutral-200",
+      color: "bg-[#f4f6f9] text-neutral-700 border-[#e4e8ef]",
       icon: <User className="h-3 w-3" />,
     },
   };
@@ -601,7 +604,7 @@ export default function Dashboard() {
         <Link href="/ai-assistant">
           <Button variant="outline" size="sm" className="gap-1.5 text-xs">
             <Sparkles className="h-3.5 w-3.5" />
-            GroBot AI
+            GroBot
           </Button>
         </Link>
         <Link href="/agreements/upload">
@@ -724,6 +727,34 @@ export default function Dashboard() {
       </div>
 
       {/* -------------------------------------------------------------- */}
+      {/* Map Teaser -- scrolls to map section                              */}
+      {/* -------------------------------------------------------------- */}
+      {isPlatformAdmin && outletsByCity.length > 0 && (
+        <button
+          onClick={() => mapSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+          className="w-full group"
+        >
+          <div className="flex items-center justify-between px-4 py-3 rounded-xl border border-[#e4e8ef] bg-[#fafbfd] hover:border-[#e4e8ef] hover:shadow-sm transition-all duration-200 cursor-pointer">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-[#132337] flex items-center justify-center">
+                <Map className="h-4 w-4 text-white" />
+              </div>
+              <div className="text-left">
+                <p className="text-xs font-semibold text-neutral-800">Explore Outlet Map</p>
+                <p className="text-[10px] text-neutral-400">
+                  {outletsByCity.length} {outletsByCity.length === 1 ? "city" : "cities"} &middot; Interactive map with live outlet data
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 text-neutral-400 group-hover:text-neutral-600 transition-colors">
+              <span className="text-[10px] font-medium hidden sm:inline">Scroll to map</span>
+              <ChevronDown className="h-4 w-4 animate-bounce" />
+            </div>
+          </div>
+        </button>
+      )}
+
+      {/* -------------------------------------------------------------- */}
       {/* Row 2 -- Secondary stat cards (3 columns) [admin/org_admin only] */}
       {/* -------------------------------------------------------------- */}
       {isPlatformAdmin && <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 lg:gap-5">
@@ -840,7 +871,7 @@ export default function Dashboard() {
         {/* Pending alerts badge */}
         {(stats?.pending_alerts ?? 0) > 0 && (
           <Link href="/alerts">
-            <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-neutral-200 bg-neutral-50 hover:bg-neutral-100 transition-colors cursor-pointer">
+            <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[#e4e8ef] bg-[#f4f6f9] hover:bg-[#e4e8ef]/50 transition-colors cursor-pointer">
               <Bell className="h-4 w-4 text-neutral-500 flex-shrink-0" />
               <div className="flex items-center gap-1.5">
                 <span className="text-sm font-semibold text-neutral-700">
@@ -864,7 +895,7 @@ export default function Dashboard() {
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-semibold">Deal Pipeline</CardTitle>
               <Link href="/pipeline">
-                <Badge variant="outline" className="text-[10px] cursor-pointer hover:bg-neutral-100">
+                <Badge variant="outline" className="text-[10px] cursor-pointer hover:bg-[#f4f6f9]">
                   View Pipeline
                 </Badge>
               </Link>
@@ -876,7 +907,7 @@ export default function Dashboard() {
                 const count = stats.pipeline_stages?.[stage] ?? 0;
                 if (count === 0) return null;
                 return (
-                  <div key={stage} className="flex flex-col items-center min-w-[80px] rounded-lg border border-neutral-100 p-2.5">
+                  <div key={stage} className="flex flex-col items-center min-w-[80px] rounded-lg border border-[#e4e8ef] p-2.5">
                     <span className="text-lg font-bold">{count}</span>
                     <span className="text-[10px] text-neutral-500 text-center">{statusLabel(stage)}</span>
                   </div>
@@ -970,7 +1001,7 @@ export default function Dashboard() {
                             </div>
                             <span className="text-xs font-semibold tabular-nums">{count}</span>
                           </div>
-                          <div className="h-1.5 w-full rounded-full bg-neutral-100 overflow-hidden">
+                          <div className="h-1.5 w-full rounded-full bg-[#132337]/10 overflow-hidden">
                             <div
                               className="h-full rounded-full transition-all"
                               style={{
@@ -992,12 +1023,12 @@ export default function Dashboard() {
       {/* -------------------------------------------------------------- */}
       {/* Row 3 -- India Map + Outlets by City & Status [admin only]        */}
       {/* -------------------------------------------------------------- */}
-      {isPlatformAdmin && <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 lg:gap-5">
+      {isPlatformAdmin && <div ref={mapSectionRef} className="grid grid-cols-1 lg:grid-cols-5 gap-4 lg:gap-5 scroll-mt-4">
         {/* India Map -- 3 columns */}
-        <Card className="flex flex-col lg:col-span-3 overflow-hidden border-neutral-200/60">
+        <Card className="flex flex-col lg:col-span-3 overflow-hidden shadow-sm">
           <CardHeader className="p-4 pb-2">
             <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-neutral-800 to-neutral-950 flex items-center justify-center">
+              <div className="w-6 h-6 rounded-lg bg-[#132337] flex items-center justify-center">
                 <MapPin className="h-3 w-3 text-white" />
               </div>
               <CardTitle className="text-sm font-semibold">
@@ -1029,7 +1060,7 @@ export default function Dashboard() {
             <CardHeader className="p-4 pb-3">
               {mapCluster ? (
                 <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center flex-shrink-0 shadow-sm">
+                  <div className="w-8 h-8 rounded-lg bg-[#132337] flex items-center justify-center flex-shrink-0">
                     <MapPin className="h-3.5 w-3.5 text-white" />
                   </div>
                   <div className="flex-1 min-w-0">
@@ -1042,19 +1073,19 @@ export default function Dashboard() {
                       </p>
                     )}
                   </div>
-                  <Badge className="text-[10px] bg-blue-50 text-blue-700 border-blue-200 font-bold">
+                  <Badge variant="secondary" className="text-[10px] font-bold">
                     {mapCluster.count} outlets
                   </Badge>
                   <button
                     onClick={() => setMapCluster(null)}
-                    className="w-6 h-6 rounded-full bg-neutral-100 hover:bg-neutral-200 flex items-center justify-center text-neutral-400 hover:text-neutral-700 transition-all"
+                    className="w-6 h-6 rounded-full bg-[#f4f6f9] hover:bg-[#e4e8ef] flex items-center justify-center text-neutral-400 hover:text-neutral-700 transition-all"
                   >
                     <span className="text-xs leading-none">&times;</span>
                   </button>
                 </div>
               ) : (
                 <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center">
+                  <div className="w-6 h-6 rounded-lg bg-[#132337] flex items-center justify-center">
                     <MapPin className="h-3 w-3 text-white" />
                   </div>
                   <CardTitle className="text-sm font-semibold">
@@ -1079,7 +1110,7 @@ export default function Dashboard() {
                       return (
                         <div
                           key={i}
-                          className="group flex items-center gap-3 py-2.5 px-3 rounded-xl border border-transparent hover:border-neutral-200 hover:bg-gradient-to-r hover:from-neutral-50 hover:to-white hover:shadow-sm transition-all duration-200 cursor-pointer"
+                          className="group flex items-center gap-3 py-2.5 px-3 rounded-xl border border-transparent hover:border-[#e4e8ef] hover:bg-gradient-to-r hover:from-[#f4f6f9] hover:to-[#fafbfd] hover:shadow-sm transition-all duration-200 cursor-pointer"
                         >
                           <div className="relative flex-shrink-0">
                             <div
@@ -1088,7 +1119,7 @@ export default function Dashboard() {
                             />
                           </div>
                           <div className="min-w-0 flex-1">
-                            <p className="text-xs text-neutral-800 group-hover:text-neutral-950 truncate transition-colors font-medium">
+                            <p className="text-xs text-neutral-800 group-hover:text-[#132337] truncate transition-colors font-medium">
                               {outlet.name}
                             </p>
                             <p className="text-[10px] text-neutral-400 capitalize mt-0.5">
@@ -1113,29 +1144,18 @@ export default function Dashboard() {
                 <p className="text-xs text-neutral-400">No outlet data yet.</p>
               ) : (
                 <div className="space-y-3">
-                  {outletsByCity.map(({ city, count }, idx) => {
+                  {outletsByCity.map(({ city, count }) => {
                     const pct = (count / maxCityCount) * 100;
-                    const colors = [
-                      "from-blue-600 to-indigo-600",
-                      "from-indigo-500 to-purple-500",
-                      "from-violet-500 to-purple-600",
-                      "from-blue-500 to-cyan-500",
-                      "from-teal-500 to-emerald-500",
-                    ];
-                    const barColor = colors[idx % colors.length];
                     return (
                       <div key={city} className="group">
-                        <div className="flex items-center justify-between mb-1.5">
-                          <div className="flex items-center gap-2">
-                            <div className={`w-1.5 h-1.5 rounded-full bg-gradient-to-r ${barColor}`} />
-                            <span className="text-xs font-medium text-neutral-700 group-hover:text-neutral-900 transition-colors">{city}</span>
-                          </div>
-                          <span className="text-xs font-bold text-neutral-900 tabular-nums bg-neutral-100 px-2 py-0.5 rounded-full">{count}</span>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-medium text-neutral-600 group-hover:text-[#132337] transition-colors">{city}</span>
+                          <span className="text-xs font-semibold text-neutral-800 tabular-nums">{count}</span>
                         </div>
-                        <div className="h-2 w-full rounded-full bg-neutral-100 overflow-hidden">
+                        <div className="h-1.5 w-full rounded-full bg-[#132337]/10 overflow-hidden">
                           <div
-                            className={`h-full rounded-full bg-gradient-to-r ${barColor} transition-all duration-700 ease-out`}
-                            style={{ width: `${pct}%` }}
+                            className="h-full rounded-full bg-[#132337] transition-all duration-700 ease-out"
+                            style={{ width: `${pct}%`, opacity: 0.15 + (pct / 100) * 0.85 }}
                           />
                         </div>
                       </div>
@@ -1150,7 +1170,7 @@ export default function Dashboard() {
           <Card className="flex flex-col overflow-hidden">
             <CardHeader className="p-4 pb-3">
               <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center">
+                <div className="w-6 h-6 rounded-lg bg-[#132337] flex items-center justify-center">
                   <Activity className="h-3 w-3 text-white" />
                 </div>
                 <CardTitle className="text-sm font-semibold">
@@ -1170,7 +1190,7 @@ export default function Dashboard() {
                       const pct = total > 0 ? Math.round((count / total) * 100) : 0;
                       const color = statusColor(status);
                       return (
-                        <div key={status} className="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-neutral-50 transition-all duration-200">
+                        <div key={status} className="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-[#f4f6f9] transition-all duration-200">
                           <div
                             className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
                             style={{ backgroundColor: `${color}15`, border: `1px solid ${color}30` }}
@@ -1182,7 +1202,7 @@ export default function Dashboard() {
                               <span className="text-xs font-medium text-neutral-700">{statusLabel(status)}</span>
                               <span className="text-[10px] font-semibold text-neutral-400">{pct}%</span>
                             </div>
-                            <div className="h-1.5 w-full rounded-full bg-neutral-100 overflow-hidden">
+                            <div className="h-1.5 w-full rounded-full bg-[#132337]/10 overflow-hidden">
                               <div
                                 className="h-full rounded-full transition-all duration-700 ease-out"
                                 style={{ width: `${pct}%`, backgroundColor: color }}
@@ -1245,7 +1265,7 @@ export default function Dashboard() {
       )}
 
       {/* -------------------------------------------------------------- */}
-      {/* Row 5 -- GroBot AI Chat                                        */}
+      {/* Row 5 -- GroBot Chat                                        */}
       {/* -------------------------------------------------------------- */}
       <SmartAIChat />
     </div>

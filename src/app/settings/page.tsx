@@ -40,6 +40,9 @@ import {
   XCircle,
   Building2,
   Eye,
+  Database,
+  Plus,
+  AlertTriangle,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { useUser } from "@/lib/hooks/use-user";
@@ -60,6 +63,8 @@ import {
   rejectSignupRequest,
   listOrganizations,
   createOrganization,
+  seedDemoData,
+  removeSeedData,
 } from "@/lib/api";
 
 // -------------------------------------------------------------------
@@ -136,8 +141,8 @@ function getInitials(name: string): string {
 
 const roleLabels: Record<string, { label: string; className: string }> = {
   platform_admin: { label: "Platform Admin", className: "bg-[#132337] text-white" },
-  org_admin: { label: "Org Admin", className: "bg-blue-100 text-blue-800" },
-  org_member: { label: "Org Member", className: "bg-neutral-100 text-neutral-700" },
+  org_admin: { label: "Org Admin", className: "bg-[#f4f6f9] text-[#132337]" },
+  org_member: { label: "Org Member", className: "bg-[#f4f6f9] text-[#132337]" },
 };
 
 function roleBadge(role: string) {
@@ -208,6 +213,11 @@ export default function SettingsPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [accountSaved, setAccountSaved] = useState(false);
   const [accountSaving, setAccountSaving] = useState(false);
+
+  // Data management
+  const [seedLoading, setSeedLoading] = useState(false);
+  const [removeLoading, setRemoveLoading] = useState(false);
+  const [seedResult, setSeedResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   // Pending approvals state
   const [signupRequests, setSignupRequests] = useState<SignupRequest[]>([]);
@@ -528,7 +538,7 @@ export default function SettingsPage() {
 
       {/* Tabs */}
       <Tabs defaultValue="organization" className="w-full">
-        <TabsList className="grid w-full max-w-3xl grid-cols-3 sm:grid-cols-5">
+        <TabsList className="grid w-full max-w-3xl grid-cols-3 sm:grid-cols-6">
           <TabsTrigger value="organization" className="gap-1.5 text-xs sm:text-sm">
             <Settings className="w-3.5 h-3.5 hidden sm:inline-block" />
             Organization
@@ -553,6 +563,10 @@ export default function SettingsPage() {
           <TabsTrigger value="account" className="gap-1.5 text-xs sm:text-sm">
             <User className="w-3.5 h-3.5 hidden sm:inline-block" />
             Account
+          </TabsTrigger>
+          <TabsTrigger value="data" className="gap-1.5 text-xs sm:text-sm">
+            <Database className="w-3.5 h-3.5 hidden sm:inline-block" />
+            Data
           </TabsTrigger>
         </TabsList>
 
@@ -587,7 +601,7 @@ export default function SettingsPage() {
                   <div className="grid gap-2 max-w-md">
                     <Label>Organization Logo</Label>
                     <div className="flex items-center gap-4">
-                      <div className="w-20 h-20 rounded-lg border-2 border-dashed border-neutral-300 bg-neutral-50 flex items-center justify-center">
+                      <div className="w-20 h-20 rounded-lg border-2 border-dashed border-[#e4e8ef] bg-[#f4f6f9] flex items-center justify-center">
                         <Upload className="w-6 h-6 text-neutral-400" />
                       </div>
                       <div className="flex flex-col gap-1.5">
@@ -682,18 +696,18 @@ export default function SettingsPage() {
                       {teamMembers.filter((m) => m.role === "platform_admin").length} member{teamMembers.filter((m) => m.role === "platform_admin").length !== 1 ? "s" : ""}
                     </p>
                   </div>
-                  <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-3">
+                  <div className="rounded-lg border border-[#e4e8ef] bg-[#f4f6f9]/50 p-3">
                     <div className="flex items-center gap-2 mb-1">
-                      <Badge className="bg-blue-100 text-blue-800 border-blue-200 text-[10px]">Admin</Badge>
+                      <Badge className="bg-[#f4f6f9] text-[#132337] border-[#e4e8ef] text-[10px]">Admin</Badge>
                     </div>
                     <p className="text-xs text-neutral-600">Full access within organization, team management</p>
                     <p className="text-xs text-neutral-400 mt-1">
                       {teamMembers.filter((m) => m.role === "org_admin").length} member{teamMembers.filter((m) => m.role === "org_admin").length !== 1 ? "s" : ""}
                     </p>
                   </div>
-                  <div className="rounded-lg border border-neutral-200 bg-neutral-50/50 p-3">
+                  <div className="rounded-lg border border-[#e4e8ef] bg-[#f4f6f9]/50 p-3">
                     <div className="flex items-center gap-2 mb-1">
-                      <Badge className="bg-neutral-100 text-neutral-700 border-neutral-200 text-[10px]">Member</Badge>
+                      <Badge className="bg-[#f4f6f9] text-[#132337] border-[#e4e8ef] text-[10px]">Member</Badge>
                     </div>
                     <p className="text-xs text-neutral-600">Standard view access, limited actions</p>
                     <p className="text-xs text-neutral-400 mt-1">
@@ -780,7 +794,7 @@ export default function SettingsPage() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="border-b border-neutral-200 bg-neutral-50/80">
+                      <tr className="border-b border-[#e4e8ef] bg-[#f4f6f9]/80">
                         <th className="text-left font-medium text-neutral-500 px-4 py-3">
                           Name
                         </th>
@@ -802,7 +816,7 @@ export default function SettingsPage() {
                       {teamMembers.map((member) => (
                         <tr
                           key={member.id}
-                          className="border-b border-neutral-100 last:border-0 hover:bg-neutral-50/50 transition-colors"
+                          className="border-b border-[#e4e8ef] last:border-0 hover:bg-[#f4f6f9]/50 transition-colors"
                         >
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-2.5">
@@ -1174,7 +1188,7 @@ export default function SettingsPage() {
                     <p className="text-sm font-medium mb-3">Per-Type Overrides</p>
                     <div className="space-y-0">
                       {/* Header */}
-                      <div className="flex items-center justify-between py-2 px-2 bg-neutral-50 rounded-t-md border border-neutral-200">
+                      <div className="flex items-center justify-between py-2 px-2 bg-[#f4f6f9] rounded-t-md border border-[#e4e8ef]">
                         <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">Alert Type</span>
                         <div className="flex items-center gap-6">
                           <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wide w-14 text-center">Email</span>
@@ -1185,7 +1199,7 @@ export default function SettingsPage() {
                         return (
                           <div
                             key={at.key}
-                            className={`flex items-center justify-between py-2.5 px-2 border-x border-neutral-200 ${
+                            className={`flex items-center justify-between py-2.5 px-2 border-x border-[#e4e8ef] ${
                               idx === NOTIFICATION_ALERT_TYPES.length - 1 ? "border-b rounded-b-md" : "border-b"
                             }`}
                           >
@@ -1262,7 +1276,7 @@ export default function SettingsPage() {
                       Email
                       <Badge
                         variant="secondary"
-                        className="text-[10px] py-0 px-1.5 bg-neutral-100 text-neutral-500"
+                        className="text-[10px] py-0 px-1.5 bg-[#f4f6f9] text-[#132337]"
                       >
                         Read-only
                       </Badge>
@@ -1271,7 +1285,7 @@ export default function SettingsPage() {
                       id="account-email"
                       value={accountEmail}
                       disabled
-                      className="bg-neutral-50 text-neutral-500 cursor-not-allowed"
+                      className="bg-[#f4f6f9] text-neutral-500 cursor-not-allowed"
                     />
                   </div>
 
@@ -1281,12 +1295,12 @@ export default function SettingsPage() {
                       Role
                       <Badge
                         variant="secondary"
-                        className="text-[10px] py-0 px-1.5 bg-neutral-100 text-neutral-500"
+                        className="text-[10px] py-0 px-1.5 bg-[#f4f6f9] text-[#132337]"
                       >
                         Read-only
                       </Badge>
                     </Label>
-                    <div className="flex items-center gap-2 h-9 px-3 rounded-md border border-neutral-200 bg-neutral-50 text-sm text-neutral-500">
+                    <div className="flex items-center gap-2 h-9 px-3 rounded-md border border-[#e4e8ef] bg-[#f4f6f9] text-sm text-neutral-500">
                       <Shield className="w-3.5 h-3.5" />
                       {roleLabels[accountRole]?.label || "Member"}
                     </div>
@@ -1365,6 +1379,124 @@ export default function SettingsPage() {
               </span>
             )}
           </div>
+        </TabsContent>
+
+        {/* ============================================================= */}
+        {/* Data Management Tab                                            */}
+        {/* ============================================================= */}
+        <TabsContent value="data" className="mt-6 space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Database className="w-4 h-4" />
+                Demo Data Management
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <p className="text-sm text-muted-foreground">
+                Seed realistic demo data to explore the platform, or remove it when you&apos;re done. Only demo data is affected — your real data always stays safe.
+              </p>
+
+              <div className="grid sm:grid-cols-2 gap-4">
+                {/* Add Seed Data */}
+                <div className="border rounded-lg p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <div className="h-8 w-8 rounded-full bg-emerald-100 flex items-center justify-center">
+                      <Plus className="h-4 w-4 text-emerald-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium">Add Demo Data</p>
+                      <p className="text-xs text-muted-foreground">6 outlets, agreements, obligations & alerts</p>
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    className="w-full gap-1.5 border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                    disabled={seedLoading}
+                    onClick={async () => {
+                      setSeedLoading(true);
+                      setSeedResult(null);
+                      try {
+                        const res = await seedDemoData();
+                        setSeedResult({ type: "success", message: res.message || "Demo data added!" });
+                      } catch {
+                        setSeedResult({ type: "error", message: "Failed to seed data. Try again." });
+                      } finally {
+                        setSeedLoading(false);
+                      }
+                    }}
+                  >
+                    {seedLoading ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Plus className="h-3.5 w-3.5" />
+                    )}
+                    {seedLoading ? "Seeding..." : "Seed Demo Data"}
+                  </Button>
+                </div>
+
+                {/* Remove Seed Data */}
+                <div className="border rounded-lg p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <div className="h-8 w-8 rounded-full bg-red-100 flex items-center justify-center">
+                      <Trash2 className="h-4 w-4 text-red-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium">Remove Demo Data</p>
+                      <p className="text-xs text-muted-foreground">Only removes seeded data, real data stays</p>
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    className="w-full gap-1.5 border-red-200 text-red-700 hover:bg-red-50"
+                    disabled={removeLoading}
+                    onClick={async () => {
+                      if (!confirm("Remove all demo data? Your real data will NOT be affected.")) return;
+                      setRemoveLoading(true);
+                      setSeedResult(null);
+                      try {
+                        const res = await removeSeedData();
+                        setSeedResult({ type: "success", message: res.message || "Demo data removed!" });
+                      } catch {
+                        setSeedResult({ type: "error", message: "Failed to remove data. Try again." });
+                      } finally {
+                        setRemoveLoading(false);
+                      }
+                    }}
+                  >
+                    {removeLoading ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-3.5 w-3.5" />
+                    )}
+                    {removeLoading ? "Removing..." : "Remove Demo Data"}
+                  </Button>
+                </div>
+              </div>
+
+              {seedResult && (
+                <div className={`flex items-center gap-2 p-3 rounded-lg text-sm ${
+                  seedResult.type === "success" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"
+                }`}>
+                  {seedResult.type === "success" ? (
+                    <CheckCircle className="h-4 w-4 flex-shrink-0" />
+                  ) : (
+                    <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                  )}
+                  {seedResult.message}
+                </div>
+              )}
+
+              <Separator />
+
+              <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 text-amber-800">
+                <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                <p className="text-xs">
+                  <strong>Note:</strong> Seeding multiple times will create duplicate demo entries. Remove existing demo data first before re-seeding.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>

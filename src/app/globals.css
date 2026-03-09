@@ -4,34 +4,36 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 220 25% 10%;
-    --card: 0 0% 100%;
-    --card-foreground: 220 25% 10%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 220 25% 10%;
-    --primary: 218 56% 17%;
-    --primary-foreground: 210 20% 98%;
-    --secondary: 220 14% 96%;
-    --secondary-foreground: 218 56% 17%;
-    --muted: 220 14% 96%;
+    /* ── Professional palette: #132337 navy + blue-tinted soft whites ── */
+    --background: 220 20% 97%;         /* #f4f6f9 — blue-tinted off-white */
+    --foreground: 215 50% 15%;         /* #132337 — original navy */
+    --card: 222 20% 99%;               /* #fafbfd — barely blue-white, not pure white */
+    --card-foreground: 215 50% 15%;
+    --popover: 222 20% 99%;
+    --popover-foreground: 215 50% 15%;
+    --primary: 215 50% 15%;            /* #132337 — original navy blue */
+    --primary-foreground: 220 20% 97%;
+    --secondary: 220 18% 96%;          /* #f1f3f7 — blue-gray light */
+    --secondary-foreground: 215 50% 15%;
+    --muted: 220 18% 96%;
     --muted-foreground: 220 10% 46%;
-    --accent: 215 20% 95%;
-    --accent-foreground: 218 56% 17%;
-    --destructive: 0 84% 60%;
+    --accent: 220 18% 95%;             /* soft blue-gray accent */
+    --accent-foreground: 215 50% 15%;
+    --destructive: 0 72% 56%;          /* softer red */
     --destructive-foreground: 0 0% 98%;
-    --border: 220 13% 91%;
-    --input: 220 13% 91%;
-    --ring: 218 56% 17%;
+    --border: 220 18% 90%;             /* #e4e8ef — blue-gray border */
+    --input: 220 18% 90%;
+    --ring: 215 50% 15%;
     --chart-1: 218 70% 48%;
     --chart-2: 160 60% 42%;
     --chart-3: 30 80% 55%;
     --chart-4: 200 65% 50%;
     --chart-5: 340 70% 52%;
     --radius: 0.625rem;
-    --sidebar: 220 20% 98%;
-    --shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.03), 0 1px 3px -1px rgb(0 0 0 / 0.02);
-    --shadow-card-hover: 0 8px 24px -4px rgb(0 0 0 / 0.08), 0 2px 6px -1px rgb(0 0 0 / 0.03);
+    --sidebar: 220 16% 98%;
+    /* Warmer, softer shadows with slight blue tint for cohesion */
+    --shadow-card: 0 1px 3px 0 rgb(15 23 42 / 0.03), 0 1px 2px -1px rgb(15 23 42 / 0.02);
+    --shadow-card-hover: 0 10px 28px -6px rgb(15 23 42 / 0.08), 0 4px 8px -2px rgb(15 23 42 / 0.03);
   }
 }
 
@@ -52,7 +54,7 @@
   }
 
   ::selection {
-    background: hsl(218 50% 90%);
+    background: hsl(220 50% 92%);
   }
 
   /* GPU-accelerated transitions for 60fps */
@@ -61,7 +63,7 @@
   }
 }
 
-/* Clean scrollbar */
+/* Clean scrollbar — warm gray */
 ::-webkit-scrollbar {
   width: 5px;
   height: 5px;
@@ -70,11 +72,11 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: hsl(220 10% 82%);
+  background: hsl(220 12% 84%);
   border-radius: 100px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: hsl(220 10% 66%);
+  background: hsl(220 12% 68%);
 }
 
 /* 60fps page transitions */
