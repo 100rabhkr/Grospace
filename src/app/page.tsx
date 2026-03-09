@@ -237,7 +237,7 @@ interface ChatMessage {
 }
 
 // ---------------------------------------------------------------------------
-// GrowBot AI Chat Component
+// GroBot AI Chat Component
 // ---------------------------------------------------------------------------
 
 function SmartAIChat() {
@@ -288,7 +288,7 @@ function SmartAIChat() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-neutral-600" />
-            <CardTitle className="text-sm font-semibold">GrowBot AI</CardTitle>
+            <CardTitle className="text-sm font-semibold">GroBot AI</CardTitle>
           </div>
           <Badge variant="outline" className="text-[10px]">
             {isOpen ? "Collapse" : "Expand"}
@@ -601,7 +601,7 @@ export default function Dashboard() {
         <Link href="/ai-assistant">
           <Button variant="outline" size="sm" className="gap-1.5 text-xs">
             <Sparkles className="h-3.5 w-3.5" />
-            GrowBot AI
+            GroBot AI
           </Button>
         </Link>
         <Link href="/agreements/upload">
@@ -1245,7 +1245,7 @@ export default function Dashboard() {
       )}
 
       {/* -------------------------------------------------------------- */}
-      {/* Row 5 -- GrowBot AI Chat                                        */}
+      {/* Row 5 -- GroBot AI Chat                                        */}
       {/* -------------------------------------------------------------- */}
       <SmartAIChat />
     </div>

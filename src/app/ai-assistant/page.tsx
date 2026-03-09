@@ -144,7 +144,7 @@ export default function AIAssistantPage() {
   return (
     <div className="flex flex-col h-[calc(100vh-32px)] animate-fade-in">
       <PageHeader
-        title="GrowBot AI"
+        title="GroBot AI"
         description="Your intelligent real estate portfolio assistant"
        
       >
@@ -162,7 +162,7 @@ export default function AIAssistantPage() {
               <Bot className="w-7 h-7 text-white" />
             </div>
             <h2 className="text-xl font-semibold text-neutral-800 mb-1">
-              GrowBot AI
+              GroBot AI
             </h2>
             <p className="text-sm text-neutral-500 text-center mb-6">
               Ask me anything about your portfolio, agreements, outlets, payments, or real estate in general.
@@ -260,7 +260,7 @@ export default function AIAssistantPage() {
               ref={inputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask GrowBot anything about your portfolio..."
+              placeholder="Ask GroBot anything about your portfolio..."
               className="flex-1"
               disabled={loading}
             />

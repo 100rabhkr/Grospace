@@ -26,7 +26,7 @@ import {
 
 const navItems = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
-  { label: "GrowBot AI", href: "/ai-assistant", icon: Bot },
+  { label: "GroBot AI", href: "/ai-assistant", icon: Bot },
   { label: "Outlets", href: "/outlets", icon: Store },
   { label: "Agreements", href: "/agreements", icon: FileText },
   { label: "Upload Documents", href: "/agreements/upload", icon: FileText },

@@ -919,7 +919,7 @@ async def smart_chat(request: Request, req: SmartChatRequest, user: Optional[Cur
     city_counts = json.dumps({c: len([o for o in outlets if o.get("city") == c]) for c in set(o.get("city", "Unknown") for o in outlets)})
     pipeline_counts = json.dumps({s: len([o for o in outlets if o.get("deal_stage") == s]) for s in set(o.get("deal_stage", "lead") for o in outlets)})
 
-    context = f"""You are GrowBot AI, a smart assistant for commercial real estate lease management.
+    context = f"""You are GroBot AI, a smart assistant for commercial real estate lease management.
 The user manages a portfolio of {len(outlets)} outlet(s) with {len(agreements)} agreement(s).
 
 PORTFOLIO SUMMARY:
@@ -971,7 +971,7 @@ answer from your knowledge. Never say you can't answer — always provide helpfu
             # Fallback: try a direct general-knowledge answer
             try:
                 fallback_resp = model.generate_content(
-                    f"You are GrowBot AI, an expert assistant for commercial real estate, F&B chains, and retail operations. Answer this question helpfully:\n\n{question}",
+                    f"You are GroBot AI, an expert assistant for commercial real estate, F&B chains, and retail operations. Answer this question helpfully:\n\n{question}",
                     generation_config={"temperature": 0.3, "max_output_tokens": 2048},
                 )
                 answer = fallback_resp.text
@@ -983,7 +983,7 @@ answer from your knowledge. Never say you can't answer — always provide helpfu
         # Final fallback: try simpler prompt without portfolio context
         try:
             fallback_resp = model.generate_content(
-                f"You are GrowBot AI, a helpful real estate and business assistant. Answer concisely:\n\n{question}",
+                f"You are GroBot AI, a helpful real estate and business assistant. Answer concisely:\n\n{question}",
                 generation_config={"temperature": 0.3, "max_output_tokens": 2048},
             )
             answer = fallback_resp.text
