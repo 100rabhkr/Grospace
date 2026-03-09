@@ -820,8 +820,8 @@ export default function SettingsPage() {
 
           <Separator className="my-4" />
 
-          {/* Notification Routing */}
-          <Card>
+          {/* Notification Routing - Hidden for AHAAR demo */}
+          {false && (<Card>
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
                 <MessageCircle className="w-4 h-4" />
@@ -975,6 +975,7 @@ export default function SettingsPage() {
               )}
             </CardContent>
           </Card>
+          )}
         </TabsContent>
 
         {/* ============================================================= */}

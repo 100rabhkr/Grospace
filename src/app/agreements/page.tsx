@@ -362,7 +362,7 @@ export default function AgreementsPage() {
             <FileText className="h-12 w-12 text-neutral-300 mb-4" />
             <h2 className="text-lg font-semibold mb-1">No agreements yet</h2>
             <p className="text-sm text-muted-foreground mb-6">
-              Upload your first agreement to get started with AI-powered
+              Upload your first agreement to get started with GroSpace AI-powered
               extraction.
             </p>
             <Link href="/agreements/upload">

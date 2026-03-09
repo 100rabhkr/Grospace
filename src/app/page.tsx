@@ -241,14 +241,14 @@ function EmptyState() {
           </div>
           <h2 className="text-lg font-semibold mb-1">Get Started with GroSpace</h2>
           <p className="text-sm text-neutral-500 max-w-md mb-6">
-            Upload your first lease agreement to start tracking outlets,
+            Upload your first document to start tracking outlets,
             obligations, and alerts across your portfolio.
           </p>
           <div className="flex gap-3">
             <Link href="/agreements/upload">
               <Button size="sm">
                 <Upload className="h-4 w-4" />
-                Upload Agreement
+                Upload Documents
               </Button>
             </Link>
             <Link href="/outlets">
@@ -274,7 +274,7 @@ interface ChatMessage {
 }
 
 // ---------------------------------------------------------------------------
-// Smart AI Chat Component
+// GroSpace AI Chat Component
 // ---------------------------------------------------------------------------
 
 function SmartAIChat() {
@@ -325,7 +325,7 @@ function SmartAIChat() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-neutral-600" />
-            <CardTitle className="text-sm font-semibold">AI Assistant</CardTitle>
+            <CardTitle className="text-sm font-semibold">GroSpace AI</CardTitle>
           </div>
           <Badge variant="outline" className="text-[10px]">
             {isOpen ? "Collapse" : "Expand"}
@@ -638,7 +638,7 @@ export default function Dashboard() {
         <Link href="/agreements/upload">
           <Button variant="outline" size="sm" className="gap-1.5 text-xs">
             <Upload className="h-3.5 w-3.5" />
-            Upload Agreement
+            Upload Documents
           </Button>
         </Link>
         <Link href="/outlets">
@@ -1240,7 +1240,7 @@ export default function Dashboard() {
       )}
 
       {/* -------------------------------------------------------------- */}
-      {/* Row 5 -- Smart AI Chat                                          */}
+      {/* Row 5 -- GroSpace AI Chat                                        */}
       {/* -------------------------------------------------------------- */}
       <SmartAIChat />
     </div>

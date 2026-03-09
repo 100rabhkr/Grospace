@@ -37,7 +37,7 @@ const navItems = [
     icon: FileText,
     children: [
       { label: "All Agreements", href: "/agreements" },
-      { label: "Upload New", href: "/agreements/upload" },
+      { label: "Upload Documents", href: "/agreements/upload" },
     ],
   },
   { label: "Alerts", href: "/alerts", icon: Bell },

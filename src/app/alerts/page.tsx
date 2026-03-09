@@ -385,10 +385,7 @@ export default function AlertsPage() {
             {total}
           </Badge>
         )}
-        <Button onClick={() => openReminderForm()} className="gap-2">
-          <Plus className="h-4 w-4" />
-          Add Reminder
-        </Button>
+        {/* Add Reminder button hidden for AHAAR demo */}
       </PageHeader>
 
       {/* Error State */}

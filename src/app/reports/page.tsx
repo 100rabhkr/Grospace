@@ -271,6 +271,49 @@ export default function ReportsPage() {
     URL.revokeObjectURL(url);
   }, [filteredData]);
 
+  // ---------- Excel Export ----------
+
+  const exportExcel = useCallback(() => {
+    const headers = [
+      "Outlet Name", "Brand", "City", "State", "Property Type", "Model Type",
+      "Outlet Status", "Agreement Status", "Monthly Rent", "CAM",
+      "Total Monthly Outflow", "Area (sqft)", "Rent/sqft", "Security Deposit",
+      "Lease Expiry Date", "Days to Expiry", "Revenue",
+      "Rent-to-Revenue %", "Risk Flags", "Overdue Amount",
+    ];
+
+    const rows = filteredData.map((r) => [
+      r.outlet_name, r.brand, r.city, r.state,
+      statusLabel(r.property_type), r.franchise_model,
+      statusLabel(r.outlet_status), statusLabel(r.agreement_status || ""),
+      r.monthly_rent, r.monthly_cam, r.total_outflow,
+      r.super_area, r.rent_per_sqft,
+      r.security_deposit ?? "N/A",
+      r.lease_expiry || "N/A",
+      r.days_to_expiry !== null ? r.days_to_expiry : "N/A",
+      r.revenue ?? "N/A",
+      r.rent_to_revenue !== null ? r.rent_to_revenue.toFixed(1) : "N/A",
+      r.risk_flags_count, r.overdue_amount,
+    ].join("\t"));
+
+    const content = [headers.join("\t"), ...rows].join("\n");
+    const blob = new Blob([content], { type: "application/vnd.ms-excel;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `grospace_report_${new Date().toISOString().split("T")[0]}.xls`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, [filteredData]);
+
+  // ---------- PDF Export ----------
+
+  const exportPDF = useCallback(() => {
+    window.print();
+  }, []);
+
   // ---------- Clear filters ----------
 
   function clearFilters() {
@@ -308,10 +351,20 @@ export default function ReportsPage() {
             {filteredData.length} outlets
           </Badge>
         )}
-        <Button onClick={exportCSV} disabled={loading || filteredData.length === 0}>
-          <Download className="h-4 w-4 mr-2" />
-          Export CSV
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button onClick={exportCSV} variant="outline" size="sm" disabled={loading || filteredData.length === 0}>
+            <Download className="h-4 w-4 mr-1" />
+            CSV
+          </Button>
+          <Button onClick={exportExcel} variant="outline" size="sm" disabled={loading || filteredData.length === 0}>
+            <Download className="h-4 w-4 mr-1" />
+            Excel
+          </Button>
+          <Button onClick={exportPDF} variant="outline" size="sm" disabled={loading || filteredData.length === 0}>
+            <Download className="h-4 w-4 mr-1" />
+            PDF
+          </Button>
+        </div>
       </PageHeader>
 
       {/* Error State */}
@@ -445,7 +498,7 @@ export default function ReportsPage() {
         <Card>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
-              <Table>
+              <Table id="reports-table">
                 <TableHeader>
                   <TableRow className="bg-neutral-50/80">
                     <TableHead className="cursor-pointer select-none whitespace-nowrap min-w-[180px]" onClick={() => handleSort("outlet_name")}>

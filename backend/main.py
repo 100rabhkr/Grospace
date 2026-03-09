@@ -15,7 +15,7 @@ from slowapi.errors import RateLimitExceeded
 from core.config import limiter
 
 # Import all route modules
-from routes import auth, documents, outlets, agreements, payments, alerts, pipeline, admin, reports
+from routes import auth, documents, outlets, agreements, payments, alerts, pipeline, admin, reports, contacts
 
 # ============================================
 # APP SETUP
@@ -69,6 +69,7 @@ app.include_router(alerts.router)
 app.include_router(pipeline.router)
 app.include_router(admin.router)
 app.include_router(reports.router)
+app.include_router(contacts.router)
 
 # ============================================
 # ENTRYPOINT

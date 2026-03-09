@@ -722,3 +722,47 @@ export async function triggerPaymentStatusUpdate() {
 export async function triggerEscalationCalculator() {
   return apiFetch("/api/cron/escalation-calculator", { method: "POST" });
 }
+
+// ============================================
+// OUTLET CONTACTS
+// ============================================
+
+/** List contacts for an outlet */
+export async function listOutletContacts(outletId: string) {
+  return apiFetch(`/api/outlets/${outletId}/contacts`);
+}
+
+/** Add a contact to an outlet */
+export async function addOutletContact(outletId: string, data: {
+  name: string;
+  designation?: string;
+  phone?: string;
+  email?: string;
+  notes?: string;
+}) {
+  return apiFetch(`/api/outlets/${outletId}/contacts`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+/** Update a contact */
+export async function updateContact(contactId: string, data: {
+  name?: string;
+  designation?: string;
+  phone?: string;
+  email?: string;
+  notes?: string;
+}) {
+  return apiFetch(`/api/contacts/${contactId}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+/** Delete a contact */
+export async function deleteContact(contactId: string) {
+  return apiFetch(`/api/contacts/${contactId}`, {
+    method: "DELETE",
+  });
+}

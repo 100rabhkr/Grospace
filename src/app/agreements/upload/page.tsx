@@ -175,7 +175,7 @@ type ExtractionResult = {
 const processingSteps = [
   { label: "Uploading document", duration: 1500 },
   { label: "Scanning document content", duration: 3000 },
-  { label: "Running AI analysis", duration: 5000 },
+  { label: "Running GroSpace AI analysis", duration: 5000 },
   { label: "Classifying document type", duration: 3000 },
   { label: "Extracting key terms & dates", duration: 5000 },
   { label: "Analyzing financial data", duration: 4000 },
@@ -272,7 +272,7 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
           {currentStageLabel}
         </h2>
         <p className="text-sm text-muted-foreground mb-1">
-          Powered by 360Labs AI Engine
+          Powered by GroSpace AI
         </p>
 
         {/* Processing time estimate & live timer (Task 43) */}
@@ -662,13 +662,13 @@ export default function UploadAgreementPage() {
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       {/* Header */}
-      <PageHeader title="Upload Agreement" description="Upload a lease, LOI, or license document for AI-powered data extraction" backHref="/agreements" />
+      <PageHeader title="Upload Documents" description="Upload a lease, LOI, or license document for GroSpace AI-powered data extraction" backHref="/agreements" />
 
       {/* Step Indicator */}
       <div className="flex items-center gap-0">
         {[
           { num: 1, label: "Upload Document" },
-          { num: 2, label: "AI Processing" },
+          { num: 2, label: "GroSpace AI Processing" },
           { num: 3, label: "Review & Confirm" },
           { num: 4, label: "Activated" },
         ].map((s, i) => (
@@ -721,27 +721,7 @@ export default function UploadAgreementPage() {
       {/* Step 1: Upload */}
       {step === 1 && (
         <div className="max-w-xl mx-auto space-y-6">
-          {/* Mode Toggle */}
-          <div className="flex items-center gap-1 border border-neutral-200 rounded-md p-0.5 w-fit">
-            <Button
-              variant={uploadMode === "single" ? "default" : "ghost"}
-              size="sm"
-              onClick={() => setUploadMode("single")}
-              className={uploadMode === "single" ? "bg-[#132337] text-white hover:bg-[#152340]" : "text-neutral-500 hover:text-black"}
-            >
-              <CloudUpload className="h-4 w-4 mr-1.5" />
-              Single File
-            </Button>
-            <Button
-              variant={uploadMode === "bulk" ? "default" : "ghost"}
-              size="sm"
-              onClick={() => setUploadMode("bulk")}
-              className={uploadMode === "bulk" ? "bg-[#132337] text-white hover:bg-[#152340]" : "text-neutral-500 hover:text-black"}
-            >
-              <Files className="h-4 w-4 mr-1.5" />
-              Bulk Upload
-            </Button>
-          </div>
+          {/* Mode Toggle - Hidden for AHAAR demo */}
 
           {uploadMode === "single" ? (
             <>
@@ -811,7 +791,7 @@ export default function UploadAgreementPage() {
                   disabled={!selectedFile}
                   className="gap-2 px-6"
                 >
-                  Start AI Extraction
+                  Start GroSpace AI Extraction
                   <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>
@@ -1045,7 +1025,7 @@ export default function UploadAgreementPage() {
                   <> &middot; Processed in {result.processing_duration_seconds}s</>
                 )}
                 {(result as Record<string, unknown>)?.extraction_method === "vision" && (
-                  <Badge variant="outline" className="ml-2 text-[10px]">Vision AI</Badge>
+                  <Badge variant="outline" className="ml-2 text-[10px]">GroSpace Vision AI</Badge>
                 )}
               </p>
             </div>

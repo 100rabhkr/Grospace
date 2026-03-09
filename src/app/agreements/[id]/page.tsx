@@ -787,7 +787,7 @@ export default function AgreementDetailPage() {
                   No Risk Flags Detected
                 </h3>
                 <p className="text-sm text-muted-foreground">
-                  The AI analysis did not detect any risk flags in this
+                  GroSpace AI analysis did not detect any risk flags in this
                   agreement.
                 </p>
               </CardContent>
@@ -969,7 +969,7 @@ export default function AgreementDetailPage() {
                 Ask questions about this agreement
               </span>
               <Badge variant="secondary" className="text-xs ml-auto">
-                AI-Powered
+                GroSpace AI-Powered
               </Badge>
               {chatMessages.length > 0 && (
                 <button

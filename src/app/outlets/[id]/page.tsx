@@ -46,6 +46,13 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Timeline } from "@/components/timeline";
 
 // ---------------------------------------------------------------------------
@@ -137,6 +144,19 @@ interface OutletResponse {
   alerts: AlertItem[];
   documents?: OutletDocument[];
 }
+
+const DOCUMENT_CATEGORIES = [
+  { value: "loi", label: "Letter of Intent (LOI)" },
+  { value: "agreement", label: "Lease / License Agreement" },
+  { value: "kyc", label: "KYC Documents" },
+  { value: "property_tax", label: "Property Tax Receipt" },
+  { value: "electricity", label: "Electricity Bill" },
+  { value: "sale_deed", label: "Sale Deed" },
+  { value: "layout_plan", label: "Layout Plan / Floor Plan" },
+  { value: "license", label: "License / Certificate" },
+  { value: "noc", label: "NOC / Approval" },
+  { value: "other", label: "Other" },
+];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -253,6 +273,7 @@ export default function OutletDetailPage() {
   const [creatingShowcase, setCreatingShowcase] = useState(false);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
   const [docUploading, setDocUploading] = useState(false);
+  const [docCategory, setDocCategory] = useState("other");
 
   useEffect(() => {
     async function fetchOutlet() {
@@ -933,57 +954,69 @@ export default function OutletDetailPage() {
       </Card>
 
       {/* ----------------------------------------------------------------- */}
-      {/* DOCUMENTS (Drive-like multi-doc)                                  */}
+      {/* DOCUMENT STORAGE (Drive-like multi-doc)                           */}
       {/* ----------------------------------------------------------------- */}
       <Card className="border-neutral-200">
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="text-base flex items-center gap-2">
               <FolderOpen className="h-4 w-4" />
-              Documents
+              Document Storage
               <Badge variant="secondary" className="text-[10px]">
                 {(data.documents || []).length}
               </Badge>
             </CardTitle>
-            <label className="cursor-pointer">
-              <input
-                type="file"
-                className="hidden"
-                accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
-                onChange={async (e) => {
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-                  setDocUploading(true);
-                  try {
-                    const res = await uploadOutletDocument(outlet.id, file, "other");
-                    setData((prev) =>
-                      prev
-                        ? {
-                            ...prev,
-                            documents: [res.document, ...(prev.documents || [])],
-                          }
-                        : prev
-                    );
-                  } catch {
-                    // handle silently
-                  } finally {
-                    setDocUploading(false);
-                    e.target.value = "";
-                  }
-                }}
-                disabled={docUploading}
-              />
-              <Button size="sm" variant="outline" className="gap-1.5" asChild>
-                <span>
-                  {docUploading ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Upload className="h-3.5 w-3.5" />
-                  )}
-                  Upload
-                </span>
-              </Button>
-            </label>
+            <div className="flex items-center gap-2">
+              <Select value={docCategory} onValueChange={setDocCategory}>
+                <SelectTrigger className="w-48">
+                  <SelectValue placeholder="Category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {DOCUMENT_CATEGORIES.map((cat) => (
+                    <SelectItem key={cat.value} value={cat.value}>{cat.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <label className="cursor-pointer">
+                <input
+                  type="file"
+                  className="hidden"
+                  accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    setDocUploading(true);
+                    try {
+                      const res = await uploadOutletDocument(outlet.id, file, docCategory);
+                      setData((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              documents: [res.document, ...(prev.documents || [])],
+                            }
+                          : prev
+                      );
+                    } catch {
+                      // handle silently
+                    } finally {
+                      setDocUploading(false);
+                      e.target.value = "";
+                    }
+                  }}
+                  disabled={docUploading}
+                />
+                <Button size="sm" variant="outline" className="gap-1.5" asChild>
+                  <span>
+                    {docUploading ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Upload className="h-3.5 w-3.5" />
+                    )}
+                    Upload
+                  </span>
+                </Button>
+              </label>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -1004,14 +1037,18 @@ export default function OutletDetailPage() {
                     <FileText className="h-4 w-4 text-neutral-500" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">
-                      {doc.filename || "Untitled"}
-                    </p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium truncate">
+                        {doc.filename || "Untitled"}
+                      </p>
+                      {doc.file_type && (
+                        <Badge variant="outline" className="text-[10px] shrink-0">
+                          {DOCUMENT_CATEGORIES.find((c) => c.value === doc.file_type)?.label ||
+                            doc.file_type.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}
+                        </Badge>
+                      )}
+                    </div>
                     <div className="flex items-center gap-2 text-[11px] text-neutral-400">
-                      <span>
-                        {doc.file_type?.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()) || "Document"}
-                      </span>
-                      <span>·</span>
                       <span>
                         {doc.file_size_bytes
                           ? `${(doc.file_size_bytes / 1024).toFixed(0)} KB`
@@ -1074,8 +1111,9 @@ export default function OutletDetailPage() {
       </Card>
 
       {/* ----------------------------------------------------------------- */}
-      {/* ACTIVITY TIMELINE                                                 */}
+      {/* ACTIVITY TIMELINE (hidden)                                        */}
       {/* ----------------------------------------------------------------- */}
+      {false && (
       <Card className="border-neutral-200">
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
@@ -1094,6 +1132,7 @@ export default function OutletDetailPage() {
           )}
         </CardContent>
       </Card>
+      )}
     </div>
   );
 }

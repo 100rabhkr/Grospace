@@ -359,21 +359,21 @@ export default function PipelinePage() {
       {/* Desktop Kanban Board — hidden on mobile */}
       <div className="hidden lg:block">
         <DragDropContext onDragEnd={handleDragEnd}>
-          <div className="flex gap-3 overflow-x-auto pb-4 min-h-[calc(100vh-200px)]">
+          <div className="flex gap-3 overflow-x-auto pb-4 min-h-[calc(100vh-160px)]">
             {STAGES.map((stage) => {
               const outlets = filterOutlets(stages[stage.key] || []);
               return (
                 <div
                   key={stage.key}
-                  className="flex-shrink-0 w-[280px] bg-neutral-50 rounded-lg border border-neutral-200"
+                  className="flex-shrink-0 w-[300px] bg-neutral-50 rounded-lg border border-neutral-200"
                 >
                   {/* Column Header */}
                   <div className="flex items-center justify-between p-3 border-b border-neutral-200">
                     <div className="flex items-center gap-2">
-                      <Badge variant="outline" className={`text-xs font-medium ${stage.color}`}>
+                      <Badge variant="outline" className={`text-xs font-semibold ${stage.color}`}>
                         {stage.label}
                       </Badge>
-                      <span className="text-xs text-neutral-400 font-medium">{outlets.length}</span>
+                      <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-neutral-200 text-[11px] font-semibold text-neutral-600">{outlets.length}</span>
                     </div>
                   </div>
 
@@ -393,10 +393,14 @@ export default function PipelinePage() {
                               <div
                                 ref={dragProvided.innerRef}
                                 {...dragProvided.draggableProps}
-                                className={`bg-white rounded-lg border p-3 transition-shadow ${
+                                className={`bg-white rounded-xl border-l-4 border p-3.5 transition-all ${
                                   dragSnapshot.isDragging
-                                    ? "shadow-lg border-blue-300"
-                                    : "border-neutral-200 hover:shadow-sm"
+                                    ? "shadow-xl border-blue-300 border-l-blue-400"
+                                    : `shadow-sm hover:shadow-md border-neutral-200 ${
+                                        (outlet.deal_priority || "medium") === "high" ? "border-l-red-500" :
+                                        (outlet.deal_priority || "medium") === "low" ? "border-l-blue-400" :
+                                        "border-l-amber-400"
+                                      }`
                                 }`}
                               >
                                 <div className="flex items-start gap-2">
@@ -410,7 +414,7 @@ export default function PipelinePage() {
                                     <div className="flex items-center justify-between gap-1">
                                       <Link
                                         href={`/outlets/${outlet.id}`}
-                                        className="text-sm font-medium truncate hover:underline"
+                                        className="text-sm font-semibold truncate hover:underline"
                                       >
                                         {outlet.name}
                                       </Link>
@@ -423,10 +427,17 @@ export default function PipelinePage() {
                                     </div>
                                     <div className="flex items-center gap-1 mt-1">
                                       <MapPin className="w-3 h-3 text-neutral-400" />
-                                      <span className="text-xs text-neutral-500 truncate">
+                                      <span className="text-xs text-neutral-600 truncate">
                                         {outlet.city || "Unknown"}
                                       </span>
                                     </div>
+
+                                    {/* Rent info */}
+                                    {outlet.agreements?.[0]?.monthly_rent > 0 && (
+                                      <p className="text-xs font-medium text-neutral-700 mt-1.5">
+                                        {formatCurrency(outlet.agreements[0].monthly_rent)}/mo
+                                      </p>
+                                    )}
 
                                     {/* Priority + Days */}
                                     <div className="flex items-center gap-2 mt-2">
@@ -451,13 +462,6 @@ export default function PipelinePage() {
                                       )}
                                     </div>
 
-                                    {/* Rent info */}
-                                    {outlet.agreements?.[0]?.monthly_rent > 0 && (
-                                      <p className="text-[10px] text-neutral-400 mt-1">
-                                        {formatCurrency(outlet.agreements[0].monthly_rent)}/mo
-                                      </p>
-                                    )}
-
                                     {/* Notes */}
                                     {outlet.deal_notes && (
                                       <p className="text-[10px] text-neutral-400 mt-1 truncate" title={outlet.deal_notes}>
@@ -470,6 +474,11 @@ export default function PipelinePage() {
                             )}
                           </Draggable>
                         ))}
+                        {outlets.length === 0 && (
+                          <div className="flex items-center justify-center h-20 text-xs text-neutral-400">
+                            No outlets in this stage
+                          </div>
+                        )}
                         {provided.placeholder}
                       </div>
                     )}

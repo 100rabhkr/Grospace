@@ -11,7 +11,7 @@ const geistSans = localFont({
 
 export const metadata: Metadata = {
   title: "GroSpace",
-  description: "AI-first Lease & Outlet Management Platform",
+  description: "GroSpace AI-first Lease & Outlet Management Platform",
 };
 
 export default function RootLayout({
