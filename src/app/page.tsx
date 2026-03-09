@@ -106,43 +106,6 @@ function propertyTypeColor(type: string): string {
 }
 
 /** Simple SVG donut chart */
-function DonutChart({ data, size = 140 }: { data: { label: string; value: number; color: string }[]; size?: number }) {
-  const total = data.reduce((s, d) => s + d.value, 0);
-  if (total === 0) return null;
-
-  const radius = size / 2 - 10;
-  const circumference = 2 * Math.PI * radius;
-  let accumulated = 0;
-
-  return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="mx-auto">
-      {data.map((d, i) => {
-        const pct = d.value / total;
-        const offset = circumference * (1 - accumulated);
-        accumulated += pct;
-        return (
-          <circle
-            key={i}
-            cx={size / 2}
-            cy={size / 2}
-            r={radius}
-            fill="none"
-            stroke={d.color}
-            strokeWidth={20}
-            strokeDasharray={`${circumference * pct} ${circumference * (1 - pct)}`}
-            strokeDashoffset={offset}
-            transform={`rotate(-90 ${size / 2} ${size / 2})`}
-            className="transition-all duration-500"
-          />
-        );
-      })}
-      <text x="50%" y="50%" textAnchor="middle" dominantBaseline="central" className="text-2xl font-bold" fill="#171717">
-        {total}
-      </text>
-    </svg>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Skeleton Components
 // ---------------------------------------------------------------------------
@@ -1062,137 +1025,173 @@ export default function Dashboard() {
         {/* Right side -- City list (or selected cluster outlets) + Status */}
         <div className="lg:col-span-2 space-y-4 lg:space-y-5">
           {/* Outlets by City / Selected cluster detail */}
-          <Card className="flex flex-col">
-            <CardHeader className="p-4 pb-2">
+          <Card className="flex flex-col overflow-hidden">
+            <CardHeader className="p-4 pb-3">
               {mapCluster ? (
-                <div className="flex items-center gap-2">
-                  <div className="w-5 h-5 rounded-full bg-[#132337] flex items-center justify-center flex-shrink-0">
-                    <MapPin className="h-3 w-3 text-white" />
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center flex-shrink-0 shadow-sm">
+                    <MapPin className="h-3.5 w-3.5 text-white" />
                   </div>
-                  <CardTitle className="text-sm font-semibold truncate">
-                    {mapCluster.label}
-                  </CardTitle>
-                  <Badge variant="secondary" className="text-[10px] ml-auto font-semibold">
-                    {mapCluster.count}
+                  <div className="flex-1 min-w-0">
+                    <CardTitle className="text-sm font-semibold truncate">
+                      {mapCluster.label}
+                    </CardTitle>
+                    {mapCluster.cities.length > 1 && (
+                      <p className="text-[10px] text-neutral-400 truncate">
+                        {mapCluster.cities.join(" \u2022 ")}
+                      </p>
+                    )}
+                  </div>
+                  <Badge className="text-[10px] bg-blue-50 text-blue-700 border-blue-200 font-bold">
+                    {mapCluster.count} outlets
                   </Badge>
                   <button
                     onClick={() => setMapCluster(null)}
-                    className="ml-1 text-neutral-400 hover:text-neutral-700 transition-colors"
+                    className="w-6 h-6 rounded-full bg-neutral-100 hover:bg-neutral-200 flex items-center justify-center text-neutral-400 hover:text-neutral-700 transition-all"
                   >
-                    <span className="text-xs">&times;</span>
+                    <span className="text-xs leading-none">&times;</span>
                   </button>
                 </div>
               ) : (
-                <CardTitle className="text-sm font-semibold">
-                  Outlets by City
-                </CardTitle>
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center">
+                    <MapPin className="h-3 w-3 text-white" />
+                  </div>
+                  <CardTitle className="text-sm font-semibold">
+                    Outlets by City
+                  </CardTitle>
+                  <Badge variant="secondary" className="text-[10px] ml-auto font-semibold">
+                    {outletsByCity.reduce((s, c) => s + c.count, 0)} total
+                  </Badge>
+                </div>
               )}
             </CardHeader>
-            <CardContent className="p-4 pt-2">
+            <CardContent className="p-4 pt-0">
               {mapCluster ? (
-                <>
-                  {mapCluster.cities.length > 1 && (
-                    <p className="text-[10px] text-neutral-400 mb-3">
-                      {mapCluster.cities.join(" / ")}
-                    </p>
-                  )}
-                  {mapCluster.outlets.length > 0 ? (
-                    <div className="space-y-0.5 max-h-[320px] overflow-y-auto pr-1">
-                      {mapCluster.outlets.map((outlet, i) => (
+                mapCluster.outlets.length > 0 ? (
+                  <div className="space-y-1 max-h-[320px] overflow-y-auto pr-1">
+                    {mapCluster.outlets.map((outlet, i) => {
+                      const sColor =
+                        outlet.status === "operational" ? "#10b981" :
+                        outlet.status === "closed" ? "#ef4444" :
+                        outlet.status === "up_for_renewal" ? "#f59e0b" :
+                        outlet.status === "fit_out" ? "#f59e0b" : "#a3a3a3";
+                      return (
                         <div
                           key={i}
-                          className="group flex items-center gap-2.5 py-2 px-2.5 rounded-lg border border-transparent hover:border-neutral-100 hover:bg-neutral-50 hover:shadow-sm transition-all duration-150 cursor-default"
+                          className="group flex items-center gap-3 py-2.5 px-3 rounded-xl border border-transparent hover:border-neutral-200 hover:bg-gradient-to-r hover:from-neutral-50 hover:to-white hover:shadow-sm transition-all duration-200 cursor-pointer"
                         >
-                          <div
-                            className="w-1 h-6 rounded-full flex-shrink-0 transition-colors"
-                            style={{
-                              backgroundColor:
-                                outlet.status === "operational" ? "#10b981" :
-                                outlet.status === "closed" ? "#ef4444" :
-                                outlet.status === "up_for_renewal" ? "#f59e0b" : "#d4d4d4",
-                            }}
-                          />
-                          <Store className="h-3.5 w-3.5 text-neutral-300 group-hover:text-neutral-500 flex-shrink-0 transition-colors" />
+                          <div className="relative flex-shrink-0">
+                            <div
+                              className="w-2.5 h-2.5 rounded-full"
+                              style={{ backgroundColor: sColor, boxShadow: `0 0 0 3px ${sColor}20` }}
+                            />
+                          </div>
                           <div className="min-w-0 flex-1">
-                            <p className="text-xs text-neutral-700 group-hover:text-neutral-900 truncate transition-colors font-medium">
+                            <p className="text-xs text-neutral-800 group-hover:text-neutral-950 truncate transition-colors font-medium">
                               {outlet.name}
                             </p>
-                            <p className="text-[10px] text-neutral-400 capitalize">
-                              {outlet.status === "up_for_renewal" ? "Renewal" : outlet.status}
+                            <p className="text-[10px] text-neutral-400 capitalize mt-0.5">
+                              {outlet.status?.replace(/_/g, " ")}
                             </p>
                           </div>
                           {outlet.rent ? (
-                            <span className="text-[11px] text-neutral-500 group-hover:text-neutral-700 tabular-nums flex-shrink-0 font-medium transition-colors">
+                            <span className="text-[11px] text-neutral-600 group-hover:text-neutral-800 tabular-nums flex-shrink-0 font-semibold transition-colors">
                               {`\u20B9${Math.round(outlet.rent).toLocaleString("en-IN")}`}
                             </span>
                           ) : null}
                         </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-neutral-400">
-                      {mapCluster.count} outlet{mapCluster.count > 1 ? "s" : ""} in this area
-                    </p>
-                  )}
-                </>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-xs text-neutral-400">
+                    {mapCluster.count} outlet{mapCluster.count > 1 ? "s" : ""} in this area
+                  </p>
+                )
               ) : outletsByCity.length === 0 ? (
                 <p className="text-xs text-neutral-400">No outlet data yet.</p>
               ) : (
-                <div className="space-y-2.5">
-                  {outletsByCity.map(({ city, count }) => (
-                    <div key={city}>
-                      <div className="flex items-center justify-between mb-0.5">
-                        <span className="text-xs text-neutral-700">{city}</span>
-                        <span className="text-xs font-semibold">{count}</span>
+                <div className="space-y-3">
+                  {outletsByCity.map(({ city, count }, idx) => {
+                    const pct = (count / maxCityCount) * 100;
+                    const colors = [
+                      "from-blue-600 to-indigo-600",
+                      "from-indigo-500 to-purple-500",
+                      "from-violet-500 to-purple-600",
+                      "from-blue-500 to-cyan-500",
+                      "from-teal-500 to-emerald-500",
+                    ];
+                    const barColor = colors[idx % colors.length];
+                    return (
+                      <div key={city} className="group">
+                        <div className="flex items-center justify-between mb-1.5">
+                          <div className="flex items-center gap-2">
+                            <div className={`w-1.5 h-1.5 rounded-full bg-gradient-to-r ${barColor}`} />
+                            <span className="text-xs font-medium text-neutral-700 group-hover:text-neutral-900 transition-colors">{city}</span>
+                          </div>
+                          <span className="text-xs font-bold text-neutral-900 tabular-nums bg-neutral-100 px-2 py-0.5 rounded-full">{count}</span>
+                        </div>
+                        <div className="h-2 w-full rounded-full bg-neutral-100 overflow-hidden">
+                          <div
+                            className={`h-full rounded-full bg-gradient-to-r ${barColor} transition-all duration-700 ease-out`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
                       </div>
-                      <div className="h-1.5 w-full rounded-full bg-neutral-100 overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-neutral-800 transition-all"
-                          style={{
-                            width: `${(count / maxCityCount) * 100}%`,
-                          }}
-                        />
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </CardContent>
           </Card>
 
-          {/* Outlets by Status -- Donut Chart */}
-          <Card className="flex flex-col">
-            <CardHeader className="p-4 pb-2">
-              <CardTitle className="text-sm font-semibold">
-                Outlets by Status
-              </CardTitle>
+          {/* Outlets by Status -- Modern Cards */}
+          <Card className="flex flex-col overflow-hidden">
+            <CardHeader className="p-4 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center">
+                  <Activity className="h-3 w-3 text-white" />
+                </div>
+                <CardTitle className="text-sm font-semibold">
+                  Outlets by Status
+                </CardTitle>
+              </div>
             </CardHeader>
-            <CardContent className="p-4 pt-2">
+            <CardContent className="p-4 pt-0">
               {outletsByStatus.length === 0 ? (
                 <p className="text-xs text-neutral-400">No outlet data yet.</p>
               ) : (
-                <div className="flex flex-col items-center gap-3">
-                  <DonutChart
-                    data={outletsByStatus.map(({ status, count }) => ({
-                      label: statusLabel(status),
-                      value: count,
-                      color: statusColor(status),
-                    }))}
-                  />
-                  <div className="w-full space-y-1.5">
-                    {outletsByStatus.map(({ status, count }) => (
-                      <div key={status} className="flex items-center gap-2">
-                        <span
-                          className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: statusColor(status) }}
-                        />
-                        <span className="text-xs text-neutral-600 flex-1">
-                          {statusLabel(status)}
-                        </span>
-                        <span className="text-xs font-semibold tabular-nums">{count}</span>
-                      </div>
-                    ))}
-                  </div>
+                <div className="space-y-2">
+                  {outletsByStatus
+                    .sort((a, b) => b.count - a.count)
+                    .map(({ status, count }) => {
+                      const total = outletsByStatus.reduce((s, c) => s + c.count, 0);
+                      const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+                      const color = statusColor(status);
+                      return (
+                        <div key={status} className="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-neutral-50 transition-all duration-200">
+                          <div
+                            className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                            style={{ backgroundColor: `${color}15`, border: `1px solid ${color}30` }}
+                          >
+                            <span className="text-sm font-bold" style={{ color }}>{count}</span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-xs font-medium text-neutral-700">{statusLabel(status)}</span>
+                              <span className="text-[10px] font-semibold text-neutral-400">{pct}%</span>
+                            </div>
+                            <div className="h-1.5 w-full rounded-full bg-neutral-100 overflow-hidden">
+                              <div
+                                className="h-full rounded-full transition-all duration-700 ease-out"
+                                style={{ width: `${pct}%`, backgroundColor: color }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                 </div>
               )}
             </CardContent>

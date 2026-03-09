@@ -161,12 +161,12 @@ const StateGeographies = memo(function StateGeographies() {
           <Geography
             key={geo.rsmKey}
             geography={geo}
-            fill="#e8edf3"
-            stroke="#a8b8c8"
-            strokeWidth={0.7}
+            fill="#edf2f7"
+            stroke="#c4d0dc"
+            strokeWidth={0.5}
             style={{
-              default: { outline: "none" },
-              hover: { fill: "#dce4ee", stroke: "#8899aa", strokeWidth: 0.9, outline: "none" },
+              default: { outline: "none", transition: "fill 0.3s ease" },
+              hover: { fill: "#e2e8f0", stroke: "#94a3b8", strokeWidth: 0.8, outline: "none", transition: "fill 0.3s ease" },
               pressed: { outline: "none" },
             }}
           />
@@ -306,18 +306,18 @@ export default function IndiaMap({
   return (
     <div className="relative select-none" ref={containerRef}>
       {/* Zoom controls */}
-      <div className="absolute top-3 right-3 flex flex-col gap-px rounded-lg overflow-hidden shadow-sm border border-neutral-200/60" style={{ zIndex: 50 }}>
+      <div className="absolute top-3 right-3 flex flex-col gap-px rounded-xl overflow-hidden shadow-lg border border-white/80" style={{ zIndex: 50, backdropFilter: "blur(12px)" }}>
         <button
           onClick={handleZoomIn}
-          className="w-8 h-8 bg-white/90 backdrop-blur-sm flex items-center justify-center text-neutral-500 hover:text-neutral-900 hover:bg-white transition-all"
+          className="w-9 h-9 bg-white/80 flex items-center justify-center text-neutral-500 hover:text-neutral-900 hover:bg-white active:bg-neutral-50 transition-all duration-150"
           aria-label="Zoom in"
         >
           <Plus className="h-3.5 w-3.5" strokeWidth={2.5} />
         </button>
-        <div className="h-px bg-neutral-200/60" />
+        <div className="h-px bg-neutral-200/40" />
         <button
           onClick={handleZoomOut}
-          className="w-8 h-8 bg-white/90 backdrop-blur-sm flex items-center justify-center text-neutral-500 hover:text-neutral-900 hover:bg-white transition-all"
+          className="w-9 h-9 bg-white/80 flex items-center justify-center text-neutral-500 hover:text-neutral-900 hover:bg-white active:bg-neutral-50 transition-all duration-150"
           aria-label="Zoom out"
         >
           <Minus className="h-3.5 w-3.5" strokeWidth={2.5} />
@@ -329,7 +329,7 @@ export default function IndiaMap({
         projectionConfig={{ scale: 1100, center: [82, 22] }}
         width={600}
         height={580}
-        style={{ width: "100%", height: "auto", background: "linear-gradient(135deg, #f3f6f9 0%, #edf1f6 50%, #e6ecf3 100%)", borderRadius: 12 }}
+        style={{ width: "100%", height: "auto", background: "linear-gradient(145deg, #f8fafc 0%, #f1f5f9 40%, #e8eef5 100%)", borderRadius: 16 }}
       >
         {/* CSS-only hover effects — no React state = no flicker */}
         <defs>
@@ -344,17 +344,18 @@ export default function IndiaMap({
             <feDropShadow dx="0" dy="1" stdDeviation="1.5" floodColor="#334155" floodOpacity="0.25" />
           </filter>
           <style>{`
+            .rsm-zoomable-group { transition: transform 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94); }
             .marker-group { cursor: pointer; }
-            .marker-group .dot { transition: r 0.2s ease, fill 0.15s ease; }
-            .marker-group .glow-ring { transition: opacity 0.2s ease, r 0.2s ease; opacity: 0; }
-            .marker-group .label { transition: fill 0.15s ease, font-size 0.15s ease; }
-            .marker-group:hover .dot { fill: #171717; }
+            .marker-group .dot { transition: r 0.25s ease, fill 0.2s ease, stroke-width 0.2s ease; }
+            .marker-group .glow-ring { transition: opacity 0.25s ease, r 0.25s ease; opacity: 0; }
+            .marker-group .label { transition: fill 0.2s ease, font-size 0.2s ease, opacity 0.2s ease; }
+            .marker-group:hover .dot { fill: #0f172a; stroke-width: 2.5; }
             .marker-group:hover .glow-ring { opacity: 1; }
-            .marker-group:hover .label { fill: #171717; font-weight: 700; }
-            .marker-group .pulse { animation: pulse-ring 2s ease-out infinite; }
+            .marker-group:hover .label { fill: #0f172a; font-weight: 700; }
+            .marker-group .pulse { animation: pulse-ring 2.5s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
             @keyframes pulse-ring {
-              0% { opacity: 0.4; r: inherit; }
-              70% { opacity: 0; }
+              0% { opacity: 0.5; r: inherit; }
+              50% { opacity: 0; }
               100% { opacity: 0; }
             }
           `}</style>
@@ -420,10 +421,10 @@ export default function IndiaMap({
                     <circle
                       className="dot pointer-events-none"
                       r={r}
-                      fill={isSelected ? "#171717" : "#334155"}
+                      fill={isSelected ? "#0f172a" : "#1e40af"}
                       stroke="#fff"
                       strokeWidth={2}
-                      filter={isSelected ? undefined : "url(#markerShadow)"}
+                      filter="url(#markerShadow)"
                     />
 
                     {/* Count */}
