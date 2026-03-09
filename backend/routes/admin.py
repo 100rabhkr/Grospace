@@ -908,36 +908,47 @@ async def smart_chat(request: Request, req: SmartChatRequest, user: Optional[Cur
                     "flag": f if isinstance(f, str) else f.get("flag", str(f)),
                 })
 
+    # Build data lists outside f-string to avoid {{}} set-literal bug
+    outlets_json = json.dumps([{"name": o.get("name"), "city": o.get("city"), "status": o.get("status"), "type": o.get("property_type"), "revenue": o.get("monthly_net_revenue"), "deal_stage": o.get("deal_stage"), "priority": o.get("deal_priority")} for o in outlets[:20]])
+    active_agreements_json = json.dumps([{"outlet": outlet_names.get(a.get("outlet_id"), "Unknown"), "type": a.get("type"), "monthly_rent": a.get("monthly_rent"), "total_outflow": a.get("total_monthly_outflow"), "rent_model": a.get("rent_model"), "expiry": a.get("lease_expiry_date"), "lock_in_end": a.get("lock_in_end_date")} for a in agreements if a.get("status") == "active"][:20])
+    escalation_json = json.dumps([{"outlet": outlet_names.get(o.get("outlet_id"), "Unknown"), "type": o.get("type"), "amount": o.get("amount"), "escalation_pct": o.get("escalation_pct")} for o in escalation_obligations[:15]])
+    risk_flags_json = json.dumps(all_risk_flags[:15])
+    alerts_json = json.dumps([{"title": a.get("title"), "type": a.get("type"), "severity": a.get("severity"), "outlet": outlet_names.get(a.get("outlet_id"), "Unknown")} for a in alerts[:15]])
+    overdue_json = json.dumps([{"outlet": outlet_names.get(p.get("outlet_id"), "Unknown"), "amount": p.get("due_amount"), "due_date": p.get("due_date")} for p in overdue_payments[:15]])
+    status_counts = json.dumps({s: len([o for o in outlets if o.get("status") == s]) for s in set(o.get("status", "unknown") for o in outlets)})
+    city_counts = json.dumps({c: len([o for o in outlets if o.get("city") == c]) for c in set(o.get("city", "Unknown") for o in outlets)})
+    pipeline_counts = json.dumps({s: len([o for o in outlets if o.get("deal_stage") == s]) for s in set(o.get("deal_stage", "lead") for o in outlets)})
+
     context = f"""You are GrowBot AI, a smart assistant for commercial real estate lease management.
 The user manages a portfolio of {len(outlets)} outlet(s) with {len(agreements)} agreement(s).
 
 PORTFOLIO SUMMARY:
 - Total outlets: {len(outlets)}
-- Outlets by status: {json.dumps({s: len([o for o in outlets if o.get("status") == s]) for s in set(o.get("status", "unknown") for o in outlets)})}
-- Outlets by city: {json.dumps({c: len([o for o in outlets if o.get("city") == c]) for c in set(o.get("city", "Unknown") for o in outlets)})}
-- Deal pipeline: {json.dumps({s: len([o for o in outlets if o.get("deal_stage") == s]) for s in set(o.get("deal_stage", "lead") for o in outlets)})}
+- Outlets by status: {status_counts}
+- Outlets by city: {city_counts}
+- Deal pipeline: {pipeline_counts}
 - Total active monthly rent: Rs {total_monthly_rent:,.0f}
 - Total monthly outflow (rent+CAM+charges): Rs {total_monthly_outflow:,.0f}
 - Pending alerts: {len(alerts)}
 - Overdue payments: {len(overdue_payments)} totaling Rs {total_overdue:,.0f}
 
 OUTLETS:
-{json.dumps([{{"name": o.get("name"), "city": o.get("city"), "status": o.get("status"), "type": o.get("property_type"), "revenue": o.get("monthly_net_revenue"), "deal_stage": o.get("deal_stage"), "priority": o.get("deal_priority")}} for o in outlets[:20]])}
+{outlets_json}
 
 AGREEMENTS (active):
-{json.dumps([{{"outlet": outlet_names.get(a.get("outlet_id"), "Unknown"), "type": a.get("type"), "monthly_rent": a.get("monthly_rent"), "total_outflow": a.get("total_monthly_outflow"), "rent_model": a.get("rent_model"), "expiry": a.get("lease_expiry_date"), "lock_in_end": a.get("lock_in_end_date")}} for a in agreements if a.get("status") == "active"][:20])}
+{active_agreements_json}
 
 ESCALATION OBLIGATIONS:
-{json.dumps([{{"outlet": outlet_names.get(o.get("outlet_id"), "Unknown"), "type": o.get("type"), "amount": o.get("amount"), "escalation_pct": o.get("escalation_pct")}} for o in escalation_obligations[:15]])}
+{escalation_json}
 
 RISK FLAGS:
-{json.dumps(all_risk_flags[:15])}
+{risk_flags_json}
 
 PENDING ALERTS (top 15):
-{json.dumps([{{"title": a.get("title"), "type": a.get("type"), "severity": a.get("severity"), "outlet": outlet_names.get(a.get("outlet_id"), "Unknown")}} for a in alerts[:15]])}
+{alerts_json}
 
 OVERDUE PAYMENTS:
-{json.dumps([{{"outlet": outlet_names.get(p.get("outlet_id"), "Unknown"), "amount": p.get("due_amount"), "due_date": p.get("due_date")}} for p in overdue_payments[:15]])}
+{overdue_json}
 
 
 Answer the user's question based on this data. Be specific with numbers, outlet names, and dates.
