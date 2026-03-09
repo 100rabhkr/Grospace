@@ -937,12 +937,30 @@ export default function UploadAgreementPage() {
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-3">
                           {fields.map(([fieldKey, fieldVal]) => {
                             const { displayVal, confidence } = parseField(fieldVal);
+                            const isNotFound = displayVal === "Not found";
+                            const isCurrency = /rent|deposit|cam_monthly|outflow|amount|revenue/.test(fieldKey);
+                            const isArea = /area|sqft/.test(fieldKey);
+                            const isPct = /percentage|pct|escalation_pct/.test(fieldKey);
+                            const isDate = /date|commencement|expiry/.test(fieldKey);
+                            const isBool = displayVal === "Yes" || displayVal === "No";
+                            const isMultiLine = displayVal.includes("\n");
+
+                            let formattedVal = displayVal;
+                            if (!isNotFound && isCurrency && !isNaN(Number(displayVal.replace(/,/g, "")))) {
+                              formattedVal = `₹${Number(displayVal.replace(/,/g, "")).toLocaleString("en-IN")}`;
+                            } else if (!isNotFound && isArea && !isNaN(Number(displayVal.replace(/,/g, "")))) {
+                              formattedVal = `${Number(displayVal.replace(/,/g, "")).toLocaleString("en-IN")} sq ft`;
+                            } else if (!isNotFound && isPct && !isNaN(Number(displayVal))) {
+                              formattedVal = `${displayVal}%`;
+                            } else if (!isNotFound && isDate && /^\d{4}-\d{2}-\d{2}$/.test(displayVal)) {
+                              formattedVal = new Date(displayVal).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+                            }
 
                             return (
-                              <div key={fieldKey} className="min-w-0 group/field">
-                                <div className="flex items-center gap-1.5 mb-0.5">
+                              <div key={fieldKey} className={`min-w-0 group/field rounded-lg p-2.5 -mx-1 transition-colors ${isNotFound ? "opacity-50" : "hover:bg-neutral-50"}`}>
+                                <div className="flex items-center gap-1.5 mb-1">
                                   <ConfidenceDot level={confidence} />
-                                  <p className="text-[11px] text-muted-foreground uppercase tracking-wide flex-1">
+                                  <p className="text-[10px] text-neutral-400 uppercase tracking-wider font-semibold flex-1">
                                     {formatFieldLabel(fieldKey)}
                                   </p>
                                   <span className="opacity-0 group-hover/field:opacity-100 transition-opacity">
@@ -954,25 +972,44 @@ export default function UploadAgreementPage() {
                                     originalValue={displayVal}
                                   />
                                 </div>
-                                <EditableField
-                                  value={displayVal}
-                                  isNotFound={displayVal === "Not found"}
-                                  onChange={(newVal) => {
-                                    setResult((prev) => {
-                                      if (!prev) return prev;
-                                      const updated = { ...prev, extraction: { ...prev.extraction } };
-                                      const section = { ...(updated.extraction[sectionKey] as Record<string, unknown>) };
-                                      const existing = section[fieldKey];
-                                      if (typeof existing === "object" && existing !== null && "value" in (existing as Record<string, unknown>)) {
-                                        section[fieldKey] = { ...(existing as Record<string, unknown>), value: newVal };
-                                      } else {
-                                        section[fieldKey] = newVal;
-                                      }
-                                      updated.extraction[sectionKey] = section;
-                                      return updated;
-                                    });
-                                  }}
-                                />
+                                {isNotFound ? (
+                                  <p className="text-xs text-neutral-300 italic pl-4">Not found in document</p>
+                                ) : isBool ? (
+                                  <div className="pl-4">
+                                    <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${displayVal === "Yes" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600"}`}>
+                                      {displayVal === "Yes" ? "✓" : "✗"} {displayVal}
+                                    </span>
+                                  </div>
+                                ) : isMultiLine ? (
+                                  <div className="pl-4 space-y-1 mt-1">
+                                    {formattedVal.split("\n").filter(Boolean).map((line, idx) => (
+                                      <div key={idx} className="flex items-start gap-2">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-blue-400 mt-1.5 flex-shrink-0" />
+                                        <span className="text-sm text-neutral-700 font-medium">{line}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <EditableField
+                                    value={formattedVal}
+                                    isNotFound={false}
+                                    onChange={(newVal) => {
+                                      setResult((prev) => {
+                                        if (!prev) return prev;
+                                        const updated = { ...prev, extraction: { ...prev.extraction } };
+                                        const section = { ...(updated.extraction[sectionKey] as Record<string, unknown>) };
+                                        const existing = section[fieldKey];
+                                        if (typeof existing === "object" && existing !== null && "value" in (existing as Record<string, unknown>)) {
+                                          section[fieldKey] = { ...(existing as Record<string, unknown>), value: newVal };
+                                        } else {
+                                          section[fieldKey] = newVal;
+                                        }
+                                        updated.extraction[sectionKey] = section;
+                                        return updated;
+                                      });
+                                    }}
+                                  />
+                                )}
                               </div>
                             );
                           })}

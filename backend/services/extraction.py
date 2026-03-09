@@ -342,6 +342,78 @@ async def classify_document_vision(images: list) -> str:
 
 
 # ============================================
+# FIELD VALIDATION & CLEANUP
+# ============================================
+
+_CURRENCY_RE = re.compile(r"^[\s₹]*(Rs\.?|INR)\s*", re.IGNORECASE)
+
+
+def _strip_currency(value):
+    """Remove Rs., INR, ₹ prefixes and commas, return a numeric value or None."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return value
+    if not isinstance(value, str):
+        return value
+    cleaned = _CURRENCY_RE.sub("", str(value)).replace(",", "").replace("₹", "").strip()
+    try:
+        return float(cleaned) if "." in cleaned else int(cleaned)
+    except (ValueError, TypeError):
+        return value  # Return original if not parseable
+
+
+def _validate_and_clean_fields(result: dict, text: str) -> dict:
+    """Validate and fix common extraction mistakes in-place."""
+    if not result or not isinstance(result, dict):
+        return result
+
+    # --- Strip currency symbols from monetary fields ---
+    monetary_fields = [
+        "monthly_rent", "security_deposit", "cam_charges",
+        "stamp_duty", "registration_charges", "total_monthly_outflow",
+        "monthly_rent_per_sqft", "fit_out_cost", "maintenance_charges",
+    ]
+    for field in monetary_fields:
+        if field in result and result[field] is not None:
+            result[field] = _strip_currency(result[field])
+
+    # --- Monthly rent: detect likely annual values ---
+    rent = result.get("monthly_rent")
+    if isinstance(rent, (int, float)) and rent > 1000000:
+        text_lower = text.lower()
+        if "per month" not in text_lower and "p.m." not in text_lower and "/month" not in text_lower:
+            # Likely annual — divide by 12
+            result["monthly_rent"] = round(rent / 12, 2)
+
+    # --- Lease dates: swap if expiry < commencement ---
+    commencement = result.get("lease_commencement_date")
+    expiry = result.get("lease_expiry_date")
+    if commencement and expiry and isinstance(commencement, str) and isinstance(expiry, str):
+        try:
+            dt_start = datetime.strptime(commencement, "%Y-%m-%d")
+            dt_end = datetime.strptime(expiry, "%Y-%m-%d")
+            if dt_end < dt_start:
+                result["lease_commencement_date"] = expiry
+                result["lease_expiry_date"] = commencement
+        except (ValueError, TypeError):
+            pass
+
+    # --- Security deposit months: extract number from strings like "6 months" ---
+    sd_months = result.get("security_deposit_months")
+    if isinstance(sd_months, str):
+        match = re.search(r"(\d+)", sd_months)
+        result["security_deposit_months"] = int(match.group(1)) if match else None
+
+    # --- Escalation percentage sanity check ---
+    esc = result.get("escalation_percentage")
+    if isinstance(esc, (int, float)) and esc > 100:
+        result["escalation_percentage"] = None
+
+    return result
+
+
+# ============================================
 # EXTRACTION
 # ============================================
 
@@ -385,20 +457,42 @@ async def extract_structured_data(text: str, doc_type: str) -> dict:
         f"DOCUMENT TEXT:\n{text}"
     )
 
-    # First extraction pass
-    response = model.generate_content(
-        prompt,
-        generation_config=genai.GenerationConfig(
-            response_mime_type="application/json",
-            temperature=0,
-        ),
-    )
+    # First extraction pass (with retry on failure)
+    result = {}
+    for attempt in range(2):
+        try:
+            use_prompt = prompt
+            if attempt == 1:
+                # Simplified retry prompt — shorter text, explicit instructions
+                use_prompt = (
+                    f"Extract ALL fields from this {doc_type_label} as JSON.\n"
+                    f"Schema:\n{json.dumps(schema, indent=2)}\n\n"
+                    f"DOCUMENT TEXT (first 10000 chars):\n{text[:10000]}"
+                )
+                print(f"[EXTRACTION] Retrying with simplified prompt (attempt {attempt + 1})")
 
-    result = json.loads(response.text)
-    if isinstance(result, list) and len(result) > 0:
-        result = result[0]
-    if not isinstance(result, dict):
-        result = {}
+            response = model.generate_content(
+                use_prompt,
+                generation_config=genai.GenerationConfig(
+                    response_mime_type="application/json",
+                    temperature=0,
+                ),
+            )
+
+            parsed = json.loads(response.text)
+            if isinstance(parsed, list) and len(parsed) > 0:
+                parsed = parsed[0]
+            if isinstance(parsed, dict) and parsed:
+                result = parsed
+                break
+        except (json.JSONDecodeError, Exception) as e:
+            print(f"[EXTRACTION] Attempt {attempt + 1} failed: {type(e).__name__}: {e}")
+            if attempt == 1:
+                result = {}  # Give up after retry
+
+    # Field-level validation and cleanup
+    if result and doc_type in ("lease_loi", "franchise_agreement", "supplementary_agreement"):
+        result = _validate_and_clean_fields(result, text)
 
     # Verification pass — ask Gemini to double-check critical fields
     if result and doc_type in ("lease_loi", "franchise_agreement"):
@@ -407,12 +501,17 @@ async def extract_structured_data(text: str, doc_type: str) -> dict:
             "VERIFY the following critical fields against the original text. "
             "If ANY value is wrong, return the corrected JSON. If all correct, return the same JSON.\n\n"
             "CRITICAL FIELDS TO VERIFY:\n"
-            "- Monthly rent amount (not annual)\n"
-            "- Party names (who is lessor vs lessee)\n"
-            "- Lease dates (commencement, expiry)\n"
-            "- Lock-in period\n"
-            "- Security deposit\n"
-            "- Area measurements\n\n"
+            "- Monthly rent amount (must be MONTHLY, not annual)\n"
+            "- Party names (who is lessor/licensor vs lessee/licensee — do NOT swap them)\n"
+            "- Lease commencement and expiry dates (commencement must be BEFORE expiry)\n"
+            "- Lock-in period (in months)\n"
+            "- Security deposit (amount and number of months)\n"
+            "- Area measurements (carpet vs super area)\n"
+            "- CAM / maintenance charges (monthly amount)\n"
+            "- Escalation percentage (should be reasonable: typically 3-25%. If > 25%, double-check.)\n"
+            "- Notice period (in months)\n"
+            "- Total monthly outflow should approximately equal: rent + CAM + maintenance + other charges. "
+            "If it doesn't add up, fix the individual values.\n\n"
             f"Extracted data:\n{json.dumps(result, indent=2)}\n\n"
             f"Original text (first 8000 chars):\n{text[:8000]}"
         )
