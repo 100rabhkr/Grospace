@@ -575,10 +575,20 @@ export default function OutletDetailPage() {
             </div>
           </div>
         </div>
-        <Button variant="outline" size="sm" className="gap-1.5" onClick={openShareDialog}>
-          <Share2 className="h-3.5 w-3.5" />
-          Share
-        </Button>
+        <div className="flex items-center gap-2">
+          {agreements.length > 0 && (
+            <Link href={`/agreements/${agreements[0].id}`}>
+              <Button variant="default" size="sm" className="gap-1.5 bg-[#132337] hover:bg-[#1a3048]">
+                <FileText className="h-3.5 w-3.5" />
+                View Agreement
+              </Button>
+            </Link>
+          )}
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={openShareDialog}>
+            <Share2 className="h-3.5 w-3.5" />
+            Share
+          </Button>
+        </div>
       </div>
 
       {/* Share Dialog */}

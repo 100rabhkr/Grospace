@@ -909,7 +909,7 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent className="p-4 pt-2">
             <div className="flex gap-2 overflow-x-auto">
-              {["lead", "site_visit", "negotiation", "loi_sent", "agreement_signed", "fit_out", "operational"].map((stage) => {
+              {["lead", "site_visit", "negotiation", "loi", "agreement", "fitout", "operational"].map((stage) => {
                 const count = stats.pipeline_stages?.[stage] ?? 0;
                 if (count === 0) return null;
                 return (

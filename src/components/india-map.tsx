@@ -229,6 +229,11 @@ export default function IndiaMap({
     if (onSelectCluster) {
       const isDeselect = externalSelected === cluster.label;
       onSelectCluster(isDeselect ? null : cluster);
+      if (isDeselect) {
+        setPosition({ coordinates: [82, 22], zoom: 1 });
+      } else {
+        setPosition({ coordinates: cluster.coords, zoom: 3.5 });
+      }
     }
   }, [onSelectCluster, externalSelected]);
 
