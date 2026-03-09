@@ -20,7 +20,6 @@ import {
   Users,
   Rocket,
   ArrowRight,
-  Files,
   ChevronDown,
   ChevronUp,
   ZoomIn,
@@ -175,7 +174,7 @@ type ExtractionResult = {
 const processingSteps = [
   { label: "Uploading document", duration: 1500 },
   { label: "Scanning document content", duration: 3000 },
-  { label: "Running AI analysis", duration: 5000 },
+  { label: "Running GroBot analysis", duration: 5000 },
   { label: "Classifying document type", duration: 3000 },
   { label: "Extracting key terms & dates", duration: 5000 },
   { label: "Analyzing financial data", duration: 4000 },
@@ -202,13 +201,14 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
   // Use backend average if available, otherwise fallback to file-size heuristic
   const isImage = fileName ? /\.(png|jpe?g|webp|gif|bmp|tiff?)$/i.test(fileName) : false;
   const fallbackEstimate = isImage
-    ? 60
+    ? 110
     : fileSizeMB
-      ? fileSizeMB < 2 ? 45
-        : fileSizeMB < 10 ? 90
-        : fileSizeMB < 30 ? 150
-        : 200
-      : 90;
+      ? fileSizeMB < 1 ? 90
+        : fileSizeMB < 3 ? 110
+        : fileSizeMB < 10 ? 130
+        : fileSizeMB < 30 ? 180
+        : 240
+      : 110;
 
   const estimatedTotalSec = backendEstimate ? Math.round(backendEstimate.avg) : fallbackEstimate;
 
@@ -254,7 +254,7 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
   );
 
   // Stage labels for the progress
-  const stageLabels = ["Uploading...", "Analyzing document type...", "Extracting data...", "Checking risk flags...", "Done!"];
+  const stageLabels = ["Uploading...", "Analyzing document type...", "Extracting data...", "Checking risk flags...", "Almost done..."];
   const currentStageIdx = activeStep < 2 ? 0 : activeStep < 4 ? 1 : activeStep < 6 ? 2 : activeStep < 7 ? 3 : 4;
   const currentStageLabel = stageLabels[currentStageIdx];
 
@@ -262,7 +262,7 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
     <Card className="max-w-lg mx-auto">
       <CardContent className="pt-8 pb-10 flex flex-col items-center text-center">
         <div className="mb-6">
-          <div className="h-16 w-16 rounded-full bg-neutral-100 flex items-center justify-center">
+          <div className="h-16 w-16 rounded-full bg-[#f4f6f9] flex items-center justify-center">
             <Loader2 className="h-8 w-8 text-black animate-spin" />
           </div>
         </div>
@@ -271,12 +271,12 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
           {currentStageLabel}
         </h2>
         <p className="text-sm text-muted-foreground mb-1">
-          Powered by 360Labs AI Engine
+          Powered by GroBot
         </p>
 
         {/* Processing time estimate & live timer (Task 43) */}
         <div className="flex items-center gap-3 mb-4">
-          <span className="text-xs text-neutral-500 bg-neutral-100 px-3 py-1.5 rounded-full">
+          <span className="text-xs text-[#6b7280] bg-[#f4f6f9] px-3 py-1.5 rounded-full">
             Estimated: {estimatedRangeLow}-{estimatedRangeHigh} seconds
           </span>
           <span className="text-xs font-semibold tabular-nums bg-[#132337] text-white px-3 py-1.5 rounded-full">
@@ -285,7 +285,7 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
         </div>
 
         {/* Remaining time hint */}
-        <p className="text-xs text-neutral-400 mb-3">
+        <p className="text-xs text-[#9ca3af] mb-3">
           {isOverEstimate
             ? "Taking longer than expected, please wait..."
             : remainingSec > 0
@@ -296,10 +296,10 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
         {/* Progress bar with percentage */}
         <div className="w-full max-w-xs mb-5">
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-xs font-medium text-neutral-700">{currentStageLabel}</span>
+            <span className="text-xs font-medium text-[#132337]">{currentStageLabel}</span>
             <span className="text-xs font-semibold tabular-nums">{Math.round(progressPct)}%</span>
           </div>
-          <div className="h-2 bg-neutral-100 rounded-full overflow-hidden">
+          <div className="h-2 bg-[#f4f6f9] rounded-full overflow-hidden">
             <div
               className="h-full bg-[#132337] rounded-full transition-all duration-700 ease-out"
               style={{ width: `${progressPct}%` }}
@@ -341,19 +341,6 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
   );
 }
 
-type BulkFileItem = {
-  file: File;
-  status: "pending" | "extracting" | "extracted" | "activating" | "done" | "error";
-  error?: string;
-  result?: ExtractionResult;
-  activationResult?: {
-    agreement_id: number;
-    outlet_id: number;
-    obligations_count: number;
-    alerts_count: number;
-  };
-};
-
 export default function UploadAgreementPage() {
   const router = useRouter();
   const [step, setStep] = useState(1);
@@ -369,12 +356,6 @@ export default function UploadAgreementPage() {
     alerts_count: number;
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const bulkFileInputRef = useRef<HTMLInputElement>(null);
-
-  // Bulk upload state
-  const [uploadMode, setUploadMode] = useState<"single" | "bulk">("single");
-  const [bulkFiles, setBulkFiles] = useState<BulkFileItem[]>([]);
-  const [bulkProcessing, setBulkProcessing] = useState(false);
 
   // Split-screen review state
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
@@ -433,7 +414,7 @@ export default function UploadAgreementPage() {
         );
       default:
         return (
-          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-neutral-500 bg-neutral-50 border border-neutral-200 rounded-full px-1.5 py-0.5">
+          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-[#6b7280] bg-[#f4f6f9] border border-[#e4e8ef] rounded-full px-1.5 py-0.5">
             <Eye className="h-3 w-3" />
             N/A
           </span>
@@ -460,20 +441,6 @@ export default function UploadAgreementPage() {
     setIsDragOver(false);
     const files = Array.from(e.dataTransfer.files);
 
-    if (uploadMode === "bulk") {
-      const valid = files.filter(isValidFile);
-      if (valid.length === 0) {
-        setError("No valid PDF or image files found.");
-        return;
-      }
-      setBulkFiles((prev) => [
-        ...prev,
-        ...valid.map((f) => ({ file: f, status: "pending" as const })),
-      ]);
-      setError(null);
-      return;
-    }
-
     const file = files[0];
     if (file && isValidFile(file)) {
       setSelectedFile(file);
@@ -493,29 +460,10 @@ export default function UploadAgreementPage() {
     }
   }
 
-  function handleBulkFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files || []);
-    const valid = files.filter(isValidFile);
-    if (valid.length === 0) {
-      setError("No valid PDF or image files selected.");
-      return;
-    }
-    setBulkFiles((prev) => [
-      ...prev,
-      ...valid.map((f) => ({ file: f, status: "pending" as const })),
-    ]);
-    setError(null);
-    if (bulkFileInputRef.current) bulkFileInputRef.current.value = "";
-  }
-
   function handleRemoveFile() {
     setSelectedFile(null);
     setError(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
-  }
-
-  function removeBulkFile(index: number) {
-    setBulkFiles((prev) => prev.filter((_, i) => i !== index));
   }
 
   async function handleStartExtraction() {
@@ -538,96 +486,6 @@ export default function UploadAgreementPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Extraction failed. Please try again.");
       setStep(1);
-    }
-  }
-
-  async function handleBulkProcess() {
-    if (bulkFiles.length === 0) return;
-    setBulkProcessing(true);
-    setError(null);
-
-    for (let i = 0; i < bulkFiles.length; i++) {
-      if (bulkFiles[i].status !== "pending") continue;
-
-      // Mark as extracting
-      setBulkFiles((prev) => prev.map((f, idx) => idx === i ? { ...f, status: "extracting" } : f));
-
-      try {
-        const data = await uploadAndExtract(bulkFiles[i].file);
-        if (data.error && data.status === "partial" && Object.keys(data.extraction || {}).length === 0) {
-          setBulkFiles((prev) => prev.map((f, idx) => idx === i ? { ...f, status: "error", error: data.error } : f));
-          continue;
-        }
-
-        // Stop at "extracted" — let user review before activating
-        setBulkFiles((prev) => prev.map((f, idx) => idx === i ? { ...f, status: "extracted", result: data } : f));
-      } catch (err) {
-        setBulkFiles((prev) => prev.map((f, idx) => idx === i ? {
-          ...f,
-          status: "error",
-          error: err instanceof Error ? err.message : "Failed",
-        } : f));
-      }
-    }
-
-    setBulkProcessing(false);
-  }
-
-  async function handleBulkActivate(index: number) {
-    const item = bulkFiles[index];
-    if (!item?.result || item.status !== "extracted") return;
-
-    setBulkFiles((prev) => prev.map((f, idx) => idx === index ? { ...f, status: "activating" } : f));
-
-    try {
-      const activation = await confirmAndActivate({
-        extraction: item.result.extraction,
-        document_type: item.result.document_type,
-        risk_flags: item.result.risk_flags,
-        confidence: item.result.confidence,
-        filename: item.result.filename,
-        document_text: item.result.document_text,
-        document_url: item.result.document_url,
-      });
-      setBulkFiles((prev) => prev.map((f, idx) => idx === index ? { ...f, status: "done", activationResult: activation } : f));
-    } catch (err) {
-      setBulkFiles((prev) => prev.map((f, idx) => idx === index ? {
-        ...f,
-        status: "error",
-        error: err instanceof Error ? err.message : "Activation failed",
-      } : f));
-    }
-  }
-
-  async function handleBulkActivateAll() {
-    const extractedIndices = bulkFiles
-      .map((f, i) => f.status === "extracted" ? i : -1)
-      .filter((i) => i !== -1);
-
-    for (const idx of extractedIndices) {
-      await handleBulkActivate(idx);
-    }
-  }
-
-  async function handleBulkRetry(index: number) {
-    const item = bulkFiles[index];
-    if (!item || item.status !== "error") return;
-
-    setBulkFiles((prev) => prev.map((f, idx) => idx === index ? { ...f, status: "extracting", error: undefined } : f));
-
-    try {
-      const data = await uploadAndExtract(item.file);
-      if (data.error && data.status === "partial" && Object.keys(data.extraction || {}).length === 0) {
-        setBulkFiles((prev) => prev.map((f, idx) => idx === index ? { ...f, status: "error", error: data.error } : f));
-        return;
-      }
-      setBulkFiles((prev) => prev.map((f, idx) => idx === index ? { ...f, status: "extracted", result: data } : f));
-    } catch (err) {
-      setBulkFiles((prev) => prev.map((f, idx) => idx === index ? {
-        ...f,
-        status: "error",
-        error: err instanceof Error ? err.message : "Failed",
-      } : f));
     }
   }
 
@@ -661,13 +519,13 @@ export default function UploadAgreementPage() {
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       {/* Header */}
-      <PageHeader title="Upload Agreement" description="Upload a lease, LOI, or license document for AI-powered data extraction" backHref="/agreements" />
+      <PageHeader title="Upload Documents" description="Upload lease agreements or licence documents for AI-powered extraction" />
 
       {/* Step Indicator */}
       <div className="flex items-center gap-0">
         {[
           { num: 1, label: "Upload Document" },
-          { num: 2, label: "AI Processing" },
+          { num: 2, label: "GroBot Processing" },
           { num: 3, label: "Review & Confirm" },
           { num: 4, label: "Activated" },
         ].map((s, i) => (
@@ -679,14 +537,14 @@ export default function UploadAgreementPage() {
                     ? "bg-emerald-600 text-white"
                     : step === s.num
                     ? "bg-[#132337] text-white"
-                    : "bg-neutral-200 text-neutral-500"
+                    : "bg-[#e4e8ef] text-[#6b7280]"
                 }`}
               >
                 {step > s.num ? <Check className="h-4 w-4" /> : s.num}
               </div>
               <span
                 className={`text-sm font-medium ${
-                  step >= s.num ? "text-black" : "text-neutral-400"
+                  step >= s.num ? "text-black" : "text-[#9ca3af]"
                 }`}
               >
                 {s.label}
@@ -695,7 +553,7 @@ export default function UploadAgreementPage() {
             {i < 3 && (
               <div
                 className={`mx-4 h-px w-16 ${
-                  step > s.num ? "bg-emerald-600" : "bg-neutral-200"
+                  step > s.num ? "bg-emerald-600" : "bg-[#e4e8ef]"
                 }`}
               />
             )}
@@ -720,307 +578,76 @@ export default function UploadAgreementPage() {
       {/* Step 1: Upload */}
       {step === 1 && (
         <div className="max-w-xl mx-auto space-y-6">
-          {/* Mode Toggle */}
-          <div className="flex items-center gap-1 border border-neutral-200 rounded-md p-0.5 w-fit">
-            <Button
-              variant={uploadMode === "single" ? "default" : "ghost"}
-              size="sm"
-              onClick={() => setUploadMode("single")}
-              className={uploadMode === "single" ? "bg-[#132337] text-white hover:bg-[#152340]" : "text-neutral-500 hover:text-black"}
-            >
-              <CloudUpload className="h-4 w-4 mr-1.5" />
-              Single File
-            </Button>
-            <Button
-              variant={uploadMode === "bulk" ? "default" : "ghost"}
-              size="sm"
-              onClick={() => setUploadMode("bulk")}
-              className={uploadMode === "bulk" ? "bg-[#132337] text-white hover:bg-[#152340]" : "text-neutral-500 hover:text-black"}
-            >
-              <Files className="h-4 w-4 mr-1.5" />
-              Bulk Upload
-            </Button>
-          </div>
-
-          {uploadMode === "single" ? (
-            <>
-              <Card>
-                <CardContent className="pt-6">
-                  <h2 className="text-base font-semibold mb-4">Upload Document</h2>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tiff,.tif"
-                    className="hidden"
-                    onChange={handleFileSelect}
-                  />
-                  {!selectedFile ? (
-                    <div
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        setIsDragOver(true);
-                      }}
-                      onDragLeave={() => setIsDragOver(false)}
-                      onDrop={handleFileDrop}
-                      onClick={() => fileInputRef.current?.click()}
-                      className={`flex flex-col items-center justify-center border-2 border-dashed rounded-xl p-14 cursor-pointer transition-all ${
-                        isDragOver
-                          ? "border-black bg-neutral-50 scale-[1.01]"
-                          : "border-neutral-300 hover:border-neutral-400 hover:bg-neutral-50/50"
-                      }`}
-                    >
-                      <div className="h-14 w-14 rounded-full bg-neutral-100 flex items-center justify-center mb-4">
-                        <CloudUpload className="h-7 w-7 text-neutral-400" />
-                      </div>
-                      <p className="text-sm font-medium text-black mb-1">
-                        Drag and drop your document here
-                      </p>
-                      <p className="text-xs text-muted-foreground mb-3">
-                        or click to browse files
-                      </p>
-                      <Badge variant="outline" className="text-xs font-normal">PDF or image up to 50MB</Badge>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-3 p-4 rounded-xl border bg-neutral-50">
-                      <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${selectedFile?.type?.startsWith("image/") ? "bg-blue-100" : "bg-red-100"}`}>
-                        <FileText className={`h-5 w-5 ${selectedFile?.type?.startsWith("image/") ? "text-blue-600" : "text-red-600"}`} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{selectedFile.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {formatFileSize(selectedFile.size)}
-                        </p>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={handleRemoveFile}
-                        className="h-8 w-8 p-0 text-muted-foreground hover:text-red-600"
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              <div className="flex justify-end">
-                <Button
-                  onClick={handleStartExtraction}
-                  disabled={!selectedFile}
-                  className="gap-2 px-6"
+          <Card>
+            <CardContent className="pt-6">
+              <h2 className="text-base font-semibold mb-4">Upload Document</h2>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tiff,.tif"
+                className="hidden"
+                onChange={handleFileSelect}
+              />
+              {!selectedFile ? (
+                <div
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setIsDragOver(true);
+                  }}
+                  onDragLeave={() => setIsDragOver(false)}
+                  onDrop={handleFileDrop}
+                  onClick={() => fileInputRef.current?.click()}
+                  className={`flex flex-col items-center justify-center border-2 border-dashed rounded-xl p-14 cursor-pointer transition-all ${
+                    isDragOver
+                      ? "border-black bg-[#f4f6f9] scale-[1.01]"
+                      : "border-neutral-300 hover:border-neutral-400 hover:bg-[#f4f6f9]/50"
+                  }`}
                 >
-                  Start AI Extraction
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-            </>
-          ) : (
-            <>
-              <Card>
-                <CardContent className="pt-6">
-                  <h2 className="text-base font-semibold mb-2">Bulk Upload</h2>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    Select multiple files to extract. Review results before activating.
+                  <div className="h-14 w-14 rounded-full bg-[#f4f6f9] flex items-center justify-center mb-4">
+                    <CloudUpload className="h-7 w-7 text-[#9ca3af]" />
+                  </div>
+                  <p className="text-sm font-medium text-black mb-1">
+                    Drag and drop your document here
                   </p>
-                  <input
-                    ref={bulkFileInputRef}
-                    type="file"
-                    accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tiff,.tif"
-                    className="hidden"
-                    multiple
-                    onChange={handleBulkFileSelect}
-                  />
-                  <div
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      setIsDragOver(true);
-                    }}
-                    onDragLeave={() => setIsDragOver(false)}
-                    onDrop={handleFileDrop}
-                    onClick={() => bulkFileInputRef.current?.click()}
-                    className={`flex flex-col items-center justify-center border-2 border-dashed rounded-xl p-10 cursor-pointer transition-all ${
-                      isDragOver
-                        ? "border-black bg-neutral-50 scale-[1.01]"
-                        : "border-neutral-300 hover:border-neutral-400 hover:bg-neutral-50/50"
-                    }`}
-                  >
-                    <Files className="h-10 w-10 text-neutral-400 mb-3" />
-                    <p className="text-sm font-medium text-black mb-1">
-                      Drop multiple files or click to select
-                    </p>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    or click to browse files
+                  </p>
+                  <Badge variant="outline" className="text-xs font-normal">PDF or image up to 50MB</Badge>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3 p-4 rounded-xl border bg-[#f4f6f9]">
+                  <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${selectedFile?.type?.startsWith("image/") ? "bg-[#f4f6f9]" : "bg-red-100"}`}>
+                    <FileText className={`h-5 w-5 ${selectedFile?.type?.startsWith("image/") ? "text-[#132337]" : "text-red-600"}`} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{selectedFile.name}</p>
                     <p className="text-xs text-muted-foreground">
-                      PDF or image files up to 50MB each
+                      {formatFileSize(selectedFile.size)}
                     </p>
                   </div>
-
-                  {/* File Queue */}
-                  {bulkFiles.length > 0 && (
-                    <div className="mt-4 space-y-2">
-                      <p className="text-xs font-medium text-neutral-500 uppercase tracking-wide">
-                        {bulkFiles.length} file{bulkFiles.length !== 1 ? "s" : ""} queued
-                      </p>
-                      {bulkFiles.map((item, i) => (
-                        <div
-                          key={`${item.file.name}-${i}`}
-                          className={`flex items-center gap-3 p-3 rounded-lg border ${
-                            item.status === "done"
-                              ? "bg-emerald-50 border-emerald-200"
-                              : item.status === "error"
-                              ? "bg-red-50 border-red-200"
-                              : item.status === "extracted"
-                              ? "bg-amber-50 border-amber-200"
-                              : item.status === "extracting" || item.status === "activating"
-                              ? "bg-blue-50 border-blue-200"
-                              : "bg-neutral-50 border-neutral-200"
-                          }`}
-                        >
-                          {item.status === "extracting" || item.status === "activating" ? (
-                            <Loader2 className="h-4 w-4 animate-spin text-blue-600 flex-shrink-0" />
-                          ) : item.status === "done" ? (
-                            <Check className="h-4 w-4 text-emerald-600 flex-shrink-0" />
-                          ) : item.status === "error" ? (
-                            <AlertTriangle className="h-4 w-4 text-red-500 flex-shrink-0" />
-                          ) : item.status === "extracted" ? (
-                            <FileText className="h-4 w-4 text-amber-600 flex-shrink-0" />
-                          ) : (
-                            <FileText className="h-4 w-4 text-neutral-400 flex-shrink-0" />
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate">{item.file.name}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {formatFileSize(item.file.size)}
-                              {item.status === "extracting" && " — Extracting..."}
-                              {item.status === "activating" && " — Activating..."}
-                              {item.status === "extracted" && item.result && (() => {
-                                const fields = Object.values(item.result.extraction).reduce((acc, section) => {
-                                  if (typeof section === "object" && section !== null) {
-                                    return acc + Object.keys(section as Record<string, unknown>).length;
-                                  }
-                                  return acc;
-                                }, 0);
-                                return ` — ${fields} fields extracted · Ready for review`;
-                              })()}
-                              {item.status === "done" && " — Activated"}
-                              {item.status === "error" && ` — ${item.error || "Failed"}`}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-1.5 flex-shrink-0">
-                            {item.status === "pending" && !bulkProcessing && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => removeBulkFile(i)}
-                                className="h-7 w-7 p-0 text-muted-foreground hover:text-red-600"
-                              >
-                                <X className="h-3.5 w-3.5" />
-                              </Button>
-                            )}
-                            {item.status === "extracted" && (
-                              <div className="flex items-center gap-1.5">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="text-xs h-7 gap-1"
-                                  onClick={() => {
-                                    // Load this file into single review mode (step 3)
-                                    setSelectedFile(item.file);
-                                    setResult(item.result || null);
-                                    setUploadMode("single");
-                                    setStep(3);
-                                  }}
-                                >
-                                  <Eye className="h-3 w-3" />
-                                  Review
-                                </Button>
-                                <Button
-                                  variant="default"
-                                  size="sm"
-                                  className="text-xs h-7 gap-1"
-                                  onClick={() => handleBulkActivate(i)}
-                                >
-                                  <Rocket className="h-3 w-3" />
-                                  Activate
-                                </Button>
-                              </div>
-                            )}
-                            {item.status === "error" && !bulkProcessing && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="text-xs h-7"
-                                onClick={() => handleBulkRetry(i)}
-                              >
-                                Retry
-                              </Button>
-                            )}
-                            {item.status === "done" && item.activationResult && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="text-xs h-7"
-                                onClick={() => router.push(`/agreements/${item.activationResult!.agreement_id}`)}
-                              >
-                                View
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              <div className="flex items-center justify-between">
-                {bulkFiles.length > 0 && !bulkProcessing && (
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => setBulkFiles([])}
-                    className="text-sm text-muted-foreground"
+                    onClick={handleRemoveFile}
+                    className="h-8 w-8 p-0 text-muted-foreground hover:text-red-600"
                   >
-                    Clear All
-                  </Button>
-                )}
-                {bulkProcessing && (
-                  <p className="text-sm text-muted-foreground">
-                    Extracting {bulkFiles.filter((f) => f.status === "extracted" || f.status === "done" || f.status === "error").length + 1} of {bulkFiles.length}...
-                  </p>
-                )}
-                <div className="ml-auto flex items-center gap-2">
-                  {bulkFiles.some((f) => f.status === "extracted") && !bulkProcessing && (
-                    <Button
-                      variant="default"
-                      onClick={handleBulkActivateAll}
-                      className="gap-2 px-6"
-                    >
-                      <Rocket className="h-4 w-4" />
-                      Activate All ({bulkFiles.filter((f) => f.status === "extracted").length})
-                    </Button>
-                  )}
-                  <Button
-                    onClick={handleBulkProcess}
-                    disabled={bulkFiles.filter((f) => f.status === "pending").length === 0 || bulkProcessing}
-                    variant={bulkFiles.some((f) => f.status === "extracted") ? "outline" : "default"}
-                    className="gap-2 px-6"
-                  >
-                    {bulkProcessing ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Extracting...
-                      </>
-                    ) : (
-                      <>
-                        <CloudUpload className="h-4 w-4" />
-                        Extract All
-                      </>
-                    )}
+                    <X className="h-4 w-4" />
                   </Button>
                 </div>
-              </div>
-            </>
-          )}
+              )}
+            </CardContent>
+          </Card>
+
+          <div className="flex justify-end">
+            <Button
+              onClick={handleStartExtraction}
+              disabled={!selectedFile}
+              className="gap-2 px-6"
+            >
+              Start GroBot Extraction
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       )}
 
@@ -1044,7 +671,7 @@ export default function UploadAgreementPage() {
                   <> &middot; Processed in {result.processing_duration_seconds}s</>
                 )}
                 {(result as Record<string, unknown>)?.extraction_method === "vision" && (
-                  <Badge variant="outline" className="ml-2 text-[10px]">Vision AI</Badge>
+                  <Badge variant="outline" className="ml-2 text-[10px]">GroSpace Vision AI</Badge>
                 )}
               </p>
             </div>
@@ -1054,19 +681,19 @@ export default function UploadAgreementPage() {
           {/* Stats bar */}
           {stats && (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div className="text-center p-3 rounded-lg border bg-white">
+              <div className="text-center p-3 rounded-lg border bg-[#fafbfd]">
                 <p className="text-2xl font-bold">{stats.total}</p>
                 <p className="text-[11px] text-muted-foreground">Fields Extracted</p>
               </div>
-              <div className="text-center p-3 rounded-lg border bg-white">
+              <div className="text-center p-3 rounded-lg border bg-[#fafbfd]">
                 <p className="text-2xl font-bold text-emerald-600">{stats.highConf}</p>
                 <p className="text-[11px] text-muted-foreground">High Confidence</p>
               </div>
-              <div className="text-center p-3 rounded-lg border bg-white">
+              <div className="text-center p-3 rounded-lg border bg-[#fafbfd]">
                 <p className="text-2xl font-bold text-amber-600">{stats.medConf + stats.lowConf}</p>
                 <p className="text-[11px] text-muted-foreground">Needs Review</p>
               </div>
-              <div className="text-center p-3 rounded-lg border bg-white">
+              <div className="text-center p-3 rounded-lg border bg-[#fafbfd]">
                 <p className="text-2xl font-bold text-red-600">{result.risk_flags.length}</p>
                 <p className="text-[11px] text-muted-foreground">Risk Flags</p>
               </div>
@@ -1078,10 +705,10 @@ export default function UploadAgreementPage() {
             {/* LEFT SIDE: PDF Viewer */}
             <div className="w-full lg:w-1/2 lg:sticky lg:top-4 lg:self-start">
               <Card className="overflow-hidden">
-                <div className="flex items-center justify-between px-4 py-2.5 bg-neutral-50 border-b">
+                <div className="flex items-center justify-between px-4 py-2.5 bg-[#f4f6f9] border-b">
                   <div className="flex items-center gap-2">
-                    <FileText className="h-4 w-4 text-neutral-500" />
-                    <span className="text-xs font-medium text-neutral-700 truncate max-w-[200px]">
+                    <FileText className="h-4 w-4 text-[#6b7280]" />
+                    <span className="text-xs font-medium text-[#132337] truncate max-w-[200px]">
                       {result.filename}
                     </span>
                   </div>
@@ -1095,7 +722,7 @@ export default function UploadAgreementPage() {
                     >
                       <ZoomOut className="h-3.5 w-3.5" />
                     </Button>
-                    <span className="text-xs font-medium text-neutral-500 w-10 text-center tabular-nums">
+                    <span className="text-xs font-medium text-[#6b7280] w-10 text-center tabular-nums">
                       {pdfZoom}%
                     </span>
                     <Button
@@ -1109,7 +736,7 @@ export default function UploadAgreementPage() {
                     </Button>
                   </div>
                 </div>
-                <div className="bg-neutral-100 overflow-auto" style={{ height: "calc(100vh - 320px)", minHeight: "400px" }}>
+                <div className="bg-[#f4f6f9] overflow-auto" style={{ height: "calc(100vh - 320px)", minHeight: "400px" }}>
                   {fileUrl && selectedFile?.type === "application/pdf" ? (
                     <iframe
                       src={`${fileUrl}#toolbar=0&view=FitH`}
@@ -1136,7 +763,7 @@ export default function UploadAgreementPage() {
                       />
                     </div>
                   ) : (
-                    <div className="flex flex-col items-center justify-center h-full text-neutral-400">
+                    <div className="flex flex-col items-center justify-center h-full text-[#9ca3af]">
                       <FileText className="h-12 w-12 mb-3" />
                       <p className="text-sm font-medium">Preview not available</p>
                       <p className="text-xs mt-1">The uploaded document cannot be previewed in the browser.</p>
@@ -1150,7 +777,7 @@ export default function UploadAgreementPage() {
             <div className="w-full lg:w-1/2 space-y-3">
               {/* Section controls */}
               <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-neutral-700">Extracted Data</h2>
+                <h2 className="text-sm font-semibold text-[#132337]">Extracted Data</h2>
                 <div className="flex items-center gap-1">
                   <Button variant="ghost" size="sm" className="text-xs h-7 px-2" onClick={expandAllSections}>
                     Expand All
@@ -1177,9 +804,9 @@ export default function UploadAgreementPage() {
                       {result.risk_flags.length}
                     </Badge>
                     {collapsedSections["_risk_flags"] ? (
-                      <ChevronDown className="h-4 w-4 text-neutral-400" />
+                      <ChevronDown className="h-4 w-4 text-[#9ca3af]" />
                     ) : (
-                      <ChevronUp className="h-4 w-4 text-neutral-400" />
+                      <ChevronUp className="h-4 w-4 text-[#9ca3af]" />
                     )}
                   </button>
                   <div
@@ -1264,10 +891,10 @@ export default function UploadAgreementPage() {
                   <Card key={sectionKey} className="overflow-hidden">
                     {/* Section Header (clickable to toggle) */}
                     <button
-                      className="w-full flex items-center gap-2 px-4 py-3 hover:bg-neutral-50/80 transition-colors text-left"
+                      className="w-full flex items-center gap-2 px-4 py-3 hover:bg-[#f4f6f9]/80 transition-colors text-left"
                       onClick={() => toggleSection(sectionKey)}
                     >
-                      <Icon className="h-4 w-4 text-neutral-500 flex-shrink-0" />
+                      <Icon className="h-4 w-4 text-[#6b7280] flex-shrink-0" />
                       <span className="text-sm font-semibold flex-1">{config.title}</span>
                       <div className="flex items-center gap-1.5 mr-1">
                         {sectionStats.high > 0 && (
@@ -1293,9 +920,9 @@ export default function UploadAgreementPage() {
                         {fields.length} {fields.length === 1 ? "field" : "fields"}
                       </Badge>
                       {isCollapsed ? (
-                        <ChevronDown className="h-4 w-4 text-neutral-400 flex-shrink-0" />
+                        <ChevronDown className="h-4 w-4 text-[#9ca3af] flex-shrink-0" />
                       ) : (
-                        <ChevronUp className="h-4 w-4 text-neutral-400 flex-shrink-0" />
+                        <ChevronUp className="h-4 w-4 text-[#9ca3af] flex-shrink-0" />
                       )}
                     </button>
 
@@ -1310,12 +937,30 @@ export default function UploadAgreementPage() {
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-3">
                           {fields.map(([fieldKey, fieldVal]) => {
                             const { displayVal, confidence } = parseField(fieldVal);
+                            const isNotFound = displayVal === "Not found";
+                            const isCurrency = /rent|deposit|cam_monthly|outflow|amount|revenue/.test(fieldKey);
+                            const isArea = /area|sqft/.test(fieldKey);
+                            const isPct = /percentage|pct|escalation_pct/.test(fieldKey);
+                            const isDate = /date|commencement|expiry/.test(fieldKey);
+                            const isBool = displayVal === "Yes" || displayVal === "No";
+                            const isMultiLine = displayVal.includes("\n");
+
+                            let formattedVal = displayVal;
+                            if (!isNotFound && isCurrency && !isNaN(Number(displayVal.replace(/,/g, "")))) {
+                              formattedVal = `₹${Number(displayVal.replace(/,/g, "")).toLocaleString("en-IN")}`;
+                            } else if (!isNotFound && isArea && !isNaN(Number(displayVal.replace(/,/g, "")))) {
+                              formattedVal = `${Number(displayVal.replace(/,/g, "")).toLocaleString("en-IN")} sq ft`;
+                            } else if (!isNotFound && isPct && !isNaN(Number(displayVal))) {
+                              formattedVal = `${displayVal}%`;
+                            } else if (!isNotFound && isDate && /^\d{4}-\d{2}-\d{2}$/.test(displayVal)) {
+                              formattedVal = new Date(displayVal).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+                            }
 
                             return (
-                              <div key={fieldKey} className="min-w-0 group/field">
-                                <div className="flex items-center gap-1.5 mb-0.5">
+                              <div key={fieldKey} className={`min-w-0 group/field rounded-lg p-2.5 -mx-1 transition-colors ${isNotFound ? "opacity-50" : "hover:bg-[#f4f6f9]"}`}>
+                                <div className="flex items-center gap-1.5 mb-1">
                                   <ConfidenceDot level={confidence} />
-                                  <p className="text-[11px] text-muted-foreground uppercase tracking-wide flex-1">
+                                  <p className="text-[10px] text-[#9ca3af] uppercase tracking-wider font-semibold flex-1">
                                     {formatFieldLabel(fieldKey)}
                                   </p>
                                   <span className="opacity-0 group-hover/field:opacity-100 transition-opacity">
@@ -1327,25 +972,44 @@ export default function UploadAgreementPage() {
                                     originalValue={displayVal}
                                   />
                                 </div>
-                                <EditableField
-                                  value={displayVal}
-                                  isNotFound={displayVal === "Not found"}
-                                  onChange={(newVal) => {
-                                    setResult((prev) => {
-                                      if (!prev) return prev;
-                                      const updated = { ...prev, extraction: { ...prev.extraction } };
-                                      const section = { ...(updated.extraction[sectionKey] as Record<string, unknown>) };
-                                      const existing = section[fieldKey];
-                                      if (typeof existing === "object" && existing !== null && "value" in (existing as Record<string, unknown>)) {
-                                        section[fieldKey] = { ...(existing as Record<string, unknown>), value: newVal };
-                                      } else {
-                                        section[fieldKey] = newVal;
-                                      }
-                                      updated.extraction[sectionKey] = section;
-                                      return updated;
-                                    });
-                                  }}
-                                />
+                                {isNotFound ? (
+                                  <p className="text-xs text-[#d1d5db] italic pl-4">Not found in document</p>
+                                ) : isBool ? (
+                                  <div className="pl-4">
+                                    <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${displayVal === "Yes" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600"}`}>
+                                      {displayVal === "Yes" ? "✓" : "✗"} {displayVal}
+                                    </span>
+                                  </div>
+                                ) : isMultiLine ? (
+                                  <div className="pl-4 space-y-1 mt-1">
+                                    {formattedVal.split("\n").filter(Boolean).map((line, idx) => (
+                                      <div key={idx} className="flex items-start gap-2">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-[#132337] mt-1.5 flex-shrink-0" />
+                                        <span className="text-sm text-[#132337] font-medium">{line}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <EditableField
+                                    value={formattedVal}
+                                    isNotFound={false}
+                                    onChange={(newVal) => {
+                                      setResult((prev) => {
+                                        if (!prev) return prev;
+                                        const updated = { ...prev, extraction: { ...prev.extraction } };
+                                        const section = { ...(updated.extraction[sectionKey] as Record<string, unknown>) };
+                                        const existing = section[fieldKey];
+                                        if (typeof existing === "object" && existing !== null && "value" in (existing as Record<string, unknown>)) {
+                                          section[fieldKey] = { ...(existing as Record<string, unknown>), value: newVal };
+                                        } else {
+                                          section[fieldKey] = newVal;
+                                        }
+                                        updated.extraction[sectionKey] = section;
+                                        return updated;
+                                      });
+                                    }}
+                                  />
+                                )}
                               </div>
                             );
                           })}

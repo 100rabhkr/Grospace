@@ -92,20 +92,20 @@ function formatCurrency(amount: number): string {
 }
 
 function statusColor(status: string): string {
-  if (!status) return "bg-neutral-100 text-neutral-600";
+  if (!status) return "bg-[#f4f6f9] text-[#132337]";
   const map: Record<string, string> = {
     active: "bg-emerald-50 text-emerald-700",
     operational: "bg-emerald-50 text-emerald-700",
-    fit_out: "bg-blue-50 text-blue-700",
+    fit_out: "bg-[#f4f6f9] text-[#132337]",
     expiring: "bg-amber-50 text-amber-700",
     up_for_renewal: "bg-amber-50 text-amber-700",
     expired: "bg-red-50 text-red-700",
-    closed: "bg-neutral-100 text-neutral-500",
-    draft: "bg-neutral-100 text-neutral-600",
-    pipeline: "bg-blue-50 text-blue-700",
+    closed: "bg-[#f4f6f9] text-[#132337]",
+    draft: "bg-[#f4f6f9] text-[#132337]",
+    pipeline: "bg-[#f4f6f9] text-[#132337]",
     pending: "bg-amber-50 text-amber-700",
   };
-  return map[status] || "bg-neutral-100 text-neutral-600";
+  return map[status] || "bg-[#f4f6f9] text-[#132337]";
 }
 
 function statusLabel(status: string): string {
@@ -116,14 +116,14 @@ function statusLabel(status: string): string {
 }
 
 function severityColor(severity: string): string {
-  if (!severity) return "bg-neutral-100 text-neutral-600";
+  if (!severity) return "bg-[#f4f6f9] text-[#132337]";
   const map: Record<string, string> = {
     high: "bg-red-50 text-red-700",
     medium: "bg-amber-50 text-amber-700",
-    low: "bg-blue-50 text-blue-700",
-    info: "bg-neutral-50 text-neutral-600",
+    low: "bg-[#f4f6f9] text-[#132337]",
+    info: "bg-[#f4f6f9] text-[#132337]",
   };
-  return map[severity] || "bg-neutral-100 text-neutral-600";
+  return map[severity] || "bg-[#f4f6f9] text-[#132337]";
 }
 
 // ---------------------------------------------------------------------------
@@ -164,7 +164,7 @@ export default function OrganizationDetailPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
+      <div className="min-h-screen bg-[#fafbfd] flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="h-8 w-8 animate-spin text-neutral-400" />
           <p className="text-sm text-neutral-500">Loading organization...</p>
@@ -175,7 +175,7 @@ export default function OrganizationDetailPage() {
 
   if (error || !organization) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
+      <div className="min-h-screen bg-[#fafbfd] flex items-center justify-center">
         <div className="flex flex-col items-center gap-3 text-center max-w-md">
           <AlertTriangle className="h-10 w-10 text-red-400" />
           <p className="text-lg font-medium text-neutral-800">
@@ -192,7 +192,7 @@ export default function OrganizationDetailPage() {
   const initial = organization.name.charAt(0).toUpperCase();
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-[#fafbfd]">
       <div className="max-w-7xl mx-auto px-6 py-8 space-y-8">
         {/* Back Link */}
         <Link
@@ -223,7 +223,7 @@ export default function OrganizationDetailPage() {
         <div className="grid grid-cols-3 gap-4">
           <Card>
             <CardContent className="p-5 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-neutral-100 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-lg bg-[#f4f6f9] flex items-center justify-center">
                 <Store className="w-5 h-5 text-neutral-600" />
               </div>
               <div>
@@ -236,7 +236,7 @@ export default function OrganizationDetailPage() {
           </Card>
           <Card>
             <CardContent className="p-5 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-neutral-100 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-lg bg-[#f4f6f9] flex items-center justify-center">
                 <FileCheck className="w-5 h-5 text-neutral-600" />
               </div>
               <div>
@@ -249,7 +249,7 @@ export default function OrganizationDetailPage() {
           </Card>
           <Card>
             <CardContent className="p-5 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-neutral-100 flex items-center justify-center">
+              <div className="w-10 h-10 rounded-lg bg-[#f4f6f9] flex items-center justify-center">
                 <Bell className="w-5 h-5 text-neutral-600" />
               </div>
               <div>
@@ -273,7 +273,7 @@ export default function OrganizationDetailPage() {
                 <Button
                   size="sm"
                   variant="outline"
-                  className="text-xs border-neutral-200"
+                  className="text-xs border-[#e4e8ef]"
                 >
                   Add Outlet via Upload
                 </Button>
@@ -288,7 +288,7 @@ export default function OrganizationDetailPage() {
             ) : (
               <Table>
                 <TableHeader>
-                  <TableRow className="bg-neutral-50">
+                  <TableRow className="bg-[#f4f6f9]">
                     <TableHead className="text-xs font-semibold text-neutral-500 uppercase">
                       Outlet
                     </TableHead>
@@ -314,7 +314,7 @@ export default function OrganizationDetailPage() {
                   {outlets.map((outlet) => (
                     <TableRow
                       key={outlet.id}
-                      className="hover:bg-neutral-50"
+                      className="hover:bg-[#f4f6f9]"
                     >
                       <TableCell className="font-medium text-black">
                         {outlet.name}
@@ -371,7 +371,7 @@ export default function OrganizationDetailPage() {
             ) : (
               <Table>
                 <TableHeader>
-                  <TableRow className="bg-neutral-50">
+                  <TableRow className="bg-[#f4f6f9]">
                     <TableHead className="text-xs font-semibold text-neutral-500 uppercase">
                       Document
                     </TableHead>
@@ -395,7 +395,7 @@ export default function OrganizationDetailPage() {
                 </TableHeader>
                 <TableBody>
                   {agreements.map((agr) => (
-                    <TableRow key={agr.id} className="hover:bg-neutral-50">
+                    <TableRow key={agr.id} className="hover:bg-[#f4f6f9]">
                       <TableCell className="font-medium text-black">
                         {agr.document_filename || "Untitled"}
                       </TableCell>
@@ -444,7 +444,7 @@ export default function OrganizationDetailPage() {
                   <Button
                     size="sm"
                     variant="outline"
-                    className="text-xs border-neutral-200"
+                    className="text-xs border-[#e4e8ef]"
                   >
                     View All Alerts
                   </Button>
@@ -455,7 +455,7 @@ export default function OrganizationDetailPage() {
               {alerts.map((alert) => (
                 <div
                   key={alert.id}
-                  className="flex items-center justify-between border border-neutral-100 rounded-lg p-3"
+                  className="flex items-center justify-between border border-[#e4e8ef] rounded-lg p-3"
                 >
                   <div className="flex items-center gap-3">
                     <Badge

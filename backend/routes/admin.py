@@ -25,6 +25,75 @@ router = APIRouter(prefix="/api", tags=["admin"])
 
 
 # ============================================
+# SIGNUP REQUEST / APPROVAL ENDPOINTS
+# ============================================
+
+@router.get("/signup-requests", dependencies=[Depends(require_permission("manage_org_members"))])
+async def list_signup_requests(status: str = Query("pending")):
+    """List signup requests filtered by status."""
+    query = supabase.table("signup_requests").select("*").order("created_at", desc=True)
+    if status != "all":
+        query = query.eq("status", status)
+    result = query.execute()
+    return {"requests": result.data}
+
+
+@router.post("/signup-requests/{request_id}/approve", dependencies=[Depends(require_permission("manage_org_members"))])
+async def approve_signup_request(
+    request_id: str,
+    org_id: str = Form(...),
+    role: str = Form("org_member"),
+    full_access: bool = Form(False),
+    user: Optional[CurrentUser] = Depends(get_current_user),
+):
+    """Approve a signup request — assign user to org with role."""
+    # Get the signup request
+    req_result = supabase.table("signup_requests").select("*").eq("id", request_id).single().execute()
+    if not req_result.data:
+        raise HTTPException(status_code=404, detail="Signup request not found")
+
+    signup = req_result.data
+    if signup["status"] != "pending":
+        raise HTTPException(status_code=400, detail="Request already processed")
+
+    # Update user profile with org_id and role
+    profile_update = {
+        "org_id": org_id,
+        "role": role,
+    }
+    if full_access:
+        profile_update["full_access"] = True
+
+    if signup.get("name"):
+        profile_update["full_name"] = signup["name"]
+
+    supabase.table("profiles").update(profile_update).eq("id", signup["user_id"]).execute()
+
+    # Mark signup request as approved
+    supabase.table("signup_requests").update({
+        "status": "approved",
+        "reviewed_at": datetime.utcnow().isoformat(),
+        "reviewed_by": user.id if user else None,
+    }).eq("id", request_id).execute()
+
+    return {"ok": True, "user_id": signup["user_id"], "org_id": org_id, "role": role}
+
+
+@router.post("/signup-requests/{request_id}/reject", dependencies=[Depends(require_permission("manage_org_members"))])
+async def reject_signup_request(
+    request_id: str,
+    user: Optional[CurrentUser] = Depends(get_current_user),
+):
+    """Reject a signup request."""
+    supabase.table("signup_requests").update({
+        "status": "rejected",
+        "reviewed_at": datetime.utcnow().isoformat(),
+        "reviewed_by": user.id if user else None,
+    }).eq("id", request_id).execute()
+    return {"ok": True}
+
+
+# ============================================
 # ORGANIZATION ENDPOINTS
 # ============================================
 
@@ -276,6 +345,7 @@ async def seed_demo_data():
                 "property_type": "mall", "floor": "Ground Floor", "unit_number": "GF-127",
                 "super_area_sqft": 1850, "covered_area_sqft": 1550, "carpet_area_sqft": 1200,
                 "franchise_model": "FOFO", "status": "operational",
+                "deal_stage": "operational", "deal_priority": "medium",
             },
             {
                 "org_id": org_id, "name": "Phoenix MarketCity", "brand_name": "Tan Coffee",
@@ -284,6 +354,7 @@ async def seed_demo_data():
                 "property_type": "mall", "floor": "2nd Floor", "unit_number": "F-215",
                 "super_area_sqft": 2200, "covered_area_sqft": 1850, "carpet_area_sqft": 1450,
                 "franchise_model": "FOCO", "status": "operational",
+                "deal_stage": "operational", "deal_priority": "low",
             },
             {
                 "org_id": org_id, "name": "Indiranagar High Street", "brand_name": "Tan Coffee",
@@ -292,6 +363,7 @@ async def seed_demo_data():
                 "property_type": "high_street", "floor": "Ground Floor", "unit_number": "42",
                 "super_area_sqft": 1400, "covered_area_sqft": 1250, "carpet_area_sqft": 1050,
                 "franchise_model": "FOFO", "status": "fit_out",
+                "deal_stage": "fitout", "deal_priority": "high",
             },
             {
                 "org_id": org_id, "name": "Select Citywalk", "brand_name": "Tan Coffee",
@@ -300,6 +372,7 @@ async def seed_demo_data():
                 "property_type": "mall", "floor": "2nd Floor", "unit_number": "2-14",
                 "super_area_sqft": 1650, "covered_area_sqft": 1380, "carpet_area_sqft": 1100,
                 "franchise_model": "FOFO", "status": "up_for_renewal",
+                "deal_stage": "agreement", "deal_priority": "high",
             },
             {
                 "org_id": org_id, "name": "Palladium Chennai", "brand_name": "Tan Coffee",
@@ -308,6 +381,7 @@ async def seed_demo_data():
                 "property_type": "mall", "floor": "Ground Floor", "unit_number": "GF-08",
                 "super_area_sqft": 1300, "covered_area_sqft": 1100, "carpet_area_sqft": 900,
                 "franchise_model": "COCO", "status": "operational",
+                "deal_stage": "operational", "deal_priority": "medium",
             },
             {
                 "org_id": org_id, "name": "DLF CyberHub", "brand_name": "Tan Coffee",
@@ -316,6 +390,7 @@ async def seed_demo_data():
                 "property_type": "cyber_park", "floor": "3rd Floor", "unit_number": "CH-305",
                 "super_area_sqft": 1000, "covered_area_sqft": 850, "carpet_area_sqft": 700,
                 "franchise_model": "FOFO", "status": "pipeline",
+                "deal_stage": "negotiation", "deal_priority": "high",
             },
         ]
 
@@ -533,10 +608,10 @@ async def seed_demo_data():
             "entity_type": "system",
             "action": "seed_demo_data",
             "details": {
-                "outlets_created": len(created_outlets),
-                "agreements_created": len(created_agreements),
-                "obligations_created": len(all_obligations),
-                "alerts_created": len(all_alerts),
+                "outlet_ids": [o["id"] for o in created_outlets],
+                "agreement_ids": [a["id"] for a in created_agreements],
+                "obligation_ids": [o["id"] for o in all_obligations],
+                "alert_ids": [a["id"] for a in all_alerts],
             }
         }).execute()
 
@@ -549,6 +624,61 @@ async def seed_demo_data():
             "message": "Demo data seeded successfully! Check Dashboard, Outlets, Agreements, and Alerts pages.",
         }
 
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/seed", dependencies=[Depends(require_permission("manage_org_settings"))])
+async def remove_seed_data():
+    """Remove only demo/seeded data by looking up IDs stored during seeding."""
+    try:
+        # Find all seed_demo_data activity log entries to get seeded IDs
+        logs = supabase.table("activity_log").select("id,details").eq("action", "seed_demo_data").execute()
+        if not logs.data:
+            return {"status": "nothing", "message": "No demo data found to remove."}
+
+        all_alert_ids = []
+        all_obligation_ids = []
+        all_agreement_ids = []
+        all_outlet_ids = []
+        log_ids = []
+
+        for log in logs.data:
+            details = log.get("details", {})
+            all_alert_ids.extend(details.get("alert_ids", []))
+            all_obligation_ids.extend(details.get("obligation_ids", []))
+            all_agreement_ids.extend(details.get("agreement_ids", []))
+            all_outlet_ids.extend(details.get("outlet_ids", []))
+            log_ids.append(log["id"])
+
+        # Delete in order: alerts → obligations → agreements → outlets (FK deps)
+        counts = {}
+        for table, ids in [("alerts", all_alert_ids), ("obligations", all_obligation_ids),
+                           ("agreements", all_agreement_ids), ("outlets", all_outlet_ids)]:
+            removed = 0
+            for uid in ids:
+                try:
+                    supabase.table(table).delete().eq("id", uid).execute()
+                    removed += 1
+                except Exception:
+                    pass
+            counts[table] = removed
+
+        # Clean up the seed log entries too
+        for lid in log_ids:
+            try:
+                supabase.table("activity_log").delete().eq("id", lid).execute()
+            except Exception:
+                pass
+
+        return {
+            "status": "removed",
+            "alerts_removed": counts["alerts"],
+            "obligations_removed": counts["obligations"],
+            "agreements_removed": counts["agreements"],
+            "outlets_removed": counts["outlets"],
+            "message": "Demo data removed successfully! Your real data is untouched.",
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -729,7 +859,7 @@ async def portfolio_qa_endpoint(request: Request, req: PortfolioQARequest, autho
                 rows = []
 
         answer_prompt = (
-            "You are a helpful portfolio analytics assistant for a commercial real estate management platform.\n"
+            "You are GroBot, a portfolio analytics assistant built by 360Labs for commercial real estate management. If asked who built you, say 360Labs.\n"
             f"The user asked: \"{req.question}\"\n\n"
             f"The database query returned these results:\n{json.dumps(rows[:50], indent=2, default=str)}\n\n"
             "Rules:\n"
@@ -833,42 +963,60 @@ async def smart_chat(request: Request, req: SmartChatRequest, user: Optional[Cur
                     "flag": f if isinstance(f, str) else f.get("flag", str(f)),
                 })
 
-    context = f"""You are GroSpace AI, a smart assistant for commercial real estate lease management.
+    # Build data lists outside f-string to avoid {{}} set-literal bug
+    outlets_json = json.dumps([{"name": o.get("name"), "city": o.get("city"), "status": o.get("status"), "type": o.get("property_type"), "revenue": o.get("monthly_net_revenue"), "deal_stage": o.get("deal_stage"), "priority": o.get("deal_priority")} for o in outlets[:20]])
+    active_agreements_json = json.dumps([{"outlet": outlet_names.get(a.get("outlet_id"), "Unknown"), "type": a.get("type"), "monthly_rent": a.get("monthly_rent"), "total_outflow": a.get("total_monthly_outflow"), "rent_model": a.get("rent_model"), "expiry": a.get("lease_expiry_date"), "lock_in_end": a.get("lock_in_end_date")} for a in agreements if a.get("status") == "active"][:20])
+    escalation_json = json.dumps([{"outlet": outlet_names.get(o.get("outlet_id"), "Unknown"), "type": o.get("type"), "amount": o.get("amount"), "escalation_pct": o.get("escalation_pct")} for o in escalation_obligations[:15]])
+    risk_flags_json = json.dumps(all_risk_flags[:15])
+    alerts_json = json.dumps([{"title": a.get("title"), "type": a.get("type"), "severity": a.get("severity"), "outlet": outlet_names.get(a.get("outlet_id"), "Unknown")} for a in alerts[:15]])
+    overdue_json = json.dumps([{"outlet": outlet_names.get(p.get("outlet_id"), "Unknown"), "amount": p.get("due_amount"), "due_date": p.get("due_date")} for p in overdue_payments[:15]])
+    status_counts = json.dumps({s: len([o for o in outlets if o.get("status") == s]) for s in set(o.get("status", "unknown") for o in outlets)})
+    city_counts = json.dumps({c: len([o for o in outlets if o.get("city") == c]) for c in set(o.get("city", "Unknown") for o in outlets)})
+    pipeline_counts = json.dumps({s: len([o for o in outlets if o.get("deal_stage") == s]) for s in set(o.get("deal_stage", "lead") for o in outlets)})
+
+    context = f"""You are GroBot, a smart AI assistant for commercial real estate lease management, built by 360Labs.
+If anyone asks who built you, who made you, or who you are, say: "I am GroBot, an advanced AI assistant purpose-built for commercial real estate portfolio management. I was developed by 360Labs using state-of-the-art large language model technology, fine-tuned specifically for lease management, F&B operations, and retail real estate analytics."
 The user manages a portfolio of {len(outlets)} outlet(s) with {len(agreements)} agreement(s).
 
 PORTFOLIO SUMMARY:
 - Total outlets: {len(outlets)}
-- Outlets by status: {json.dumps({s: len([o for o in outlets if o.get("status") == s]) for s in set(o.get("status", "unknown") for o in outlets)})}
-- Outlets by city: {json.dumps({c: len([o for o in outlets if o.get("city") == c]) for c in set(o.get("city", "Unknown") for o in outlets)})}
-- Deal pipeline: {json.dumps({s: len([o for o in outlets if o.get("deal_stage") == s]) for s in set(o.get("deal_stage", "lead") for o in outlets)})}
+- Outlets by status: {status_counts}
+- Outlets by city: {city_counts}
+- Deal pipeline: {pipeline_counts}
 - Total active monthly rent: Rs {total_monthly_rent:,.0f}
 - Total monthly outflow (rent+CAM+charges): Rs {total_monthly_outflow:,.0f}
 - Pending alerts: {len(alerts)}
 - Overdue payments: {len(overdue_payments)} totaling Rs {total_overdue:,.0f}
 
 OUTLETS:
-{json.dumps([{{"name": o.get("name"), "city": o.get("city"), "status": o.get("status"), "type": o.get("property_type"), "revenue": o.get("monthly_net_revenue"), "deal_stage": o.get("deal_stage"), "priority": o.get("deal_priority")}} for o in outlets[:20]])}
+{outlets_json}
 
 AGREEMENTS (active):
-{json.dumps([{{"outlet": outlet_names.get(a.get("outlet_id"), "Unknown"), "type": a.get("type"), "monthly_rent": a.get("monthly_rent"), "total_outflow": a.get("total_monthly_outflow"), "rent_model": a.get("rent_model"), "expiry": a.get("lease_expiry_date"), "lock_in_end": a.get("lock_in_end_date")}} for a in agreements if a.get("status") == "active"][:20])}
+{active_agreements_json}
 
 ESCALATION OBLIGATIONS:
-{json.dumps([{{"outlet": outlet_names.get(o.get("outlet_id"), "Unknown"), "type": o.get("type"), "amount": o.get("amount"), "escalation_pct": o.get("escalation_pct")}} for o in escalation_obligations[:15]])}
+{escalation_json}
 
 RISK FLAGS:
-{json.dumps(all_risk_flags[:15])}
+{risk_flags_json}
 
 PENDING ALERTS (top 15):
-{json.dumps([{{"title": a.get("title"), "type": a.get("type"), "severity": a.get("severity"), "outlet": outlet_names.get(a.get("outlet_id"), "Unknown")}} for a in alerts[:15]])}
+{alerts_json}
 
 OVERDUE PAYMENTS:
-{json.dumps([{{"outlet": outlet_names.get(p.get("outlet_id"), "Unknown"), "amount": p.get("due_amount"), "due_date": p.get("due_date")}} for p in overdue_payments[:15]])}
+{overdue_json}
 
 
 Answer the user's question based on this data. Be specific with numbers, outlet names, and dates.
 Format your response in clear, readable text. Use bullet points for lists.
 If the user asks about escalation struggles, focus on which outlets have high escalation rates and what their impact is.
-If asked for recommendations, be actionable and specific."""
+If asked for recommendations, be actionable and specific.
+
+IMPORTANT: If the user asks a general question about real estate, leasing, F&B operations, commercial property,
+licenses, compliance, or any business topic — answer it using your general knowledge even if the portfolio data
+doesn't contain the answer. You are a knowledgeable real estate AI assistant, not just a data query tool.
+For example, if someone asks "what is FSSAI" or "how does rent escalation work" or "what are typical CAM charges",
+answer from your knowledge. Never say you can't answer — always provide helpful information."""
 
     try:
         response = model.generate_content(
@@ -876,11 +1024,27 @@ If asked for recommendations, be actionable and specific."""
             generation_config={"temperature": 0.3, "max_output_tokens": 4096},
         )
         if not response.candidates or not response.candidates[0].content.parts:
-            answer = "I'm sorry, I couldn't generate a response for that question. Please try rephrasing your question."
+            # Fallback: try a direct general-knowledge answer
+            try:
+                fallback_resp = model.generate_content(
+                    f"You are GroBot, an advanced AI assistant built by 360Labs for commercial real estate, F&B chains, and retail operations. If asked who built you or who you are, say you were developed by 360Labs. Answer this question helpfully:\n\n{question}",
+                    generation_config={"temperature": 0.3, "max_output_tokens": 2048},
+                )
+                answer = fallback_resp.text
+            except Exception:
+                answer = "I'm sorry, I couldn't generate a response for that question. Please try rephrasing your question."
         else:
             answer = response.text
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"AI generation failed: {str(e)}")
+    except Exception:
+        # Final fallback: try simpler prompt without portfolio context
+        try:
+            fallback_resp = model.generate_content(
+                f"You are GroBot, an advanced AI assistant built by 360Labs for real estate and business. If asked who built you, say 360Labs. Answer concisely:\n\n{question}",
+                generation_config={"temperature": 0.3, "max_output_tokens": 2048},
+            )
+            answer = fallback_resp.text
+        except Exception:
+            answer = "I'm experiencing temporary issues but I'm still here to help. Could you please rephrase your question or try again in a moment?"
 
     return {
         "answer": answer,
@@ -1189,15 +1353,25 @@ async def get_role_tiers():
 # ============================================
 
 def _sync_feedback_to_google_sheets(feedback_data: dict):
-    """Stub: sync feedback to Google Sheets when API key is configured."""
-    api_key = os.getenv("GOOGLE_SHEETS_API_KEY")
-    if not api_key:
-        return {"synced": False, "reason": "GOOGLE_SHEETS_API_KEY not configured"}
-    # TODO: implement Google Sheets API sync
-    return {"synced": False, "reason": "Google Sheets sync not yet implemented"}
+    """Sync feedback to the Feedback tab in Google Sheets."""
+    try:
+        from services.sheets_service import write_feedback_to_sheet
+        result = write_feedback_to_sheet(
+            agreement_id=feedback_data.get("agreement_id", ""),
+            field_name=feedback_data.get("field_name", ""),
+            original_value=feedback_data.get("original_value"),
+            corrected_value=feedback_data.get("corrected_value"),
+            comment=feedback_data.get("comment"),
+            status=feedback_data.get("status", "pending"),
+        )
+        return {"synced": result}
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Feedback Google Sheets sync failed: {e}")
+        return {"synced": False, "reason": str(e)}
 
 
-@router.post("/api/feedback", dependencies=[Depends(require_permission("view_agreements"))])
+@router.post("/feedback", dependencies=[Depends(require_permission("view_agreements"))])
 async def submit_feedback(
     req: FeedbackRequest,
     authorization: Optional[str] = Header(None),
@@ -1205,14 +1379,23 @@ async def submit_feedback(
     """Submit extraction feedback for a field."""
     user = await get_current_user(authorization)
 
+    # agreement_id may be a filename (pre-confirmation) or a UUID
+    agr_id = req.agreement_id
+    try:
+        import uuid as _uuid
+        _uuid.UUID(agr_id)
+    except (ValueError, AttributeError):
+        agr_id = None  # Not a valid UUID — skip FK reference
+
     feedback_data = {
-        "agreement_id": req.agreement_id,
         "field_name": req.field_name,
         "original_value": req.original_value,
         "corrected_value": req.corrected_value,
         "comment": req.comment,
         "status": "pending",
     }
+    if agr_id:
+        feedback_data["agreement_id"] = agr_id
 
     if user:
         feedback_data["user_id"] = user.user_id
@@ -1220,13 +1403,14 @@ async def submit_feedback(
 
     result = supabase.table("feedback").insert(feedback_data).execute()
 
-    # Try to sync to Google Sheets
-    _sync_feedback_to_google_sheets(feedback_data)
+    # Try to sync to Google Sheets (use original ID/filename for reference)
+    sheets_data = {**feedback_data, "agreement_id": req.agreement_id}
+    _sync_feedback_to_google_sheets(sheets_data)
 
     return {"success": True, "feedback_id": result.data[0]["id"] if result.data else None}
 
 
-@router.get("/api/feedback", dependencies=[Depends(require_permission("view_agreements"))])
+@router.get("/feedback", dependencies=[Depends(require_permission("view_agreements"))])
 async def list_feedback(
     org_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),

@@ -1,14 +1,12 @@
 "use client";
 
-import { useState, useMemo, useCallback, memo, useRef } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import {
   ComposableMap,
   Geographies,
   Geography,
   Marker,
-  ZoomableGroup,
 } from "react-simple-maps";
-import { Plus, Minus } from "lucide-react";
 import Link from "next/link";
 
 const INDIA_GEO_URL =
@@ -83,6 +81,40 @@ const CITY_COORDS: Record<string, [number, number]> = {
   "navi mumbai": [73.0169, 19.0368],
 };
 
+const STATE_CITIES: Record<string, string[]> = {
+  "Maharashtra": ["mumbai", "pune", "nagpur", "thane", "navi mumbai"],
+  "Delhi": ["delhi", "new delhi", "nehru place"],
+  "Karnataka": ["bangalore", "bengaluru", "mysore", "mysuru", "mangalore", "mangaluru"],
+  "Telangana": ["hyderabad"],
+  "Tamil Nadu": ["chennai", "coimbatore", "madurai", "tiruchirappalli", "trichy", "pondicherry", "puducherry"],
+  "West Bengal": ["kolkata"],
+  "Gujarat": ["ahmedabad", "surat", "vadodara", "rajkot"],
+  "Rajasthan": ["jaipur", "udaipur", "jodhpur"],
+  "Uttar Pradesh": ["lucknow", "noida", "greater noida", "ghaziabad", "agra", "varanasi", "kanpur"],
+  "Haryana": ["gurugram", "gurgaon", "faridabad"],
+  "Chandigarh": ["chandigarh"],
+  "Punjab": ["amritsar", "ludhiana"],
+  "Madhya Pradesh": ["indore", "bhopal"],
+  "Kerala": ["kochi", "thiruvananthapuram"],
+  "Andhra Pradesh": ["visakhapatnam", "vizag"],
+  "Bihar": ["patna"],
+  "Jharkhand": ["ranchi"],
+  "Odisha": ["bhubaneswar"],
+  "Uttarakhand": ["dehradun"],
+  "Himachal Pradesh": ["shimla"],
+  "Jammu & Kashmir": ["jammu"],
+  "Goa": ["goa", "panaji"],
+  "Chhattisgarh": ["raipur"],
+  "Assam": ["guwahati"],
+  "Manipur": ["imphal"],
+  "Meghalaya": ["shillong"],
+  "Sikkim": ["gangtok"],
+  "Arunachal Pradesh": ["itanagar"],
+  "Nagaland": ["kohima"],
+  "Mizoram": ["aizawl"],
+  "Tripura": ["agartala"],
+};
+
 export interface OutletInfo {
   id?: string;
   name: string;
@@ -153,30 +185,6 @@ function clusterMarkers(
   return clusters;
 }
 
-const StateGeographies = memo(function StateGeographies() {
-  return (
-    <Geographies geography={INDIA_GEO_URL}>
-      {({ geographies }) =>
-        geographies.map((geo) => (
-          <Geography
-            key={geo.rsmKey}
-            geography={geo}
-            fill="#e8edf3"
-            stroke="#a8b8c8"
-            strokeWidth={0.7}
-            style={{
-              default: { outline: "none" },
-              hover: { fill: "#dce4ee", stroke: "#8899aa", strokeWidth: 0.9, outline: "none" },
-              pressed: { outline: "none" },
-            }}
-          />
-        ))
-      }
-    </Geographies>
-  );
-});
-
-/** Status dot color helper */
 function outletStatusColor(status: string): string {
   switch (status) {
     case "operational": return "#10b981";
@@ -184,8 +192,108 @@ function outletStatusColor(status: string): string {
     case "closed": return "#ef4444";
     case "under_construction": return "#3b82f6";
     case "up_for_renewal": return "#f59e0b";
-    default: return "#a3a3a3";
+    default: return "#94a3b8";
   }
+}
+
+function clusterAccentColor(outlets: OutletInfo[]): string {
+  if (outlets.length === 0) return "#132337";
+  const statusCounts: Record<string, number> = {};
+  outlets.forEach(o => {
+    statusCounts[o.status] = (statusCounts[o.status] || 0) + 1;
+  });
+  const dominant = Object.entries(statusCounts).sort((a, b) => b[1] - a[1])[0][0];
+  return outletStatusColor(dominant);
+}
+
+// Which state a city belongs to (reverse lookup)
+function getStateForCity(cityLower: string): string | null {
+  for (const [state, cities] of Object.entries(STATE_CITIES)) {
+    if (cities.includes(cityLower)) return state;
+  }
+  return null;
+}
+
+function StateGeographies({
+  stateDensity,
+  selectedState,
+  onStateClick,
+}: {
+  stateDensity: Record<string, number>;
+  selectedState: string | null;
+  onStateClick?: (stateName: string) => void;
+}) {
+  return (
+    <Geographies geography={INDIA_GEO_URL} {...({ disableOptimization: true } as Record<string, unknown>)}>
+      {({ geographies }) =>
+        geographies.map((geo) => {
+          const stateName = geo.properties?.ST_NM || geo.properties?.NAME_1 || "";
+          const density = stateDensity[stateName] || 0;
+          const isSelected = selectedState === stateName;
+          const hasSelection = selectedState !== null;
+
+          // Darker fills for states with outlets
+          let baseFill: string;
+          let strokeColor: string;
+          let strokeW: number;
+
+          if (isSelected) {
+            // Selected state: strong navy fill
+            baseFill = `rgba(19, 35, 55, 0.35)`;
+            strokeColor = "rgba(19, 35, 55, 0.5)";
+            strokeW = 1;
+          } else if (hasSelection) {
+            // Non-selected when something is selected: very faded
+            baseFill = density > 0 ? `rgba(19, 35, 55, 0.04)` : "#edf0f3";
+            strokeColor = "#d8dce4";
+            strokeW = 0.2;
+          } else {
+            // Default: darker fills than before
+            baseFill = density > 0
+              ? `rgba(19, 35, 55, ${Math.min(0.10 + density * 0.05, 0.30)})`
+              : "#e8ecf1";
+            strokeColor = density > 0 ? "rgba(19, 35, 55, 0.22)" : "#cdd2db";
+            strokeW = density > 0 ? 0.6 : 0.35;
+          }
+
+          const hoverFill = density > 0
+            ? `rgba(19, 35, 55, ${Math.min(0.18 + density * 0.06, 0.40)})`
+            : "#dde1e8";
+
+          return (
+            <Geography
+              key={geo.rsmKey}
+              geography={geo}
+              fill={baseFill}
+              stroke={strokeColor}
+              strokeWidth={strokeW}
+              onClick={(e) => {
+                if (density > 0) {
+                  e.stopPropagation();
+                  onStateClick?.(stateName);
+                }
+              }}
+              style={{
+                default: {
+                  outline: "none",
+                  cursor: density > 0 ? "pointer" : "default",
+                  transition: "fill 0.4s ease, stroke 0.4s ease, opacity 0.4s ease",
+                },
+                hover: {
+                  fill: density > 0 ? hoverFill : baseFill,
+                  stroke: density > 0 ? "rgba(19, 35, 55, 0.35)" : strokeColor,
+                  strokeWidth: density > 0 ? 0.8 : strokeW,
+                  outline: "none",
+                  cursor: density > 0 ? "pointer" : "default",
+                },
+                pressed: { outline: "none" },
+              }}
+            />
+          );
+        })
+      }
+    </Geographies>
+  );
 }
 
 export default function IndiaMap({
@@ -194,13 +302,27 @@ export default function IndiaMap({
   selectedCluster: externalSelected,
   onSelectCluster,
 }: IndiaMapProps) {
-  const [position, setPosition] = useState<{ coordinates: [number, number]; zoom: number }>({
-    coordinates: [82, 22],
-    zoom: 1,
-  });
+  const [mounted, setMounted] = useState(false);
+  const [selectedState, setSelectedState] = useState<string | null>(null);
+  const fadeResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Hover tooltip state
-  const [, setHoveredCluster] = useState<ClusterData | null>(null);
+  // Auto-reset selection after 2 seconds
+  useEffect(() => {
+    if (fadeResetRef.current) clearTimeout(fadeResetRef.current);
+    if (selectedState) {
+      fadeResetRef.current = setTimeout(() => {
+        setSelectedState(null);
+        if (onSelectCluster) onSelectCluster(null);
+      }, 2000);
+    }
+    return () => { if (fadeResetRef.current) clearTimeout(fadeResetRef.current); };
+  }, [selectedState, onSelectCluster]);
+
+  useEffect(() => {
+    const t = setTimeout(() => setMounted(true), 100);
+    return () => clearTimeout(t);
+  }, []);
+
   const [visibleCluster, setVisibleCluster] = useState<ClusterData | null>(null);
   const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [popupOpacity, setPopupOpacity] = useState(0);
@@ -221,21 +343,49 @@ export default function IndiaMap({
   }, [outletsByCity, outletDetails]);
 
   const maxCount = useMemo(() => Math.max(...clusters.map((c) => c.count), 1), [clusters]);
+  const totalOutlets = useMemo(() => clusters.reduce((s, c) => s + c.count, 0), [clusters]);
+
+  const stateDensity = useMemo(() => {
+    const density: Record<string, number> = {};
+    const cityCountMap: Record<string, number> = {};
+    Object.entries(outletsByCity).forEach(([city, count]) => {
+      cityCountMap[city.toLowerCase().trim()] = count;
+    });
+
+    Object.entries(STATE_CITIES).forEach(([state, cities]) => {
+      let stateCount = 0;
+      cities.forEach(c => {
+        stateCount += cityCountMap[c] || 0;
+      });
+      if (stateCount > 0) {
+        density[state] = Math.min(stateCount, 10);
+      }
+    });
+    return density;
+  }, [outletsByCity]);
 
   const unmappedCount = Object.keys(outletsByCity).length -
     Object.keys(outletsByCity).filter((c) => CITY_COORDS[c.toLowerCase().trim()]).length;
 
+  // Click state → select/deselect that state (highlight it, fade others)
+  const handleStateClick = useCallback((stateName: string) => {
+    setSelectedState(prev => prev === stateName ? null : stateName);
+  }, []);
+
   const handleMarkerClick = useCallback((cluster: ClusterData) => {
+    // Find which state this cluster belongs to
+    const firstCity = cluster.cities[0]?.toLowerCase();
+    const state = firstCity ? getStateForCity(firstCity) : null;
+
     if (onSelectCluster) {
       const isDeselect = externalSelected === cluster.label;
       onSelectCluster(isDeselect ? null : cluster);
+      setSelectedState(isDeselect ? null : (state || null));
     }
   }, [onSelectCluster, externalSelected]);
 
   const handleMarkerEnter = useCallback((cluster: ClusterData, e: React.MouseEvent) => {
-    // Cancel any pending hide
     if (hoverTimeoutRef.current) { clearTimeout(hoverTimeoutRef.current); hoverTimeoutRef.current = null; }
-    // Cancel any pending show from a different marker
     if (enterDelayRef.current) { clearTimeout(enterDelayRef.current); enterDelayRef.current = null; }
 
     const rect = containerRef.current?.getBoundingClientRect();
@@ -243,33 +393,26 @@ export default function IndiaMap({
       setTooltipPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
     }
 
-    // If same cluster is already visible, just keep it
     if (visibleCluster?.label === cluster.label) {
       setPopupOpacity(1);
       return;
     }
 
-    // Deliberate 250ms delay — prevents flash on fly-by
-    setHoveredCluster(cluster);
     enterDelayRef.current = setTimeout(() => {
       setVisibleCluster(cluster);
-      // Trigger fade-in on next frame
       requestAnimationFrame(() => setPopupOpacity(1));
     }, 250);
   }, [visibleCluster]);
 
   const hidePopup = useCallback(() => {
     if (enterDelayRef.current) { clearTimeout(enterDelayRef.current); enterDelayRef.current = null; }
-    // Fade out first, then unmount
     setPopupOpacity(0);
     hoverTimeoutRef.current = setTimeout(() => {
-      setHoveredCluster(null);
       setVisibleCluster(null);
-    }, 200); // matches CSS transition duration
+    }, 200);
   }, []);
 
   const handleMarkerLeave = useCallback(() => {
-    // Cancel pending show if mouse left before delay
     if (enterDelayRef.current) { clearTimeout(enterDelayRef.current); enterDelayRef.current = null; }
     if (hoverTimeoutRef.current) { clearTimeout(hoverTimeoutRef.current); hoverTimeoutRef.current = null; }
     hoverTimeoutRef.current = setTimeout(() => {
@@ -286,187 +429,252 @@ export default function IndiaMap({
     hidePopup();
   }, [hidePopup]);
 
-  const handleMoveEnd = useCallback((pos: { coordinates: [number, number]; zoom: number }) => {
-    setPosition(pos);
-  }, []);
-
-  const handleZoomIn = useCallback(() => {
-    setPosition((p) => ({ ...p, zoom: Math.min(p.zoom * 1.5, 6) }));
-  }, []);
-
-  const handleZoomOut = useCallback(() => {
-    setPosition((p) => ({ ...p, zoom: Math.max(p.zoom / 1.5, 1) }));
-  }, []);
+  // Reset selection when clicking map background
+  const handleMapBgClick = useCallback(() => {
+    setSelectedState(null);
+    if (onSelectCluster) onSelectCluster(null);
+  }, [onSelectCluster]);
 
   return (
-    <div className="relative select-none" ref={containerRef}>
-      {/* Zoom controls */}
-      <div className="absolute top-3 right-3 flex flex-col gap-px rounded-lg overflow-hidden shadow-sm border border-neutral-200/60" style={{ zIndex: 50 }}>
-        <button
-          onClick={handleZoomIn}
-          className="w-8 h-8 bg-white/90 backdrop-blur-sm flex items-center justify-center text-neutral-500 hover:text-neutral-900 hover:bg-white transition-all"
-          aria-label="Zoom in"
-        >
-          <Plus className="h-3.5 w-3.5" strokeWidth={2.5} />
-        </button>
-        <div className="h-px bg-neutral-200/60" />
-        <button
-          onClick={handleZoomOut}
-          className="w-8 h-8 bg-white/90 backdrop-blur-sm flex items-center justify-center text-neutral-500 hover:text-neutral-900 hover:bg-white transition-all"
-          aria-label="Zoom out"
-        >
-          <Minus className="h-3.5 w-3.5" strokeWidth={2.5} />
-        </button>
+    <div
+      className="relative select-none"
+      ref={containerRef}
+      onMouseLeave={() => {
+        setSelectedState(null);
+        if (onSelectCluster) onSelectCluster(null);
+      }}
+    >
+      {/* Top stats bar */}
+      <div className="flex items-center justify-between px-3 py-2 mb-1">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+            <span className="text-[10px] text-neutral-500 font-medium">Operational</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+            <span className="text-[10px] text-neutral-500 font-medium">Fit-out</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-1.5 h-1.5 rounded-full bg-red-500" />
+            <span className="text-[10px] text-neutral-500 font-medium">Closed</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+            <span className="text-[10px] text-neutral-500 font-medium">In Progress</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {selectedState && (
+            <button
+              onClick={() => { setSelectedState(null); if (onSelectCluster) onSelectCluster(null); }}
+              className="text-[10px] font-medium text-[#132337] hover:underline"
+            >
+              Clear selection
+            </button>
+          )}
+          <span className="text-[10px] text-neutral-400 font-medium tabular-nums">
+            {clusters.length} {clusters.length === 1 ? "location" : "locations"} &middot; {totalOutlets} outlets
+          </span>
+        </div>
       </div>
 
       <ComposableMap
         projection="geoMercator"
-        projectionConfig={{ scale: 1100, center: [82, 22] }}
+        projectionConfig={{ scale: 900, center: [82, 22] }}
         width={600}
-        height={580}
-        style={{ width: "100%", height: "auto", background: "linear-gradient(135deg, #f3f6f9 0%, #edf1f6 50%, #e6ecf3 100%)", borderRadius: 12 }}
+        height={620}
+        style={{
+          width: "100%",
+          height: "auto",
+          background: "#edf0f4",
+          borderRadius: 12,
+          opacity: mounted ? 1 : 0,
+          transition: "opacity 0.5s ease",
+        }}
       >
-        {/* CSS-only hover effects — no React state = no flicker */}
         <defs>
-          <filter id="glow">
-            <feGaussianBlur stdDeviation="2" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
+          <filter id="pillShadow" x="-50%" y="-50%" width="200%" height="200%">
+            <feDropShadow dx="0" dy="1.5" stdDeviation="2" floodColor="#132337" floodOpacity="0.2" />
           </filter>
-          <filter id="markerShadow" x="-50%" y="-50%" width="200%" height="200%">
-            <feDropShadow dx="0" dy="1" stdDeviation="1.5" floodColor="#334155" floodOpacity="0.25" />
-          </filter>
+
           <style>{`
-            .marker-group { cursor: pointer; }
-            .marker-group .dot { transition: r 0.2s ease, fill 0.15s ease; }
-            .marker-group .glow-ring { transition: opacity 0.2s ease, r 0.2s ease; opacity: 0; }
-            .marker-group .label { transition: fill 0.15s ease, font-size 0.15s ease; }
-            .marker-group:hover .dot { fill: #171717; }
-            .marker-group:hover .glow-ring { opacity: 1; }
-            .marker-group:hover .label { fill: #171717; font-weight: 700; }
-            .marker-group .pulse { animation: pulse-ring 2s ease-out infinite; }
-            @keyframes pulse-ring {
-              0% { opacity: 0.4; r: inherit; }
-              70% { opacity: 0; }
-              100% { opacity: 0; }
+            .pill-marker { cursor: pointer; }
+            .pill-marker .pill-bg { transition: fill 0.2s ease, opacity 0.2s ease; }
+            .pill-marker:hover .pill-bg { opacity: 0.85; }
+            @keyframes popIn {
+              from { opacity: 0; transform: scale(0.92) translateY(4px); }
+              to { opacity: 1; transform: scale(1) translateY(0); }
             }
+            .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+            .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+            .custom-scrollbar::-webkit-scrollbar-thumb { background: #d4d4d4; border-radius: 4px; }
           `}</style>
         </defs>
 
-        <ZoomableGroup
-          center={position.coordinates}
-          zoom={position.zoom}
-          onMoveEnd={handleMoveEnd}
-          minZoom={1}
-          maxZoom={6}
-        >
-          <StateGeographies />
+        {/* Background rect to catch clicks for deselect */}
+        <rect x={0} y={0} width={600} height={620} fill="transparent" onClick={handleMapBgClick} />
 
-          {[...clusters]
-            .sort((a, b) => b.count - a.count)
-            .map((cluster) => {
-              const isSelected = externalSelected === cluster.label;
-              const r = 4 + (cluster.count / maxCount) * 8;
+        <StateGeographies
+          stateDensity={stateDensity}
+          selectedState={selectedState}
+          onStateClick={handleStateClick}
+        />
 
-              return (
-                <Marker key={cluster.label} coordinates={cluster.coords}>
-                  <g
-                    className="marker-group"
-                    onClick={() => handleMarkerClick(cluster)}
-                    onMouseEnter={(e) => handleMarkerEnter(cluster, e as unknown as React.MouseEvent)}
-                    onMouseLeave={handleMarkerLeave}
+        {[...clusters]
+          .sort((a, b) => b.count - a.count)
+          .map((cluster) => {
+            const isSelected = externalSelected === cluster.label;
+            const accentColor = clusterAccentColor(cluster.outlets);
+
+            // Check if this cluster's state is selected (or no state selection)
+            const firstCity = cluster.cities[0]?.toLowerCase();
+            const clusterState = firstCity ? getStateForCity(firstCity) : null;
+            const isInSelectedState = !selectedState || clusterState === selectedState;
+            const markerOpacity = isInSelectedState ? 1 : 0.15;
+
+            // BIGGER pills — increased base scale
+            const sizeScale = 1.0 + (cluster.count / maxCount) * 0.35;
+
+            const labelText = cluster.label.length > 10 ? cluster.label.substring(0, 9) + ".." : cluster.label;
+            const pillW = Math.max(labelText.length * 5.5 + 28, 48) * sizeScale;
+            const pillH = 18 * sizeScale;
+            const pillR = pillH / 2;
+
+            return (
+              <Marker key={cluster.label} coordinates={cluster.coords}>
+                <g
+                  className="pill-marker"
+                  onClick={(e) => { e.stopPropagation(); handleMarkerClick(cluster); }}
+                  onMouseEnter={(e) => handleMarkerEnter(cluster, e as unknown as React.MouseEvent)}
+                  onMouseLeave={handleMarkerLeave}
+                  style={{ opacity: markerOpacity, transition: "opacity 0.4s ease" }}
+                >
+                  {/* Invisible hit target */}
+                  <rect
+                    x={-pillW / 2 - 6}
+                    y={-pillH / 2 - 6}
+                    width={pillW + 12}
+                    height={pillH + 12}
+                    fill="transparent"
+                  />
+
+                  {/* Selection indicator */}
+                  {isSelected && (
+                    <rect
+                      x={-pillW / 2 - 3}
+                      y={-pillH / 2 - 3}
+                      width={pillW + 6}
+                      height={pillH + 6}
+                      rx={pillR + 3}
+                      fill="none"
+                      stroke="#132337"
+                      strokeWidth={1}
+                      opacity={0.4}
+                      className="pointer-events-none"
+                    />
+                  )}
+
+                  {/* Main pill shape — #132337 navy */}
+                  <rect
+                    className="pill-bg pointer-events-none"
+                    x={-pillW / 2}
+                    y={-pillH / 2}
+                    width={pillW}
+                    height={pillH}
+                    rx={pillR}
+                    fill="#132337"
+                    filter="url(#pillShadow)"
+                  />
+
+                  {/* Status accent dot — bigger */}
+                  <circle
+                    cx={-pillW / 2 + pillR * 0.85}
+                    cy={0}
+                    r={3 * sizeScale}
+                    fill={accentColor}
+                    className="pointer-events-none"
+                  />
+
+                  {/* Count — bigger font */}
+                  <text
+                    x={-pillW / 2 + pillR * 0.85 + 7 * sizeScale}
+                    y={0.5}
+                    textAnchor="start"
+                    dominantBaseline="central"
+                    className="pointer-events-none"
+                    style={{
+                      fontSize: 8.5 * sizeScale,
+                      fill: "#ffffff",
+                      fontWeight: 700,
+                      fontFamily: "system-ui, -apple-system, sans-serif",
+                      letterSpacing: "0.02em",
+                    }}
                   >
-                    {/* Invisible hit target — slightly larger than dot for comfortable hover */}
-                    <circle r={Math.max(r + 6, 10)} fill="transparent" />
+                    {cluster.count}
+                  </text>
 
-                    {/* Pulse animation for selected */}
-                    {isSelected && (
-                      <circle
-                        className="pulse pointer-events-none"
-                        r={r + 6}
-                        fill="none"
-                        stroke="#171717"
-                        strokeWidth={1}
-                      />
-                    )}
+                  {/* Separator */}
+                  <line
+                    x1={-pillW / 2 + pillR * 0.85 + 17 * sizeScale}
+                    y1={-pillH * 0.28}
+                    x2={-pillW / 2 + pillR * 0.85 + 17 * sizeScale}
+                    y2={pillH * 0.28}
+                    stroke="rgba(255,255,255,0.3)"
+                    strokeWidth={0.5}
+                    className="pointer-events-none"
+                  />
 
-                    {/* Hover glow ring (CSS-driven) */}
-                    <circle
-                      className="glow-ring pointer-events-none"
-                      r={r + 5}
-                      fill="rgba(23, 23, 23, 0.08)"
-                    />
+                  {/* City name — bigger font */}
+                  <text
+                    x={-pillW / 2 + pillR * 0.85 + 21 * sizeScale}
+                    y={0.5}
+                    textAnchor="start"
+                    dominantBaseline="central"
+                    className="pointer-events-none"
+                    style={{
+                      fontSize: 7 * sizeScale,
+                      fill: "rgba(255,255,255,0.75)",
+                      fontWeight: 600,
+                      fontFamily: "system-ui, -apple-system, sans-serif",
+                      letterSpacing: "0.04em",
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    {labelText}
+                  </text>
 
-                    {/* Selection dashed ring */}
-                    {isSelected && (
-                      <circle
-                        r={r + 4}
-                        fill="none"
-                        stroke="#171717"
-                        strokeWidth={1.2}
-                        strokeDasharray="3,2"
-                        className="pointer-events-none"
-                      />
-                    )}
-
-                    {/* Main dot */}
-                    <circle
-                      className="dot pointer-events-none"
-                      r={r}
-                      fill={isSelected ? "#171717" : "#334155"}
-                      stroke="#fff"
-                      strokeWidth={2}
-                      filter={isSelected ? undefined : "url(#markerShadow)"}
-                    />
-
-                    {/* Count */}
-                    {r >= 5.5 && (
-                      <text
-                        textAnchor="middle"
-                        dominantBaseline="central"
-                        className="pointer-events-none"
-                        style={{
-                          fontSize: r >= 9 ? 7.5 : 6,
-                          fill: "#fff",
-                          fontWeight: 700,
-                          fontFamily: "system-ui, sans-serif",
-                        }}
-                      >
-                        {cluster.count}
-                      </text>
-                    )}
-
-                    {/* City label */}
-                    <text
-                      x={0}
-                      y={r + 10}
-                      textAnchor="middle"
-                      className="label pointer-events-none"
-                      style={{
-                        fontSize: isSelected ? 7.5 : 6.5,
-                        fill: isSelected ? "#171717" : "#737373",
-                        fontWeight: isSelected ? 700 : 500,
-                        fontFamily: "system-ui, sans-serif",
-                      }}
-                    >
-                      {cluster.label}
-                    </text>
-                  </g>
-                </Marker>
-              );
-            })}
-        </ZoomableGroup>
+                  {/* Pin dot below pill */}
+                  <circle
+                    cx={0}
+                    cy={pillH / 2 + 3.5}
+                    r={1.8}
+                    fill={accentColor}
+                    className="pointer-events-none"
+                  />
+                  <line
+                    x1={0}
+                    y1={pillH / 2}
+                    x2={0}
+                    y2={pillH / 2 + 2}
+                    stroke={accentColor}
+                    strokeWidth={0.6}
+                    className="pointer-events-none"
+                    opacity={0.5}
+                  />
+                </g>
+              </Marker>
+            );
+          })}
       </ComposableMap>
 
-      {/* ---- Hover Popup: World-class outlet grid callout ---- */}
+      {/* Hover Popup */}
       {visibleCluster && (() => {
         const cluster = visibleCluster;
         const cw = containerRef.current?.offsetWidth ?? 600;
         const ch = containerRef.current?.offsetHeight ?? 500;
-        const popupW = 440;
-        const popupH = Math.min(cluster.outlets.length > 0 ? 420 : 60, ch - 20);
+        const popupW = 420;
+        const popupH = Math.min(cluster.outlets.length > 0 ? 400 : 60, ch - 20);
         const flipX = tooltipPos.x + popupW + 30 > cw;
         const popupLeft = flipX
           ? Math.max(tooltipPos.x - popupW - 24, 8)
@@ -484,9 +692,9 @@ export default function IndiaMap({
               className="absolute inset-0 z-30 pointer-events-none"
               style={{ width: "100%", height: "100%", overflow: "visible", opacity: popupOpacity, transition: "opacity 0.2s ease" }}
             >
-              <line x1={tooltipPos.x} y1={tooltipPos.y} x2={connEndX} y2={connEndY} stroke="#334155" strokeWidth={1.5} strokeDasharray="5,4" opacity={0.25} />
-              <circle cx={tooltipPos.x} cy={tooltipPos.y} r={4} fill="#334155" opacity={0.3} />
-              <circle cx={tooltipPos.x} cy={tooltipPos.y} r={2} fill="#334155" opacity={0.6} />
+              <line x1={tooltipPos.x} y1={tooltipPos.y} x2={connEndX} y2={connEndY} stroke="#132337" strokeWidth={1} strokeDasharray="4,3" opacity={0.2} />
+              <circle cx={tooltipPos.x} cy={tooltipPos.y} r={3} fill="#132337" opacity={0.15} />
+              <circle cx={tooltipPos.x} cy={tooltipPos.y} r={1.5} fill="#132337" opacity={0.35} />
             </svg>
 
             {/* Popup panel */}
@@ -497,32 +705,34 @@ export default function IndiaMap({
               style={{
                 left: popupLeft, top: popupTop, width: popupW,
                 opacity: popupOpacity,
-                transform: popupOpacity === 1 ? "translateY(0) scale(1)" : "translateY(8px) scale(0.96)",
-                transition: "opacity 0.2s ease, transform 0.3s cubic-bezier(0.16,1,0.3,1)",
+                transform: popupOpacity === 1 ? "translateY(0) scale(1)" : "translateY(6px) scale(0.97)",
+                transition: "opacity 0.2s ease, transform 0.25s cubic-bezier(0.16,1,0.3,1)",
               }}
             >
               <div
-                className="rounded-2xl overflow-hidden"
+                className="rounded-xl overflow-hidden"
                 style={{
-                  background: "rgba(255,255,255,0.95)",
-                  backdropFilter: "blur(24px) saturate(1.8)",
-                  WebkitBackdropFilter: "blur(24px) saturate(1.8)",
-                  boxShadow: "0 30px 70px -15px rgba(0,0,0,0.2), 0 0 0 1px rgba(0,0,0,0.04), 0 10px 25px -8px rgba(0,0,0,0.1)",
+                  background: "rgba(250,251,253,0.98)",
+                  backdropFilter: "blur(20px)",
+                  boxShadow: "0 20px 50px -12px rgba(19, 35, 55, 0.12), 0 0 0 1px rgba(19, 35, 55, 0.06)",
                 }}
               >
                 {/* Header */}
-                <div className="px-5 pt-4 pb-3 border-b border-neutral-100/80"
-                  style={{ background: "linear-gradient(135deg, rgba(248,250,252,0.8), rgba(241,245,249,0.5))" }}
+                <div className="px-4 pt-3.5 pb-3 border-b border-[#e4e8ef]"
+                  style={{ background: "rgba(237, 240, 244, 0.5)" }}
                 >
                   <div className="flex items-center gap-3">
                     <div className="relative">
-                      <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-neutral-800 to-neutral-950 flex items-center justify-center shadow-md">
-                        <span className="text-base font-bold text-white tabular-nums">{cluster.count}</span>
+                      <div className="w-10 h-10 rounded-lg bg-[#132337] flex items-center justify-center">
+                        <span className="text-sm font-bold text-white tabular-nums">{cluster.count}</span>
                       </div>
-                      <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-emerald-500 border-[2.5px] border-white shadow-sm" />
+                      <div
+                        className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-white"
+                        style={{ backgroundColor: clusterAccentColor(cluster.outlets) }}
+                      />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <h3 className="text-base font-bold text-neutral-900 tracking-tight">{cluster.label}</h3>
+                      <h3 className="text-sm font-semibold text-[#132337] tracking-tight">{cluster.label}</h3>
                       {cluster.cities.length > 1 && (
                         <p className="text-[10px] text-neutral-400 truncate mt-0.5">
                           {cluster.cities.join(" \u2022 ")}
@@ -531,13 +741,13 @@ export default function IndiaMap({
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
                       {opCount > 0 && (
-                        <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-100">
+                        <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-100">
                           <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                           <span className="text-[9px] font-semibold text-emerald-600">{opCount} live</span>
                         </div>
                       )}
                       {totalRent > 0 && (
-                        <div className="px-2.5 py-1 rounded-full bg-neutral-100/80 border border-neutral-200/60">
+                        <div className="px-2 py-0.5 rounded-full bg-neutral-50 border border-neutral-200">
                           <span className="text-[9px] font-bold text-neutral-600 tabular-nums">
                             {`\u20B9${Math.round(totalRent).toLocaleString("en-IN")}`}
                             <span className="font-normal text-neutral-400">/mo</span>
@@ -550,42 +760,34 @@ export default function IndiaMap({
 
                 {/* Outlet grid */}
                 {cluster.outlets.length > 0 ? (
-                  <div className="p-3 max-h-[340px] overflow-y-auto overflow-x-hidden custom-scrollbar">
-                    <div className="grid grid-cols-3 gap-2">
+                  <div className="p-3 max-h-[320px] overflow-y-auto overflow-x-hidden custom-scrollbar">
+                    <div className="grid grid-cols-3 gap-1.5">
                       {cluster.outlets.map((outlet, i) => {
                         const sColor = outletStatusColor(outlet.status);
                         const cardContent = (
                           <div
-                            className="group relative rounded-xl border border-neutral-100/80 bg-white/70 p-3 hover:bg-white hover:border-neutral-300 hover:shadow-lg hover:-translate-y-1 active:translate-y-0 active:shadow-md transition-all duration-200 cursor-pointer"
+                            className="group relative rounded-lg border border-[#e4e8ef] bg-[#fafbfd] p-2.5 hover:border-neutral-300 hover:shadow-sm transition-all duration-150 cursor-pointer"
                             style={{
                               animationDelay: `${i * 25}ms`,
-                              animation: "popIn 0.25s ease-out both",
+                              animation: "popIn 0.2s ease-out both",
                             }}
                           >
-                            {/* Status accent bar */}
-                            <div
-                              className="absolute top-0 left-3 right-3 h-[2.5px] rounded-b-full opacity-50 group-hover:opacity-100 transition-opacity"
-                              style={{ backgroundColor: sColor }}
-                            />
-                            <div className="flex items-start gap-2 mt-1">
+                            <div className="flex items-start gap-1.5 mt-0.5">
                               <div
-                                className="w-2.5 h-2.5 rounded-full mt-[2px] flex-shrink-0"
-                                style={{
-                                  backgroundColor: sColor,
-                                  boxShadow: `0 0 0 2px white, 0 0 0 4px ${sColor}40, 0 0 10px ${sColor}30`,
-                                }}
+                                className="w-2 h-2 rounded-full mt-[2px] flex-shrink-0"
+                                style={{ backgroundColor: sColor }}
                               />
                               <div className="min-w-0 flex-1">
-                                <p className="text-[11px] font-semibold text-neutral-800 truncate leading-tight group-hover:text-neutral-950 transition-colors">
+                                <p className="text-[10px] font-medium text-[#132337] truncate leading-tight">
                                   {outlet.name}
                                 </p>
-                                <p className="text-[9px] text-neutral-400 capitalize mt-0.5 leading-tight">
+                                <p className="text-[8px] text-neutral-400 capitalize mt-0.5 leading-tight">
                                   {outlet.status?.replace(/_/g, " ")}
                                 </p>
                                 {outlet.rent ? (
-                                  <p className="text-[10px] font-bold text-neutral-600 tabular-nums mt-1.5 group-hover:text-neutral-900 transition-colors">
+                                  <p className="text-[9px] font-semibold text-neutral-600 tabular-nums mt-1">
                                     {`\u20B9${Math.round(outlet.rent).toLocaleString("en-IN")}`}
-                                    <span className="text-[8px] font-normal text-neutral-400">/mo</span>
+                                    <span className="text-[7px] font-normal text-neutral-400">/mo</span>
                                   </p>
                                 ) : null}
                               </div>
@@ -604,7 +806,7 @@ export default function IndiaMap({
                     </div>
                   </div>
                 ) : (
-                  <div className="px-5 py-4">
+                  <div className="px-4 py-3">
                     <p className="text-xs text-neutral-400">
                       {cluster.count} outlet{cluster.count > 1 ? "s" : ""} in this area
                     </p>
@@ -613,11 +815,9 @@ export default function IndiaMap({
 
                 {/* Footer */}
                 {cluster.outlets.length > 0 && (
-                  <div className="px-5 py-2.5 border-t border-neutral-100/80 flex items-center justify-between"
-                    style={{ background: "rgba(248,250,252,0.5)" }}
-                  >
+                  <div className="px-4 py-2 border-t border-[#e4e8ef] flex items-center justify-between" style={{ background: "rgba(237, 240, 244, 0.3)" }}>
                     <span className="text-[10px] text-neutral-400">
-                      Click any outlet to view details
+                      Click outlet to view details
                     </span>
                     <span className="text-[10px] font-medium text-neutral-500">
                       {cluster.outlets.length} outlets
@@ -626,18 +826,6 @@ export default function IndiaMap({
                 )}
               </div>
             </div>
-
-            {/* Animations */}
-            <style>{`
-              @keyframes popIn {
-                from { opacity: 0; transform: scale(0.92) translateY(4px); }
-                to { opacity: 1; transform: scale(1) translateY(0); }
-              }
-              .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-              .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-              .custom-scrollbar::-webkit-scrollbar-thumb { background: #d4d4d4; border-radius: 4px; }
-              .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #a3a3a3; }
-            `}</style>
           </>
         );
       })()}

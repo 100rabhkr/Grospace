@@ -342,6 +342,78 @@ async def classify_document_vision(images: list) -> str:
 
 
 # ============================================
+# FIELD VALIDATION & CLEANUP
+# ============================================
+
+_CURRENCY_RE = re.compile(r"^[\s₹]*(Rs\.?|INR)\s*", re.IGNORECASE)
+
+
+def _strip_currency(value):
+    """Remove Rs., INR, ₹ prefixes and commas, return a numeric value or None."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return value
+    if not isinstance(value, str):
+        return value
+    cleaned = _CURRENCY_RE.sub("", str(value)).replace(",", "").replace("₹", "").strip()
+    try:
+        return float(cleaned) if "." in cleaned else int(cleaned)
+    except (ValueError, TypeError):
+        return value  # Return original if not parseable
+
+
+def _validate_and_clean_fields(result: dict, text: str) -> dict:
+    """Validate and fix common extraction mistakes in-place."""
+    if not result or not isinstance(result, dict):
+        return result
+
+    # --- Strip currency symbols from monetary fields ---
+    monetary_fields = [
+        "monthly_rent", "security_deposit", "cam_charges",
+        "stamp_duty", "registration_charges", "total_monthly_outflow",
+        "monthly_rent_per_sqft", "fit_out_cost", "maintenance_charges",
+    ]
+    for field in monetary_fields:
+        if field in result and result[field] is not None:
+            result[field] = _strip_currency(result[field])
+
+    # --- Monthly rent: detect likely annual values ---
+    rent = result.get("monthly_rent")
+    if isinstance(rent, (int, float)) and rent > 1000000:
+        text_lower = text.lower()
+        if "per month" not in text_lower and "p.m." not in text_lower and "/month" not in text_lower:
+            # Likely annual — divide by 12
+            result["monthly_rent"] = round(rent / 12, 2)
+
+    # --- Lease dates: swap if expiry < commencement ---
+    commencement = result.get("lease_commencement_date")
+    expiry = result.get("lease_expiry_date")
+    if commencement and expiry and isinstance(commencement, str) and isinstance(expiry, str):
+        try:
+            dt_start = datetime.strptime(commencement, "%Y-%m-%d")
+            dt_end = datetime.strptime(expiry, "%Y-%m-%d")
+            if dt_end < dt_start:
+                result["lease_commencement_date"] = expiry
+                result["lease_expiry_date"] = commencement
+        except (ValueError, TypeError):
+            pass
+
+    # --- Security deposit months: extract number from strings like "6 months" ---
+    sd_months = result.get("security_deposit_months")
+    if isinstance(sd_months, str):
+        match = re.search(r"(\d+)", sd_months)
+        result["security_deposit_months"] = int(match.group(1)) if match else None
+
+    # --- Escalation percentage sanity check ---
+    esc = result.get("escalation_percentage")
+    if isinstance(esc, (int, float)) and esc > 100:
+        result["escalation_percentage"] = None
+
+    return result
+
+
+# ============================================
 # EXTRACTION
 # ============================================
 
@@ -365,28 +437,101 @@ async def extract_structured_data(text: str, doc_type: str) -> dict:
     }.get(doc_type, "document")
 
     prompt = (
-        f"You are a document extraction specialist for Indian commercial real estate. "
-        f"Extract the following fields from this {doc_type_label}. "
-        "Return valid JSON matching the schema below. "
-        "For each field, also return a confidence score: 'high', 'medium', 'low', or 'not_found'. "
-        "If a field's value is calculated from a formula (e.g., '60 days from handover'), "
-        "return the formula as a string rather than guessing a date.\n\n"
-        f"Schema:\n{json.dumps(schema, indent=2)}\n\n"
-        f"Document text:\n{text}"
+        f"You are an expert document extraction specialist for Indian commercial real estate with 20+ years experience. "
+        f"Your task is to VERY CAREFULLY extract data from this {doc_type_label}. "
+        "ACCURACY IS CRITICAL — every number, date, and name must be exact.\n\n"
+        "INSTRUCTIONS:\n"
+        "1. Read the ENTIRE document thoroughly before extracting ANY field.\n"
+        "2. For monetary amounts: Look for Rs., INR, ₹ symbols. Convert words like 'lakh' and 'crore' to numbers.\n"
+        "3. For dates: Use YYYY-MM-DD format. If only month/year given, use first of month.\n"
+        "4. For areas: Distinguish between super area, carpet area, and covered area carefully.\n"
+        "5. For rent: Check if the stated rent is monthly or annual — always return MONTHLY values.\n"
+        "6. For escalation: Look for phrases like 'escalation of X% every Y years' or 'annual increment'.\n"
+        "7. If a field's value is calculated from a formula (e.g., '60 days from handover'), "
+        "return the formula as a string rather than guessing a date.\n"
+        "8. For each field, also return a confidence score: 'high', 'medium', 'low', or 'not_found'.\n"
+        "9. Cross-verify extracted values — if rent is 2,85,000/month, total outflow should be >= that.\n"
+        "10. Pay special attention to: party names (lessor vs lessee), lock-in periods, notice periods.\n\n"
+        "Return valid JSON matching this schema:\n"
+        f"{json.dumps(schema, indent=2)}\n\n"
+        f"DOCUMENT TEXT:\n{text}"
     )
 
-    response = model.generate_content(
-        prompt,
-        generation_config=genai.GenerationConfig(
-            response_mime_type="application/json",
-            temperature=0,
-        ),
-    )
+    # First extraction pass (with retry on failure)
+    result = {}
+    for attempt in range(2):
+        try:
+            use_prompt = prompt
+            if attempt == 1:
+                # Simplified retry prompt — shorter text, explicit instructions
+                use_prompt = (
+                    f"Extract ALL fields from this {doc_type_label} as JSON.\n"
+                    f"Schema:\n{json.dumps(schema, indent=2)}\n\n"
+                    f"DOCUMENT TEXT (first 10000 chars):\n{text[:10000]}"
+                )
+                print(f"[EXTRACTION] Retrying with simplified prompt (attempt {attempt + 1})")
 
-    result = json.loads(response.text)
-    if isinstance(result, list) and len(result) > 0:
-        result = result[0]
-    return result if isinstance(result, dict) else {}
+            response = model.generate_content(
+                use_prompt,
+                generation_config=genai.GenerationConfig(
+                    response_mime_type="application/json",
+                    temperature=0,
+                ),
+            )
+
+            parsed = json.loads(response.text)
+            if isinstance(parsed, list) and len(parsed) > 0:
+                parsed = parsed[0]
+            if isinstance(parsed, dict) and parsed:
+                result = parsed
+                break
+        except (json.JSONDecodeError, Exception) as e:
+            print(f"[EXTRACTION] Attempt {attempt + 1} failed: {type(e).__name__}: {e}")
+            if attempt == 1:
+                result = {}  # Give up after retry
+
+    # Field-level validation and cleanup
+    if result and doc_type in ("lease_loi", "franchise_agreement", "supplementary_agreement"):
+        result = _validate_and_clean_fields(result, text)
+
+    # Verification pass — ask Gemini to double-check critical fields
+    if result and doc_type in ("lease_loi", "franchise_agreement"):
+        verify_prompt = (
+            "You previously extracted this data from a lease document. "
+            "VERIFY the following critical fields against the original text. "
+            "If ANY value is wrong, return the corrected JSON. If all correct, return the same JSON.\n\n"
+            "CRITICAL FIELDS TO VERIFY:\n"
+            "- Monthly rent amount (must be MONTHLY, not annual)\n"
+            "- Party names (who is lessor/licensor vs lessee/licensee — do NOT swap them)\n"
+            "- Lease commencement and expiry dates (commencement must be BEFORE expiry)\n"
+            "- Lock-in period (in months)\n"
+            "- Security deposit (amount and number of months)\n"
+            "- Area measurements (carpet vs super area)\n"
+            "- CAM / maintenance charges (monthly amount)\n"
+            "- Escalation percentage (should be reasonable: typically 3-25%. If > 25%, double-check.)\n"
+            "- Notice period (in months)\n"
+            "- Total monthly outflow should approximately equal: rent + CAM + maintenance + other charges. "
+            "If it doesn't add up, fix the individual values.\n\n"
+            f"Extracted data:\n{json.dumps(result, indent=2)}\n\n"
+            f"Original text (first 8000 chars):\n{text[:8000]}"
+        )
+        try:
+            verify_resp = model.generate_content(
+                verify_prompt,
+                generation_config=genai.GenerationConfig(
+                    response_mime_type="application/json",
+                    temperature=0,
+                ),
+            )
+            verified = json.loads(verify_resp.text)
+            if isinstance(verified, list) and len(verified) > 0:
+                verified = verified[0]
+            if isinstance(verified, dict) and verified:
+                result = verified
+        except Exception:
+            pass  # Keep original extraction if verification fails
+
+    return result
 
 
 async def extract_structured_data_vision(images: list, doc_type: str) -> dict:
@@ -409,14 +554,19 @@ async def extract_structured_data_vision(images: list, doc_type: str) -> dict:
     }.get(doc_type, "document")
 
     prompt = (
-        f"You are a document extraction specialist for Indian commercial real estate. "
-        f"Look at these document page images carefully. "
-        f"Extract the following fields from this {doc_type_label}. "
-        "Return valid JSON matching the schema below. "
-        "For each field, also return a confidence score: 'high', 'medium', 'low', or 'not_found'. "
-        "If a field's value is calculated from a formula (e.g., '60 days from handover'), "
-        "return the formula as a string rather than guessing a date. "
-        "If the document is handwritten, do your best to read the handwriting.\n\n"
+        f"You are an expert document extraction specialist for Indian commercial real estate with 20+ years experience. "
+        f"Look at ALL document page images VERY CAREFULLY. Read every word, number, and date.\n\n"
+        "ACCURACY IS CRITICAL — every number, date, and name must be exact.\n\n"
+        "INSTRUCTIONS:\n"
+        "1. Examine EVERY page thoroughly before extracting.\n"
+        "2. For monetary amounts: Look for Rs., INR, ₹. Convert 'lakh'/'crore' to numbers.\n"
+        "3. For dates: Use YYYY-MM-DD format.\n"
+        "4. For rent: Always return MONTHLY values.\n"
+        "5. Distinguish lessor (owner) from lessee (tenant) carefully.\n"
+        "6. For each field, return a confidence score: 'high', 'medium', 'low', or 'not_found'.\n"
+        "7. If handwritten, do your best to read accurately.\n"
+        "8. If a value is a formula (e.g., '60 days from handover'), return as string.\n\n"
+        f"Extract fields for this {doc_type_label}.\n"
         f"Schema:\n{json.dumps(schema, indent=2)}"
     )
 

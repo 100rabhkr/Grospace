@@ -15,6 +15,7 @@ import {
   ChevronDown,
   LogOut,
   Kanban,
+  Bot,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -22,7 +23,7 @@ import { useUser } from "@/lib/hooks/use-user";
 
 const navItems = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
-  { label: "Pipeline", href: "/pipeline", icon: Kanban },
+  { label: "GroBot", href: "/ai-assistant", icon: Bot },
   {
     label: "Outlets",
     href: "/outlets",
@@ -37,10 +38,11 @@ const navItems = [
     icon: FileText,
     children: [
       { label: "All Agreements", href: "/agreements" },
-      { label: "Upload New", href: "/agreements/upload" },
+      { label: "Upload Documents", href: "/agreements/upload" },
     ],
   },
   { label: "Alerts", href: "/alerts", icon: Bell },
+  { label: "Pipeline", href: "/pipeline", icon: Kanban },
   { label: "Payments", href: "/payments", icon: Wallet },
   { label: "Reports", href: "/reports", icon: BarChart3 },
   { label: "Settings", href: "/settings", icon: Settings },
@@ -62,12 +64,12 @@ export function Sidebar() {
   });
 
   return (
-    <aside className="w-[240px] h-screen bg-white border-r border-neutral-100 flex flex-col shrink-0">
+    <aside className="w-[240px] h-screen bg-[#fafbfd] border-r border-[#e4e8ef] flex flex-col shrink-0">
       {/* Logo */}
-      <div className="h-14 flex items-center px-5 border-b border-neutral-100/60">
+      <div className="h-14 flex items-center px-5 border-b border-[#e4e8ef]">
         <Link href="/" className="flex items-center gap-2.5">
           <Image src="/logo.png" alt="GroSpace" width={28} height={28} className="rounded-md" />
-          <span className="text-[17px] font-semibold tracking-tight text-[#132337]">GroSpace</span>
+          <span className="text-[17px] font-semibold tracking-tight text-foreground">GroSpace</span>
         </Link>
       </div>
 
@@ -89,8 +91,8 @@ export function Sidebar() {
                   className={cn(
                     "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 ease-out cursor-pointer",
                     isActive
-                      ? "bg-[#132337] text-white shadow-sm"
-                      : "text-neutral-500 hover:text-[#132337] hover:bg-slate-50/80"
+                      ? "bg-[#132337] text-white"
+                      : "text-slate-500 hover:text-[#132337] hover:bg-slate-50/80"
                   )}
                   onClick={() => {
                     router.push(item.href);
@@ -102,7 +104,7 @@ export function Sidebar() {
                     }
                   }}
                 >
-                  <Icon className="w-4 h-4" />
+                  <Icon className={cn("w-4 h-4", isActive && "text-white")} />
                   <span className="flex-1">{item.label}</span>
                   {hasChildren && (
                     <ChevronDown
@@ -129,8 +131,8 @@ export function Sidebar() {
                         className={cn(
                           "flex items-center gap-2 px-3 py-1.5 rounded-md text-[13px] transition-colors",
                           pathname === child.href
-                            ? "text-black font-medium"
-                            : "text-neutral-400 hover:text-black"
+                            ? "text-foreground font-medium"
+                            : "text-slate-400 hover:text-foreground"
                         )}
                       >
                         {child.label}
@@ -144,8 +146,8 @@ export function Sidebar() {
         </div>
 
         {/* Platform Admin section */}
-        <div className="mt-6 pt-4 border-t border-neutral-100">
-          <p className="px-3 text-[10px] font-semibold uppercase tracking-wider text-neutral-400 mb-2">
+        <div className="mt-6 pt-4 border-t border-[#e4e8ef]">
+          <p className="px-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-2">
             Platform Admin
           </p>
           <Link
@@ -153,18 +155,18 @@ export function Sidebar() {
             className={cn(
               "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
               pathname === "/organizations"
-                ? "bg-[#132337] text-white shadow-sm"
-                : "text-neutral-500 hover:text-[#132337] hover:bg-slate-50/80"
+                ? "bg-[#132337] text-white"
+                : "text-slate-500 hover:text-[#132337] hover:bg-slate-50/80"
             )}
           >
-            <Building2 className="w-4 h-4" />
+            <Building2 className={cn("w-4 h-4", pathname === "/organizations" && "text-white")} />
             <span>Organizations</span>
           </Link>
         </div>
       </nav>
 
       {/* User */}
-      <div className="p-3 border-t border-neutral-100">
+      <div className="p-3 border-t border-[#e4e8ef]">
         <div className="flex items-center gap-2.5 px-2 py-1.5">
           <div className="w-7 h-7 rounded-full bg-[#132337] flex items-center justify-center">
             {userLoading ? (
@@ -179,7 +181,7 @@ export function Sidebar() {
             <p className="text-xs font-medium truncate">
               {userLoading ? "Loading..." : user?.fullName || "User"}
             </p>
-            <p className="text-[10px] text-neutral-400 truncate">
+            <p className="text-[10px] text-slate-400 truncate">
               {userLoading ? "" : roleLabels[user?.role || ""] || "Member"}
             </p>
           </div>
@@ -189,7 +191,7 @@ export function Sidebar() {
                 window.location.href = "/auth/login";
               });
             }}
-            className="text-neutral-400 hover:text-black transition-colors"
+            className="text-slate-400 hover:text-slate-700 transition-colors"
             title="Sign out"
           >
             <LogOut className="w-3.5 h-3.5" />

@@ -33,6 +33,8 @@ import {
   Users,
   Activity,
   Settings,
+  ChevronDown,
+  Map,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -106,43 +108,6 @@ function propertyTypeColor(type: string): string {
 }
 
 /** Simple SVG donut chart */
-function DonutChart({ data, size = 140 }: { data: { label: string; value: number; color: string }[]; size?: number }) {
-  const total = data.reduce((s, d) => s + d.value, 0);
-  if (total === 0) return null;
-
-  const radius = size / 2 - 10;
-  const circumference = 2 * Math.PI * radius;
-  let accumulated = 0;
-
-  return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="mx-auto">
-      {data.map((d, i) => {
-        const pct = d.value / total;
-        const offset = circumference * (1 - accumulated);
-        accumulated += pct;
-        return (
-          <circle
-            key={i}
-            cx={size / 2}
-            cy={size / 2}
-            r={radius}
-            fill="none"
-            stroke={d.color}
-            strokeWidth={20}
-            strokeDasharray={`${circumference * pct} ${circumference * (1 - pct)}`}
-            strokeDashoffset={offset}
-            transform={`rotate(-90 ${size / 2} ${size / 2})`}
-            className="transition-all duration-500"
-          />
-        );
-      })}
-      <text x="50%" y="50%" textAnchor="middle" dominantBaseline="central" className="text-2xl font-bold" fill="#171717">
-        {total}
-      </text>
-    </svg>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Skeleton Components
 // ---------------------------------------------------------------------------
@@ -150,7 +115,7 @@ function DonutChart({ data, size = 140 }: { data: { label: string; value: number
 function SkeletonBlock({ className }: { className?: string }) {
   return (
     <div
-      className={`animate-pulse rounded-md bg-neutral-200/60 ${className ?? ""}`}
+      className={`animate-pulse rounded-md bg-[#e4e8ef]/50 ${className ?? ""}`}
     />
   );
 }
@@ -236,19 +201,19 @@ function EmptyState() {
 
       <Card className="border-dashed">
         <CardContent className="p-8 flex flex-col items-center text-center">
-          <div className="w-12 h-12 rounded-full bg-neutral-100 flex items-center justify-center mb-4">
+          <div className="w-12 h-12 rounded-full bg-[#f4f6f9] flex items-center justify-center mb-4">
             <Rocket className="h-6 w-6 text-neutral-400" />
           </div>
           <h2 className="text-lg font-semibold mb-1">Get Started with GroSpace</h2>
           <p className="text-sm text-neutral-500 max-w-md mb-6">
-            Upload your first lease agreement to start tracking outlets,
+            Upload your first document to start tracking outlets,
             obligations, and alerts across your portfolio.
           </p>
           <div className="flex gap-3">
             <Link href="/agreements/upload">
               <Button size="sm">
                 <Upload className="h-4 w-4" />
-                Upload Agreement
+                Upload Documents
               </Button>
             </Link>
             <Link href="/outlets">
@@ -274,7 +239,7 @@ interface ChatMessage {
 }
 
 // ---------------------------------------------------------------------------
-// Smart AI Chat Component
+// GroBot Chat Component
 // ---------------------------------------------------------------------------
 
 function SmartAIChat() {
@@ -325,7 +290,7 @@ function SmartAIChat() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-neutral-600" />
-            <CardTitle className="text-sm font-semibold">AI Assistant</CardTitle>
+            <CardTitle className="text-sm font-semibold">GroBot</CardTitle>
           </div>
           <Badge variant="outline" className="text-[10px]">
             {isOpen ? "Collapse" : "Expand"}
@@ -339,7 +304,7 @@ function SmartAIChat() {
       {isOpen && (
         <CardContent className="p-4 pt-2">
           {/* Chat Messages */}
-          <div className="border border-neutral-200 rounded-lg bg-neutral-50/50 h-[300px] overflow-y-auto p-3 mb-3 space-y-3">
+          <div className="border border-[#e4e8ef] rounded-lg bg-[#f4f6f9]/50 h-[300px] overflow-y-auto p-3 mb-3 space-y-3">
             {messages.length === 0 && (
               <div className="flex flex-col items-center justify-center h-full text-center gap-3">
                 <MessageSquare className="h-8 w-8 text-neutral-300" />
@@ -356,7 +321,7 @@ function SmartAIChat() {
                 className={`flex gap-2 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
               >
                 {msg.role === "ai" && (
-                  <div className="w-6 h-6 rounded-full bg-[#132337] flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <div className="w-6 h-6 rounded-full bg-slate-800 flex items-center justify-center flex-shrink-0 mt-0.5">
                     <Sparkles className="w-3 h-3 text-white" />
                   </div>
                 )}
@@ -364,13 +329,13 @@ function SmartAIChat() {
                   className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
                     msg.role === "user"
                       ? "bg-[#132337] text-white"
-                      : "bg-white border border-neutral-200 text-neutral-700"
+                      : "bg-[#fafbfd] border border-[#e4e8ef] text-neutral-700"
                   }`}
                 >
                   <div className="whitespace-pre-wrap">{msg.content}</div>
                 </div>
                 {msg.role === "user" && (
-                  <div className="w-6 h-6 rounded-full bg-neutral-200 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <div className="w-6 h-6 rounded-full bg-[#e4e8ef] flex items-center justify-center flex-shrink-0 mt-0.5">
                     <User className="w-3 h-3 text-neutral-600" />
                   </div>
                 )}
@@ -379,10 +344,10 @@ function SmartAIChat() {
 
             {loading && (
               <div className="flex gap-2">
-                <div className="w-6 h-6 rounded-full bg-[#132337] flex items-center justify-center flex-shrink-0">
+                <div className="w-6 h-6 rounded-full bg-slate-800 flex items-center justify-center flex-shrink-0">
                   <Sparkles className="w-3 h-3 text-white" />
                 </div>
-                <div className="bg-white border border-neutral-200 rounded-lg px-3 py-2">
+                <div className="bg-[#fafbfd] border border-[#e4e8ef] rounded-lg px-3 py-2">
                   <Loader2 className="w-4 h-4 animate-spin text-neutral-400" />
                 </div>
               </div>
@@ -399,7 +364,7 @@ function SmartAIChat() {
                   onClick={() => {
                     setInput(s);
                   }}
-                  className="text-xs bg-white border border-neutral-200 rounded-full px-3 py-1.5 text-neutral-600 hover:bg-neutral-50 hover:border-neutral-300 transition-colors"
+                  className="text-xs bg-[#fafbfd] border border-[#e4e8ef] rounded-full px-3 py-1.5 text-neutral-600 hover:bg-[#f4f6f9] hover:border-[#e4e8ef] transition-colors"
                 >
                   {s}
                 </button>
@@ -453,6 +418,7 @@ export default function Dashboard() {
     outlets: { name: string; status: string; rent?: number }[];
   } | null>(null);
   const [propertyTypeCounts, setPropertyTypeCounts] = useState<Record<string, number>>({});
+  const mapSectionRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -523,17 +489,17 @@ export default function Dashboard() {
   const roleTierConfig: Record<string, { badge: string; color: string; icon: JSX.Element }> = {
     platform_admin: {
       badge: "System Admin",
-      color: "bg-red-100 text-red-800 border-red-200",
+      color: "bg-[#132337]/10 text-[#132337] border-[#132337]/20",
       icon: <Shield className="h-3 w-3" />,
     },
     org_admin: {
       badge: "Admin",
-      color: "bg-blue-100 text-blue-800 border-blue-200",
+      color: "bg-[#132337]/[0.08] text-[#132337]/80 border-[#132337]/[0.15]",
       icon: <Users className="h-3 w-3" />,
     },
     org_member: {
       badge: "Member",
-      color: "bg-neutral-100 text-neutral-700 border-neutral-200",
+      color: "bg-[#f4f6f9] text-neutral-700 border-[#e4e8ef]",
       icon: <User className="h-3 w-3" />,
     },
   };
@@ -635,10 +601,16 @@ export default function Dashboard() {
       {/* -------------------------------------------------------------- */}
       <div className="flex flex-wrap items-center gap-2">
         {/* Common actions for all roles */}
+        <Link href="/ai-assistant">
+          <Button variant="outline" size="sm" className="gap-1.5 text-xs">
+            <Sparkles className="h-3.5 w-3.5" />
+            GroBot
+          </Button>
+        </Link>
         <Link href="/agreements/upload">
           <Button variant="outline" size="sm" className="gap-1.5 text-xs">
             <Upload className="h-3.5 w-3.5" />
-            Upload Agreement
+            Upload Documents
           </Button>
         </Link>
         <Link href="/outlets">
@@ -753,6 +725,34 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* -------------------------------------------------------------- */}
+      {/* Map Teaser -- scrolls to map section                              */}
+      {/* -------------------------------------------------------------- */}
+      {isPlatformAdmin && outletsByCity.length > 0 && (
+        <button
+          onClick={() => mapSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+          className="w-full group"
+        >
+          <div className="flex items-center justify-between px-4 py-3 rounded-xl border border-[#e4e8ef] bg-[#fafbfd] hover:border-[#e4e8ef] hover:shadow-sm transition-all duration-200 cursor-pointer">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-[#132337] flex items-center justify-center">
+                <Map className="h-4 w-4 text-white" />
+              </div>
+              <div className="text-left">
+                <p className="text-xs font-semibold text-neutral-800">Explore Outlet Map</p>
+                <p className="text-[10px] text-neutral-400">
+                  {outletsByCity.length} {outletsByCity.length === 1 ? "city" : "cities"} &middot; Interactive map with live outlet data
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 text-neutral-400 group-hover:text-neutral-600 transition-colors">
+              <span className="text-[10px] font-medium hidden sm:inline">Scroll to map</span>
+              <ChevronDown className="h-4 w-4 animate-bounce" />
+            </div>
+          </div>
+        </button>
+      )}
 
       {/* -------------------------------------------------------------- */}
       {/* Row 2 -- Secondary stat cards (3 columns) [admin/org_admin only] */}
@@ -871,7 +871,7 @@ export default function Dashboard() {
         {/* Pending alerts badge */}
         {(stats?.pending_alerts ?? 0) > 0 && (
           <Link href="/alerts">
-            <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-neutral-200 bg-neutral-50 hover:bg-neutral-100 transition-colors cursor-pointer">
+            <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[#e4e8ef] bg-[#f4f6f9] hover:bg-[#e4e8ef]/50 transition-colors cursor-pointer">
               <Bell className="h-4 w-4 text-neutral-500 flex-shrink-0" />
               <div className="flex items-center gap-1.5">
                 <span className="text-sm font-semibold text-neutral-700">
@@ -895,7 +895,7 @@ export default function Dashboard() {
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-semibold">Deal Pipeline</CardTitle>
               <Link href="/pipeline">
-                <Badge variant="outline" className="text-[10px] cursor-pointer hover:bg-neutral-100">
+                <Badge variant="outline" className="text-[10px] cursor-pointer hover:bg-[#f4f6f9]">
                   View Pipeline
                 </Badge>
               </Link>
@@ -903,11 +903,11 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent className="p-4 pt-2">
             <div className="flex gap-2 overflow-x-auto">
-              {["lead", "site_visit", "negotiation", "loi_sent", "agreement_signed", "fit_out", "operational"].map((stage) => {
+              {["lead", "site_visit", "negotiation", "loi", "agreement", "fitout", "operational"].map((stage) => {
                 const count = stats.pipeline_stages?.[stage] ?? 0;
                 if (count === 0) return null;
                 return (
-                  <div key={stage} className="flex flex-col items-center min-w-[80px] rounded-lg border border-neutral-100 p-2.5">
+                  <div key={stage} className="flex flex-col items-center min-w-[80px] rounded-lg border border-[#e4e8ef] p-2.5">
                     <span className="text-lg font-bold">{count}</span>
                     <span className="text-[10px] text-neutral-500 text-center">{statusLabel(stage)}</span>
                   </div>
@@ -1001,7 +1001,7 @@ export default function Dashboard() {
                             </div>
                             <span className="text-xs font-semibold tabular-nums">{count}</span>
                           </div>
-                          <div className="h-1.5 w-full rounded-full bg-neutral-100 overflow-hidden">
+                          <div className="h-1.5 w-full rounded-full bg-[#132337]/10 overflow-hidden">
                             <div
                               className="h-full rounded-full transition-all"
                               style={{
@@ -1023,12 +1023,12 @@ export default function Dashboard() {
       {/* -------------------------------------------------------------- */}
       {/* Row 3 -- India Map + Outlets by City & Status [admin only]        */}
       {/* -------------------------------------------------------------- */}
-      {isPlatformAdmin && <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 lg:gap-5">
+      {isPlatformAdmin && <div ref={mapSectionRef} className="grid grid-cols-1 lg:grid-cols-5 gap-4 lg:gap-5 scroll-mt-4">
         {/* India Map -- 3 columns */}
-        <Card className="flex flex-col lg:col-span-3 overflow-hidden border-neutral-200/60">
+        <Card className="flex flex-col lg:col-span-3 overflow-hidden shadow-sm">
           <CardHeader className="p-4 pb-2">
             <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-neutral-800 to-neutral-950 flex items-center justify-center">
+              <div className="w-6 h-6 rounded-lg bg-[#132337] flex items-center justify-center">
                 <MapPin className="h-3 w-3 text-white" />
               </div>
               <CardTitle className="text-sm font-semibold">
@@ -1056,137 +1056,162 @@ export default function Dashboard() {
         {/* Right side -- City list (or selected cluster outlets) + Status */}
         <div className="lg:col-span-2 space-y-4 lg:space-y-5">
           {/* Outlets by City / Selected cluster detail */}
-          <Card className="flex flex-col">
-            <CardHeader className="p-4 pb-2">
+          <Card className="flex flex-col overflow-hidden">
+            <CardHeader className="p-4 pb-3">
               {mapCluster ? (
-                <div className="flex items-center gap-2">
-                  <div className="w-5 h-5 rounded-full bg-[#132337] flex items-center justify-center flex-shrink-0">
-                    <MapPin className="h-3 w-3 text-white" />
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-[#132337] flex items-center justify-center flex-shrink-0">
+                    <MapPin className="h-3.5 w-3.5 text-white" />
                   </div>
-                  <CardTitle className="text-sm font-semibold truncate">
-                    {mapCluster.label}
-                  </CardTitle>
-                  <Badge variant="secondary" className="text-[10px] ml-auto font-semibold">
-                    {mapCluster.count}
+                  <div className="flex-1 min-w-0">
+                    <CardTitle className="text-sm font-semibold truncate">
+                      {mapCluster.label}
+                    </CardTitle>
+                    {mapCluster.cities.length > 1 && (
+                      <p className="text-[10px] text-neutral-400 truncate">
+                        {mapCluster.cities.join(" \u2022 ")}
+                      </p>
+                    )}
+                  </div>
+                  <Badge variant="secondary" className="text-[10px] font-bold">
+                    {mapCluster.count} outlets
                   </Badge>
                   <button
                     onClick={() => setMapCluster(null)}
-                    className="ml-1 text-neutral-400 hover:text-neutral-700 transition-colors"
+                    className="w-6 h-6 rounded-full bg-[#f4f6f9] hover:bg-[#e4e8ef] flex items-center justify-center text-neutral-400 hover:text-neutral-700 transition-all"
                   >
-                    <span className="text-xs">&times;</span>
+                    <span className="text-xs leading-none">&times;</span>
                   </button>
                 </div>
               ) : (
-                <CardTitle className="text-sm font-semibold">
-                  Outlets by City
-                </CardTitle>
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-lg bg-[#132337] flex items-center justify-center">
+                    <MapPin className="h-3 w-3 text-white" />
+                  </div>
+                  <CardTitle className="text-sm font-semibold">
+                    Outlets by City
+                  </CardTitle>
+                  <Badge variant="secondary" className="text-[10px] ml-auto font-semibold">
+                    {outletsByCity.reduce((s, c) => s + c.count, 0)} total
+                  </Badge>
+                </div>
               )}
             </CardHeader>
-            <CardContent className="p-4 pt-2">
+            <CardContent className="p-4 pt-0">
               {mapCluster ? (
-                <>
-                  {mapCluster.cities.length > 1 && (
-                    <p className="text-[10px] text-neutral-400 mb-3">
-                      {mapCluster.cities.join(" / ")}
-                    </p>
-                  )}
-                  {mapCluster.outlets.length > 0 ? (
-                    <div className="space-y-0.5 max-h-[320px] overflow-y-auto pr-1">
-                      {mapCluster.outlets.map((outlet, i) => (
+                mapCluster.outlets.length > 0 ? (
+                  <div className="space-y-1 max-h-[320px] overflow-y-auto pr-1">
+                    {mapCluster.outlets.map((outlet, i) => {
+                      const sColor =
+                        outlet.status === "operational" ? "#10b981" :
+                        outlet.status === "closed" ? "#ef4444" :
+                        outlet.status === "up_for_renewal" ? "#f59e0b" :
+                        outlet.status === "fit_out" ? "#f59e0b" : "#a3a3a3";
+                      return (
                         <div
                           key={i}
-                          className="group flex items-center gap-2.5 py-2 px-2.5 rounded-lg border border-transparent hover:border-neutral-100 hover:bg-neutral-50 hover:shadow-sm transition-all duration-150 cursor-default"
+                          className="group flex items-center gap-3 py-2.5 px-3 rounded-xl border border-transparent hover:border-[#e4e8ef] hover:bg-gradient-to-r hover:from-[#f4f6f9] hover:to-[#fafbfd] hover:shadow-sm transition-all duration-200 cursor-pointer"
                         >
-                          <div
-                            className="w-1 h-6 rounded-full flex-shrink-0 transition-colors"
-                            style={{
-                              backgroundColor:
-                                outlet.status === "operational" ? "#10b981" :
-                                outlet.status === "closed" ? "#ef4444" :
-                                outlet.status === "up_for_renewal" ? "#f59e0b" : "#d4d4d4",
-                            }}
-                          />
-                          <Store className="h-3.5 w-3.5 text-neutral-300 group-hover:text-neutral-500 flex-shrink-0 transition-colors" />
+                          <div className="relative flex-shrink-0">
+                            <div
+                              className="w-2.5 h-2.5 rounded-full"
+                              style={{ backgroundColor: sColor, boxShadow: `0 0 0 3px ${sColor}20` }}
+                            />
+                          </div>
                           <div className="min-w-0 flex-1">
-                            <p className="text-xs text-neutral-700 group-hover:text-neutral-900 truncate transition-colors font-medium">
+                            <p className="text-xs text-neutral-800 group-hover:text-[#132337] truncate transition-colors font-medium">
                               {outlet.name}
                             </p>
-                            <p className="text-[10px] text-neutral-400 capitalize">
-                              {outlet.status === "up_for_renewal" ? "Renewal" : outlet.status}
+                            <p className="text-[10px] text-neutral-400 capitalize mt-0.5">
+                              {outlet.status?.replace(/_/g, " ")}
                             </p>
                           </div>
                           {outlet.rent ? (
-                            <span className="text-[11px] text-neutral-500 group-hover:text-neutral-700 tabular-nums flex-shrink-0 font-medium transition-colors">
+                            <span className="text-[11px] text-neutral-600 group-hover:text-neutral-800 tabular-nums flex-shrink-0 font-semibold transition-colors">
                               {`\u20B9${Math.round(outlet.rent).toLocaleString("en-IN")}`}
                             </span>
                           ) : null}
                         </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-neutral-400">
-                      {mapCluster.count} outlet{mapCluster.count > 1 ? "s" : ""} in this area
-                    </p>
-                  )}
-                </>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-xs text-neutral-400">
+                    {mapCluster.count} outlet{mapCluster.count > 1 ? "s" : ""} in this area
+                  </p>
+                )
               ) : outletsByCity.length === 0 ? (
                 <p className="text-xs text-neutral-400">No outlet data yet.</p>
               ) : (
-                <div className="space-y-2.5">
-                  {outletsByCity.map(({ city, count }) => (
-                    <div key={city}>
-                      <div className="flex items-center justify-between mb-0.5">
-                        <span className="text-xs text-neutral-700">{city}</span>
-                        <span className="text-xs font-semibold">{count}</span>
+                <div className="space-y-3">
+                  {outletsByCity.map(({ city, count }) => {
+                    const pct = (count / maxCityCount) * 100;
+                    return (
+                      <div key={city} className="group">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-medium text-neutral-600 group-hover:text-[#132337] transition-colors">{city}</span>
+                          <span className="text-xs font-semibold text-neutral-800 tabular-nums">{count}</span>
+                        </div>
+                        <div className="h-1.5 w-full rounded-full bg-[#132337]/10 overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-[#132337] transition-all duration-700 ease-out"
+                            style={{ width: `${pct}%`, opacity: 0.15 + (pct / 100) * 0.85 }}
+                          />
+                        </div>
                       </div>
-                      <div className="h-1.5 w-full rounded-full bg-neutral-100 overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-neutral-800 transition-all"
-                          style={{
-                            width: `${(count / maxCityCount) * 100}%`,
-                          }}
-                        />
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </CardContent>
           </Card>
 
-          {/* Outlets by Status -- Donut Chart */}
-          <Card className="flex flex-col">
-            <CardHeader className="p-4 pb-2">
-              <CardTitle className="text-sm font-semibold">
-                Outlets by Status
-              </CardTitle>
+          {/* Outlets by Status -- Modern Cards */}
+          <Card className="flex flex-col overflow-hidden">
+            <CardHeader className="p-4 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 rounded-lg bg-[#132337] flex items-center justify-center">
+                  <Activity className="h-3 w-3 text-white" />
+                </div>
+                <CardTitle className="text-sm font-semibold">
+                  Outlets by Status
+                </CardTitle>
+              </div>
             </CardHeader>
-            <CardContent className="p-4 pt-2">
+            <CardContent className="p-4 pt-0">
               {outletsByStatus.length === 0 ? (
                 <p className="text-xs text-neutral-400">No outlet data yet.</p>
               ) : (
-                <div className="flex flex-col items-center gap-3">
-                  <DonutChart
-                    data={outletsByStatus.map(({ status, count }) => ({
-                      label: statusLabel(status),
-                      value: count,
-                      color: statusColor(status),
-                    }))}
-                  />
-                  <div className="w-full space-y-1.5">
-                    {outletsByStatus.map(({ status, count }) => (
-                      <div key={status} className="flex items-center gap-2">
-                        <span
-                          className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: statusColor(status) }}
-                        />
-                        <span className="text-xs text-neutral-600 flex-1">
-                          {statusLabel(status)}
-                        </span>
-                        <span className="text-xs font-semibold tabular-nums">{count}</span>
-                      </div>
-                    ))}
-                  </div>
+                <div className="space-y-2">
+                  {outletsByStatus
+                    .sort((a, b) => b.count - a.count)
+                    .map(({ status, count }) => {
+                      const total = outletsByStatus.reduce((s, c) => s + c.count, 0);
+                      const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+                      const color = statusColor(status);
+                      return (
+                        <div key={status} className="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-[#f4f6f9] transition-all duration-200">
+                          <div
+                            className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                            style={{ backgroundColor: `${color}15`, border: `1px solid ${color}30` }}
+                          >
+                            <span className="text-sm font-bold" style={{ color }}>{count}</span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-xs font-medium text-neutral-700">{statusLabel(status)}</span>
+                              <span className="text-[10px] font-semibold text-neutral-400">{pct}%</span>
+                            </div>
+                            <div className="h-1.5 w-full rounded-full bg-[#132337]/10 overflow-hidden">
+                              <div
+                                className="h-full rounded-full transition-all duration-700 ease-out"
+                                style={{ width: `${pct}%`, backgroundColor: color }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                 </div>
               )}
             </CardContent>
@@ -1240,7 +1265,7 @@ export default function Dashboard() {
       )}
 
       {/* -------------------------------------------------------------- */}
-      {/* Row 5 -- Smart AI Chat                                          */}
+      {/* Row 5 -- GroBot Chat                                        */}
       {/* -------------------------------------------------------------- */}
       <SmartAIChat />
     </div>

@@ -3,6 +3,8 @@ CRUD agreements, confirm-and-activate, save-draft endpoints.
 """
 
 
+import uuid
+
 from fastapi import APIRouter, HTTPException, Depends, Query
 from starlette.requests import Request
 
@@ -25,14 +27,33 @@ router = APIRouter(prefix="/api", tags=["agreements"])
 async def test_sheets_write():
     """Debug endpoint to test Google Sheets integration."""
     import os
-    import logging
-    logger = logging.getLogger(__name__)
+    import traceback
 
     has_spreadsheet_id = bool(os.getenv("GOOGLE_SHEETS_SPREADSHEET_ID"))
     has_creds_json = bool(os.getenv("GOOGLE_SHEETS_CREDENTIALS_JSON"))
-    has_creds_file = os.path.exists(
-        os.path.join(os.path.dirname(os.path.dirname(__file__)), "google-sheets-credentials.json")
-    )
+    creds_json_preview = (os.getenv("GOOGLE_SHEETS_CREDENTIALS_JSON") or "")[:50]
+
+    # Try direct connection — bypass _get_sheet to get real error
+    connection_error = None
+    try:
+        import json as _json
+        import gspread
+        from google.oauth2.service_account import Credentials
+
+        creds_raw = os.getenv("GOOGLE_SHEETS_CREDENTIALS_JSON", "")
+        spreadsheet_id = os.getenv("GOOGLE_SHEETS_SPREADSHEET_ID", "")
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",
+        ]
+        creds_info = _json.loads(creds_raw)
+        creds = Credentials.from_service_account_info(creds_info, scopes=scopes)
+        client = gspread.authorize(creds)
+        spreadsheet = client.open_by_key(spreadsheet_id)
+        sheet = spreadsheet.sheet1
+        connection_error = f"OK — connected to '{spreadsheet.title}', sheet '{sheet.title}'"
+    except Exception:
+        connection_error = traceback.format_exc()
 
     try:
         result = write_agreement_to_sheet(
@@ -63,16 +84,18 @@ async def test_sheets_write():
             "write_result": result,
             "has_spreadsheet_id": has_spreadsheet_id,
             "has_creds_json": has_creds_json,
-            "has_creds_file": has_creds_file,
+            "creds_json_preview": creds_json_preview,
+            "connection_error": connection_error,
         }
     except Exception as e:
-        logger.error(f"Test sheets write failed: {e}")
         return {
             "write_result": False,
             "error": str(e),
+            "traceback": traceback.format_exc(),
             "has_spreadsheet_id": has_spreadsheet_id,
             "has_creds_json": has_creds_json,
-            "has_creds_file": has_creds_file,
+            "creds_json_preview": creds_json_preview,
+            "connection_error": connection_error,
         }
 
 
@@ -201,6 +224,21 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
             document_text=req.document_text,
             document_url=req.document_url,
         )
+
+        # Link document to outlet in documents table so it shows on outlet page
+        if req.document_url and req.filename:
+            try:
+                supabase.table("documents").insert({
+                    "id": str(uuid.uuid4()),
+                    "org_id": org_id,
+                    "outlet_id": outlet_id,
+                    "agreement_id": agreement_id,
+                    "file_url": req.document_url,
+                    "filename": req.filename,
+                    "file_type": "lease_agreement",
+                }).execute()
+            except Exception:
+                pass  # non-critical
 
         obligations = generate_obligations(req.extraction, agreement_id, outlet_id, org_id)
         alerts = generate_alerts(req.extraction, agreement_id, outlet_id, org_id)

@@ -99,21 +99,21 @@ const extractionLabels: Record<string, string> = {
 };
 
 function statusColor(status: string): string {
-  if (!status) return "bg-neutral-100 text-neutral-600";
+  if (!status) return "bg-[#f4f6f9] text-[#4a5568]";
   const map: Record<string, string> = {
     active: "bg-emerald-100 text-emerald-800",
     expiring: "bg-orange-100 text-orange-800",
     expired: "bg-red-100 text-red-800",
     terminated: "bg-red-100 text-red-800",
-    draft: "bg-neutral-100 text-neutral-600",
+    draft: "bg-[#f4f6f9] text-[#4a5568]",
     renewed: "bg-teal-100 text-teal-800",
     confirmed: "bg-emerald-100 text-emerald-800",
     review: "bg-amber-100 text-amber-800",
-    processing: "bg-blue-100 text-blue-800",
-    pending: "bg-neutral-100 text-neutral-600",
+    processing: "bg-[#f4f6f9] text-[#132337]",
+    pending: "bg-[#f4f6f9] text-[#4a5568]",
     failed: "bg-red-100 text-red-800",
   };
-  return map[status] || "bg-neutral-100 text-neutral-600";
+  return map[status] || "bg-[#f4f6f9] text-[#4a5568]";
 }
 
 function statusLabel(status: string): string {
@@ -141,10 +141,10 @@ function formatDate(dateStr: string | null): string {
 
 function TableSkeleton() {
   return (
-    <div className="rounded-lg border bg-white">
+    <div className="rounded-lg border bg-[#fafbfd]">
       <Table>
         <TableHeader>
-          <TableRow className="hover:bg-transparent">
+          <TableRow className="bg-[#f4f6f9] hover:bg-[#f4f6f9]">
             <TableHead className="w-[220px]">Document</TableHead>
             <TableHead>Outlet</TableHead>
             <TableHead>Type</TableHead>
@@ -162,11 +162,11 @@ function TableSkeleton() {
             <TableRow key={i}>
               {Array.from({ length: 9 }).map((_, j) => (
                 <TableCell key={j}>
-                  <div className="h-4 bg-neutral-200 rounded animate-pulse w-full max-w-[120px]" />
+                  <div className="h-4 bg-[#e4e8ef] rounded animate-pulse w-full max-w-[120px]" />
                 </TableCell>
               ))}
               <TableCell>
-                <div className="h-4 w-4 bg-neutral-200 rounded animate-pulse" />
+                <div className="h-4 w-4 bg-[#e4e8ef] rounded animate-pulse" />
               </TableCell>
             </TableRow>
           ))}
@@ -262,7 +262,7 @@ export default function AgreementsPage() {
     <TooltipProvider>
       <div className="space-y-6 animate-fade-in">
         {/* Header */}
-        <PageHeader title="Agreements" backHref="/">
+        <PageHeader title="Agreements">
           {!loading && (
             <Badge variant="secondary" className="text-sm font-medium">
               {total}
@@ -271,7 +271,7 @@ export default function AgreementsPage() {
           <Link href="/agreements/upload">
             <Button className="gap-2">
               <Upload className="h-4 w-4" />
-              Upload Agreement
+              Upload Documents
             </Button>
           </Link>
         </PageHeader>
@@ -358,17 +358,17 @@ export default function AgreementsPage() {
 
         {/* Empty State (not loading, no error, no agreements at all) */}
         {!loading && !error && agreements.length === 0 && (
-          <div className="rounded-lg border bg-white flex flex-col items-center justify-center py-20">
-            <FileText className="h-12 w-12 text-neutral-300 mb-4" />
+          <div className="rounded-lg border bg-[#fafbfd] flex flex-col items-center justify-center py-20">
+            <FileText className="h-12 w-12 text-[#d1d5db] mb-4" />
             <h2 className="text-lg font-semibold mb-1">No agreements yet</h2>
             <p className="text-sm text-muted-foreground mb-6">
-              Upload your first agreement to get started with AI-powered
+              Upload your first agreement to get started with GroBot-powered
               extraction.
             </p>
             <Link href="/agreements/upload">
               <Button className="gap-2">
                 <Upload className="h-4 w-4" />
-                Upload Agreement
+                Upload Documents
               </Button>
             </Link>
           </div>
@@ -376,10 +376,10 @@ export default function AgreementsPage() {
 
         {/* Table */}
         {!loading && !error && agreements.length > 0 && (
-          <div className="rounded-lg border bg-white">
+          <div className="rounded-lg border bg-[#fafbfd]">
             <Table>
               <TableHeader>
-                <TableRow className="hover:bg-transparent">
+                <TableRow className="bg-[#f4f6f9] hover:bg-[#f4f6f9]">
                   <TableHead className="w-[220px]">Document</TableHead>
                   <TableHead>Outlet</TableHead>
                   <TableHead>Type</TableHead>
