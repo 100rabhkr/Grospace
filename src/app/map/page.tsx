@@ -119,18 +119,10 @@ export default function MapViewPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-[80vh]">
-        <div className="flex flex-col items-center gap-4">
-          <div className="relative">
-            <div className="w-12 h-12 rounded-2xl bg-[#132337] flex items-center justify-center">
-              <MapPin className="h-5 w-5 text-white" />
-            </div>
-            <Loader2 className="h-5 w-5 animate-spin text-[#132337]/40 absolute -bottom-1 -right-1" />
-          </div>
-          <div className="text-center">
-            <p className="text-sm font-medium text-neutral-600">Loading map data</p>
-            <p className="text-[10px] text-neutral-400 mt-0.5">Fetching outlet locations...</p>
-          </div>
+      <div className="flex items-center justify-center h-full">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-8 w-8 animate-spin text-[#132337]/50" />
+          <p className="text-sm font-medium text-neutral-500">Loading map data...</p>
         </div>
       </div>
     );
@@ -141,7 +133,7 @@ export default function MapViewPage() {
       {/* ─── Always-Visible Left Panel ─── */}
       <div className="w-[340px] xl:w-[380px] shrink-0 border-r border-[#e4e8ef] bg-white overflow-y-auto">
         {/* Panel Header */}
-        <div className="sticky top-0 z-10 bg-white border-b border-[#e4e8ef] px-5 pt-4 pb-4">
+        <div className="bg-white border-b border-[#e4e8ef] px-5 pt-4 pb-4">
           <div className="flex items-center gap-2.5 mb-4">
             <div className="w-9 h-9 rounded-xl bg-[#132337] flex items-center justify-center">
               <MapPin className="h-4 w-4 text-white" />
