@@ -36,7 +36,6 @@ import {
   X,
   ChevronDown,
   AlertTriangle,
-  Plus,
   Pencil,
   Trash2,
   Loader2,
