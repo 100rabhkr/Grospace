@@ -278,11 +278,7 @@ export default function LoginPage() {
         }} />
 
         <div
-          className="w-full max-w-[400px] relative z-10 transition-all duration-700 ease-out"
-          style={{
-            opacity: mounted ? 1 : 0,
-            transform: mounted ? "translateY(0)" : "translateY(16px)",
-          }}
+          className="w-full max-w-[400px] relative z-10"
         >
           {/* Mobile logo */}
           <div className="flex items-center gap-2.5 mb-10 lg:hidden">

@@ -135,6 +135,8 @@ interface IndiaMapProps {
   outletDetails?: Record<string, OutletInfo[]>;
   selectedCluster?: string | null;
   onSelectCluster?: (cluster: ClusterData | null) => void;
+  /** compact = dashboard card (smaller, no legend bar). Full = map page (fills viewport). */
+  compact?: boolean;
 }
 
 function clusterMarkers(
@@ -221,7 +223,7 @@ function StateGeographies({
 }: {
   stateDensity: Record<string, number>;
   selectedState: string | null;
-  onStateClick?: (stateName: string) => void;
+  onStateClick?: (stateName: string, e: React.MouseEvent) => void;
 }) {
   return (
     <Geographies geography={INDIA_GEO_URL} {...({ disableOptimization: true } as Record<string, unknown>)}>
@@ -270,7 +272,7 @@ function StateGeographies({
               onClick={(e) => {
                 if (density > 0) {
                   e.stopPropagation();
-                  onStateClick?.(stateName);
+                  onStateClick?.(stateName, e as unknown as React.MouseEvent);
                 }
               }}
               style={{
@@ -301,6 +303,7 @@ export default function IndiaMap({
   outletDetails,
   selectedCluster: externalSelected,
   onSelectCluster,
+  compact = false,
 }: IndiaMapProps) {
   const [mounted, setMounted] = useState(false);
   const [selectedState, setSelectedState] = useState<string | null>(null);
@@ -367,10 +370,60 @@ export default function IndiaMap({
   const unmappedCount = Object.keys(outletsByCity).length -
     Object.keys(outletsByCity).filter((c) => CITY_COORDS[c.toLowerCase().trim()]).length;
 
-  // Click state → select/deselect that state (highlight it, fade others)
-  const handleStateClick = useCallback((stateName: string) => {
-    setSelectedState(prev => prev === stateName ? null : stateName);
-  }, []);
+  // Click state → select/deselect that state (highlight it, fade others) + show popup
+  const handleStateClick = useCallback((stateName: string, e: React.MouseEvent) => {
+    const isDeselect = selectedState === stateName;
+    setSelectedState(isDeselect ? null : stateName);
+
+    if (isDeselect) {
+      // Deselecting — hide popup
+      setPopupOpacity(0);
+      setTimeout(() => setVisibleCluster(null), 200);
+      if (onSelectCluster) onSelectCluster(null);
+      return;
+    }
+
+    // Build a cluster from all cities in this state
+    const stateCities = STATE_CITIES[stateName] || [];
+    const stateOutlets: OutletInfo[] = [];
+    let totalCount = 0;
+    const clusterCities: string[] = [];
+
+    for (const city of stateCities) {
+      // Find matching city key in outletsByCity (case-insensitive)
+      for (const [key, count] of Object.entries(outletsByCity)) {
+        if (key.toLowerCase().trim() === city) {
+          totalCount += count;
+          clusterCities.push(key);
+          const details = outletDetails?.[key] || [];
+          stateOutlets.push(...details);
+        }
+      }
+    }
+
+    if (totalCount > 0) {
+      // Position popup near click
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (rect) {
+        setTooltipPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+      }
+
+      const stateCluster: ClusterData = {
+        label: stateName,
+        cities: clusterCities,
+        count: totalCount,
+        coords: CITY_COORDS[stateCities[0]] || [78, 22],
+        outlets: stateOutlets,
+      };
+
+      setVisibleCluster(stateCluster);
+      requestAnimationFrame(() => setPopupOpacity(1));
+
+      if (onSelectCluster) {
+        onSelectCluster(stateCluster);
+      }
+    }
+  }, [selectedState, outletsByCity, outletDetails, onSelectCluster]);
 
   const handleMarkerClick = useCallback((cluster: ClusterData) => {
     // Find which state this cluster belongs to
@@ -437,15 +490,16 @@ export default function IndiaMap({
 
   return (
     <div
-      className="relative select-none"
+      className={`relative select-none flex flex-col ${compact ? "w-full" : "w-full h-full overflow-hidden"}`}
       ref={containerRef}
       onMouseLeave={() => {
         setSelectedState(null);
         if (onSelectCluster) onSelectCluster(null);
       }}
     >
-      {/* Top stats bar */}
-      <div className="flex items-center justify-between px-3 py-2 mb-1">
+      {/* Top stats bar — only in full (map page) mode */}
+      {!compact && (
+      <div className="flex items-center justify-between px-3 py-2 shrink-0">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5">
             <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
@@ -478,15 +532,29 @@ export default function IndiaMap({
           </span>
         </div>
       </div>
+      )}
 
+      <div className={compact ? "w-full" : "flex-1 min-h-0 overflow-hidden flex items-center justify-center"}>
       <ComposableMap
         projection="geoMercator"
-        projectionConfig={{ scale: 900, center: [82, 22] }}
+        projectionConfig={compact
+          ? { scale: 900, center: [82, 22] }
+          : { scale: 1200, center: [82, 24] }
+        }
         width={600}
-        height={620}
-        style={{
+        height={compact ? 520 : 680}
+        style={compact ? {
           width: "100%",
           height: "auto",
+          opacity: mounted ? 1 : 0,
+          transition: "opacity 0.5s ease",
+        } : {
+          width: "auto",
+          height: "100%",
+          maxWidth: "100%",
+          maxHeight: "100%",
+          display: "block",
+          margin: "0 auto",
           background: "#edf0f4",
           borderRadius: 12,
           opacity: mounted ? 1 : 0,
@@ -513,7 +581,7 @@ export default function IndiaMap({
         </defs>
 
         {/* Background rect to catch clicks for deselect */}
-        <rect x={0} y={0} width={600} height={620} fill="transparent" onClick={handleMapBgClick} />
+        <rect x={0} y={0} width={600} height={compact ? 520 : 680} fill="transparent" onClick={handleMapBgClick} />
 
         <StateGeographies
           stateDensity={stateDensity}
@@ -667,6 +735,7 @@ export default function IndiaMap({
             );
           })}
       </ComposableMap>
+      </div>
 
       {/* Hover Popup */}
       {visibleCluster && (() => {
@@ -831,7 +900,7 @@ export default function IndiaMap({
       })()}
 
       {unmappedCount > 0 && (
-        <p className="text-[10px] text-neutral-400 text-center mt-1">
+        <p className="absolute bottom-1 left-0 right-0 text-[10px] text-neutral-400 text-center">
           {unmappedCount} city(ies) not shown on map
         </p>
       )}

@@ -14,6 +14,7 @@ import {
   LogOut,
   Kanban,
   Bot,
+  Map,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/lib/hooks/use-user";
@@ -26,6 +27,7 @@ import {
 
 const navItems = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
+  { label: "Map View", href: "/map", icon: Map },
   { label: "GroBot", href: "/ai-assistant", icon: Bot },
   { label: "Outlets", href: "/outlets", icon: Store },
   { label: "Agreements", href: "/agreements", icon: FileText },
