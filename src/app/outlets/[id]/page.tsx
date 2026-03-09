@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { getOutlet, updateOutlet, getActivityLog, listShowcases, createShowcase, updateShowcase, uploadOutletDocument, deleteDocument } from "@/lib/api";
+import { getOutlet, updateOutlet, getActivityLog, listShowcases, createShowcase, updateShowcase, uploadOutletDocument, deleteDocument, listOutletContacts, addOutletContact, updateContact, deleteContact } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -37,6 +37,11 @@ import {
   FolderOpen,
   File,
   Download,
+  Users,
+  Plus,
+  Pencil,
+  Phone,
+  Mail,
 } from "lucide-react";
 import {
   Dialog,
@@ -136,6 +141,25 @@ interface OutletDocument {
   file_size_bytes: number;
   uploaded_at: string;
 }
+
+interface OutletContact {
+  id: string;
+  name: string;
+  designation: string;
+  phone: string;
+  email: string;
+  notes: string;
+}
+
+const DESIGNATIONS = [
+  "Lessor",
+  "Property Manager",
+  "Legal Counsel",
+  "Maintenance",
+  "Broker",
+  "Tenant Rep",
+  "Other",
+];
 
 interface OutletResponse {
   outlet: OutletDetail;
@@ -274,6 +298,79 @@ export default function OutletDetailPage() {
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
   const [docUploading, setDocUploading] = useState(false);
   const [docCategory, setDocCategory] = useState("other");
+
+  // Contacts state
+  const [contacts, setContacts] = useState<OutletContact[]>([]);
+  const [contactsLoading, setContactsLoading] = useState(false);
+  const [showContactForm, setShowContactForm] = useState(false);
+  const [editingContact, setEditingContact] = useState<OutletContact | null>(null);
+  const [contactForm, setContactForm] = useState({ name: "", designation: "", phone: "", email: "", notes: "" });
+  const [contactSaving, setContactSaving] = useState(false);
+
+  const fetchContacts = useCallback(async () => {
+    if (!outletId) return;
+    try {
+      setContactsLoading(true);
+      const res = await listOutletContacts(outletId);
+      setContacts(res.contacts || []);
+    } catch {
+      // silently handle — table may not exist yet
+    } finally {
+      setContactsLoading(false);
+    }
+  }, [outletId]);
+
+  useEffect(() => {
+    fetchContacts();
+  }, [fetchContacts]);
+
+  const handleContactSubmit = async () => {
+    if (!contactForm.name.trim()) return;
+    setContactSaving(true);
+    try {
+      if (editingContact) {
+        await updateContact(editingContact.id, contactForm);
+      } else {
+        await addOutletContact(outletId, contactForm);
+      }
+      await fetchContacts();
+      setShowContactForm(false);
+      setEditingContact(null);
+      setContactForm({ name: "", designation: "", phone: "", email: "", notes: "" });
+    } catch {
+      // handle error
+    } finally {
+      setContactSaving(false);
+    }
+  };
+
+  const handleDeleteContact = async (id: string) => {
+    if (!confirm("Delete this contact?")) return;
+    try {
+      await deleteContact(id);
+      setContacts((prev) => prev.filter((c) => c.id !== id));
+    } catch {
+      // handle error
+    }
+  };
+
+  const openEditContact = (contact: OutletContact) => {
+    setEditingContact(contact);
+    setContactForm({
+      name: contact.name || "",
+      designation: contact.designation || "",
+      phone: contact.phone || "",
+      email: contact.email || "",
+      notes: contact.notes || "",
+    });
+    setShowContactForm(true);
+  };
+
+  const openAddContact = () => {
+    setEditingContact(null);
+    setContactForm({ name: "", designation: "", phone: "", email: "", notes: "" });
+    setShowContactForm(true);
+  };
 
   useEffect(() => {
     async function fetchOutlet() {
@@ -1109,6 +1206,161 @@ export default function OutletDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* ----------------------------------------------------------------- */}
+      {/* CONTACTS                                                          */}
+      {/* ----------------------------------------------------------------- */}
+      <Card className="border-neutral-200">
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Users className="h-4 w-4" />
+            Contacts
+          </CardTitle>
+          <Button size="sm" variant="outline" className="gap-1.5" onClick={openAddContact}>
+            <Plus className="h-3.5 w-3.5" />
+            Add Contact
+          </Button>
+        </CardHeader>
+        <CardContent>
+          {contactsLoading ? (
+            <div className="flex items-center gap-2 text-neutral-400 py-4 justify-center">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span className="text-sm">Loading contacts...</span>
+            </div>
+          ) : contacts.length === 0 ? (
+            <div className="text-center py-8 text-neutral-400">
+              <Users className="h-8 w-8 mx-auto mb-2 opacity-40" />
+              <p className="text-sm">No contacts added yet</p>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Designation</TableHead>
+                  <TableHead>Phone</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead className="w-[80px]">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {contacts.map((contact) => (
+                  <TableRow key={contact.id}>
+                    <TableCell className="font-medium">{contact.name}</TableCell>
+                    <TableCell>
+                      {contact.designation ? (
+                        <Badge variant="secondary" className="text-xs">{contact.designation}</Badge>
+                      ) : "—"}
+                    </TableCell>
+                    <TableCell>
+                      {contact.phone ? (
+                        <span className="flex items-center gap-1 text-sm">
+                          <Phone className="h-3 w-3 text-neutral-400" />
+                          {contact.phone}
+                        </span>
+                      ) : "—"}
+                    </TableCell>
+                    <TableCell>
+                      {contact.email ? (
+                        <span className="flex items-center gap-1 text-sm">
+                          <Mail className="h-3 w-3 text-neutral-400" />
+                          {contact.email}
+                        </span>
+                      ) : "—"}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => openEditContact(contact)}
+                          className="p-1.5 rounded hover:bg-neutral-100 transition-colors"
+                          title="Edit"
+                        >
+                          <Pencil className="h-3.5 w-3.5 text-neutral-400" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteContact(contact.id)}
+                          className="p-1.5 rounded hover:bg-red-100 transition-colors"
+                          title="Delete"
+                        >
+                          <Trash2 className="h-3.5 w-3.5 text-neutral-400 hover:text-red-500" />
+                        </button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Contact Form Dialog */}
+      <Dialog open={showContactForm} onOpenChange={setShowContactForm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editingContact ? "Edit Contact" : "Add Contact"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div className="space-y-1.5">
+              <Label>Name *</Label>
+              <Input
+                value={contactForm.name}
+                onChange={(e) => setContactForm({ ...contactForm, name: e.target.value })}
+                placeholder="Contact name"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Designation</Label>
+              <Select
+                value={contactForm.designation}
+                onValueChange={(v) => setContactForm({ ...contactForm, designation: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select designation" />
+                </SelectTrigger>
+                <SelectContent>
+                  {DESIGNATIONS.map((d) => (
+                    <SelectItem key={d} value={d}>{d}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label>Phone</Label>
+                <Input
+                  value={contactForm.phone}
+                  onChange={(e) => setContactForm({ ...contactForm, phone: e.target.value })}
+                  placeholder="+91 ..."
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Email</Label>
+                <Input
+                  value={contactForm.email}
+                  onChange={(e) => setContactForm({ ...contactForm, email: e.target.value })}
+                  placeholder="email@example.com"
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Notes</Label>
+              <Input
+                value={contactForm.notes}
+                onChange={(e) => setContactForm({ ...contactForm, notes: e.target.value })}
+                placeholder="Optional notes"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setShowContactForm(false)}>Cancel</Button>
+              <Button onClick={handleContactSubmit} disabled={!contactForm.name.trim() || contactSaving}>
+                {contactSaving && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                {editingContact ? "Save Changes" : "Add Contact"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* ----------------------------------------------------------------- */}
       {/* ACTIVITY TIMELINE (hidden)                                        */}

@@ -271,7 +271,7 @@ export default function AgreementsPage() {
           <Link href="/agreements/upload">
             <Button className="gap-2">
               <Upload className="h-4 w-4" />
-              Upload Agreement
+              Upload Documents
             </Button>
           </Link>
         </PageHeader>
@@ -368,7 +368,7 @@ export default function AgreementsPage() {
             <Link href="/agreements/upload">
               <Button className="gap-2">
                 <Upload className="h-4 w-4" />
-                Upload Agreement
+                Upload Documents
               </Button>
             </Link>
           </div>

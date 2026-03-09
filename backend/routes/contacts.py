@@ -5,7 +5,8 @@ from typing import Optional
 import uuid
 
 from core.config import supabase
-from routes.auth import get_current_user, get_org_filter, CurrentUser
+from core.dependencies import get_current_user, get_org_filter
+from core.models import CurrentUser
 
 router = APIRouter(prefix="/api", tags=["contacts"])
 

@@ -28,7 +28,7 @@ const navItems = [
   { label: "Pipeline", href: "/pipeline", icon: Kanban },
   { label: "Outlets", href: "/outlets", icon: Store },
   { label: "Agreements", href: "/agreements", icon: FileText },
-  { label: "Upload Agreement", href: "/agreements/upload", icon: FileText },
+  { label: "Upload Documents", href: "/agreements/upload", icon: FileText },
   { label: "Alerts", href: "/alerts", icon: Bell },
   { label: "Payments", href: "/payments", icon: Wallet },
   { label: "Reports", href: "/reports", icon: BarChart3 },
