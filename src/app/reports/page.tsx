@@ -311,8 +311,60 @@ export default function ReportsPage() {
   // ---------- PDF Export ----------
 
   const exportPDF = useCallback(() => {
-    window.print();
-  }, []);
+    const headers = [
+      "Outlet Name", "Brand", "City", "Property Type", "Model",
+      "Status", "Monthly Rent", "CAM", "Total Outflow",
+      "Area (sqft)", "Rent/sqft", "Lease Expiry", "Days to Expiry",
+      "Risk Flags", "Revenue", "Rent/Rev %", "Overdue",
+    ];
+
+    const rows = filteredData.map((r) => [
+      r.outlet_name, r.brand, r.city,
+      statusLabel(r.property_type), r.franchise_model,
+      statusLabel(r.outlet_status),
+      r.monthly_rent > 0 ? `Rs ${r.monthly_rent.toLocaleString("en-IN")}` : "--",
+      r.monthly_cam > 0 ? `Rs ${r.monthly_cam.toLocaleString("en-IN")}` : "--",
+      r.total_outflow > 0 ? `Rs ${r.total_outflow.toLocaleString("en-IN")}` : "--",
+      r.super_area > 0 ? r.super_area.toLocaleString("en-IN") : "--",
+      r.rent_per_sqft > 0 ? `Rs ${r.rent_per_sqft}` : "--",
+      r.lease_expiry ? formatDate(r.lease_expiry) : "--",
+      r.days_to_expiry !== null ? String(r.days_to_expiry) : "--",
+      String(r.risk_flags_count),
+      r.revenue !== null ? `Rs ${r.revenue.toLocaleString("en-IN")}` : "--",
+      r.rent_to_revenue !== null ? `${r.rent_to_revenue.toFixed(1)}%` : "--",
+      r.overdue_amount > 0 ? `Rs ${r.overdue_amount.toLocaleString("en-IN")}` : "--",
+    ]);
+
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) return;
+
+    const html = `<!DOCTYPE html>
+<html><head><title>GroSpace Outlet Report</title>
+<style>
+  body { font-family: Arial, sans-serif; font-size: 9px; margin: 12px; }
+  h1 { font-size: 16px; margin-bottom: 4px; }
+  p { font-size: 10px; color: #666; margin-bottom: 12px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { border: 1px solid #ddd; padding: 4px 6px; text-align: left; white-space: nowrap; }
+  th { background: #f5f5f5; font-weight: 600; font-size: 8px; text-transform: uppercase; }
+  tr:nth-child(even) { background: #fafafa; }
+  @media print { body { margin: 0; } }
+</style></head><body>
+<h1>GroSpace — Outlet Report</h1>
+<p>Generated: ${new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })} &middot; ${filteredData.length} outlets</p>
+<table>
+  <thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead>
+  <tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${cell}</td>`).join("")}</tr>`).join("")}</tbody>
+</table>
+</body></html>`;
+
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.onload = () => {
+      printWindow.print();
+      printWindow.close();
+    };
+  }, [filteredData]);
 
   // ---------- Clear filters ----------
 
