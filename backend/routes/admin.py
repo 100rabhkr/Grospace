@@ -25,6 +25,75 @@ router = APIRouter(prefix="/api", tags=["admin"])
 
 
 # ============================================
+# SIGNUP REQUEST / APPROVAL ENDPOINTS
+# ============================================
+
+@router.get("/signup-requests", dependencies=[Depends(require_permission("manage_org_members"))])
+async def list_signup_requests(status: str = Query("pending")):
+    """List signup requests filtered by status."""
+    query = supabase.table("signup_requests").select("*").order("created_at", desc=True)
+    if status != "all":
+        query = query.eq("status", status)
+    result = query.execute()
+    return {"requests": result.data}
+
+
+@router.post("/signup-requests/{request_id}/approve", dependencies=[Depends(require_permission("manage_org_members"))])
+async def approve_signup_request(
+    request_id: str,
+    org_id: str = Form(...),
+    role: str = Form("org_member"),
+    full_access: bool = Form(False),
+    user: Optional[CurrentUser] = Depends(get_current_user),
+):
+    """Approve a signup request — assign user to org with role."""
+    # Get the signup request
+    req_result = supabase.table("signup_requests").select("*").eq("id", request_id).single().execute()
+    if not req_result.data:
+        raise HTTPException(status_code=404, detail="Signup request not found")
+
+    signup = req_result.data
+    if signup["status"] != "pending":
+        raise HTTPException(status_code=400, detail="Request already processed")
+
+    # Update user profile with org_id and role
+    profile_update = {
+        "org_id": org_id,
+        "role": role,
+    }
+    if full_access:
+        profile_update["full_access"] = True
+
+    if signup.get("name"):
+        profile_update["full_name"] = signup["name"]
+
+    supabase.table("profiles").update(profile_update).eq("id", signup["user_id"]).execute()
+
+    # Mark signup request as approved
+    supabase.table("signup_requests").update({
+        "status": "approved",
+        "reviewed_at": datetime.utcnow().isoformat(),
+        "reviewed_by": user.id if user else None,
+    }).eq("id", request_id).execute()
+
+    return {"ok": True, "user_id": signup["user_id"], "org_id": org_id, "role": role}
+
+
+@router.post("/signup-requests/{request_id}/reject", dependencies=[Depends(require_permission("manage_org_members"))])
+async def reject_signup_request(
+    request_id: str,
+    user: Optional[CurrentUser] = Depends(get_current_user),
+):
+    """Reject a signup request."""
+    supabase.table("signup_requests").update({
+        "status": "rejected",
+        "reviewed_at": datetime.utcnow().isoformat(),
+        "reviewed_by": user.id if user else None,
+    }).eq("id", request_id).execute()
+    return {"ok": True}
+
+
+# ============================================
 # ORGANIZATION ENDPOINTS
 # ============================================
 
@@ -276,6 +345,7 @@ async def seed_demo_data():
                 "property_type": "mall", "floor": "Ground Floor", "unit_number": "GF-127",
                 "super_area_sqft": 1850, "covered_area_sqft": 1550, "carpet_area_sqft": 1200,
                 "franchise_model": "FOFO", "status": "operational",
+                "deal_stage": "operational", "deal_priority": "medium",
             },
             {
                 "org_id": org_id, "name": "Phoenix MarketCity", "brand_name": "Tan Coffee",
@@ -284,6 +354,7 @@ async def seed_demo_data():
                 "property_type": "mall", "floor": "2nd Floor", "unit_number": "F-215",
                 "super_area_sqft": 2200, "covered_area_sqft": 1850, "carpet_area_sqft": 1450,
                 "franchise_model": "FOCO", "status": "operational",
+                "deal_stage": "operational", "deal_priority": "low",
             },
             {
                 "org_id": org_id, "name": "Indiranagar High Street", "brand_name": "Tan Coffee",
@@ -292,6 +363,7 @@ async def seed_demo_data():
                 "property_type": "high_street", "floor": "Ground Floor", "unit_number": "42",
                 "super_area_sqft": 1400, "covered_area_sqft": 1250, "carpet_area_sqft": 1050,
                 "franchise_model": "FOFO", "status": "fit_out",
+                "deal_stage": "fitout", "deal_priority": "high",
             },
             {
                 "org_id": org_id, "name": "Select Citywalk", "brand_name": "Tan Coffee",
@@ -300,6 +372,7 @@ async def seed_demo_data():
                 "property_type": "mall", "floor": "2nd Floor", "unit_number": "2-14",
                 "super_area_sqft": 1650, "covered_area_sqft": 1380, "carpet_area_sqft": 1100,
                 "franchise_model": "FOFO", "status": "up_for_renewal",
+                "deal_stage": "agreement", "deal_priority": "high",
             },
             {
                 "org_id": org_id, "name": "Palladium Chennai", "brand_name": "Tan Coffee",
@@ -308,6 +381,7 @@ async def seed_demo_data():
                 "property_type": "mall", "floor": "Ground Floor", "unit_number": "GF-08",
                 "super_area_sqft": 1300, "covered_area_sqft": 1100, "carpet_area_sqft": 900,
                 "franchise_model": "COCO", "status": "operational",
+                "deal_stage": "operational", "deal_priority": "medium",
             },
             {
                 "org_id": org_id, "name": "DLF CyberHub", "brand_name": "Tan Coffee",
@@ -316,6 +390,7 @@ async def seed_demo_data():
                 "property_type": "cyber_park", "floor": "3rd Floor", "unit_number": "CH-305",
                 "super_area_sqft": 1000, "covered_area_sqft": 850, "carpet_area_sqft": 700,
                 "franchise_model": "FOFO", "status": "pipeline",
+                "deal_stage": "negotiation", "deal_priority": "high",
             },
         ]
 

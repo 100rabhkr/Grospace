@@ -766,3 +766,33 @@ export async function deleteContact(contactId: string) {
     method: "DELETE",
   });
 }
+
+// ---------------------------------------------------------------------------
+// Signup Requests / Approvals
+// ---------------------------------------------------------------------------
+
+export async function listSignupRequests(status: string = "pending") {
+  return apiFetch(`/api/signup-requests?status=${status}`);
+}
+
+export async function approveSignupRequest(
+  requestId: string,
+  orgId: string,
+  role: string = "org_member",
+  fullAccess: boolean = false,
+) {
+  const form = new FormData();
+  form.append("org_id", orgId);
+  form.append("role", role);
+  form.append("full_access", String(fullAccess));
+  return apiFetch(`/api/signup-requests/${requestId}/approve`, {
+    method: "POST",
+    body: form,
+  });
+}
+
+export async function rejectSignupRequest(requestId: string) {
+  return apiFetch(`/api/signup-requests/${requestId}/reject`, {
+    method: "POST",
+  });
+}

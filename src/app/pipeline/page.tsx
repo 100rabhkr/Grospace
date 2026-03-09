@@ -1,12 +1,15 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import {
   DragDropContext,
   Droppable,
   Draggable,
   type DropResult,
+  type DraggableProvided,
+  type DraggableStateSnapshot,
 } from "@hello-pangea/dnd";
 import { getPipeline, movePipelineCard, updatePipelineDeal } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
@@ -26,6 +29,8 @@ import {
   ExternalLink,
   GripVertical,
   ChevronRight,
+  Ruler,
+  Building2,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 
@@ -42,6 +47,8 @@ interface PipelineOutlet {
   deal_stage_entered_at: string | null;
   deal_notes: string | null;
   deal_priority: string | null;
+  property_type: string | null;
+  super_area_sqft: number | null;
   created_at: string;
   agreements: { id: string; type: string; status: string; monthly_rent: number }[];
 }
@@ -52,8 +59,9 @@ const STAGES = [
   { key: "lead", label: "Lead", color: "bg-neutral-100 text-neutral-700" },
   { key: "site_visit", label: "Site Visit", color: "bg-blue-100 text-blue-700" },
   { key: "negotiation", label: "Negotiation", color: "bg-amber-100 text-amber-700" },
-  { key: "loi_signed", label: "LOI Signed", color: "bg-blue-100 text-blue-700" },
-  { key: "fit_out", label: "Fit-out", color: "bg-indigo-100 text-indigo-700" },
+  { key: "loi", label: "LOI", color: "bg-purple-100 text-purple-700" },
+  { key: "agreement", label: "Agreement", color: "bg-cyan-100 text-cyan-700" },
+  { key: "fitout", label: "Fitout", color: "bg-indigo-100 text-indigo-700" },
   { key: "operational", label: "Operational", color: "bg-emerald-100 text-emerald-700" },
 ];
 
@@ -79,6 +87,50 @@ function formatCurrency(amount: number): string {
     currency: "INR",
     maximumFractionDigits: 0,
   }).format(amount);
+}
+
+function formatPropertyType(type: string | null): string {
+  if (!type) return "";
+  return type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// ---------------------------------------------------------------------------
+// Portal for drag items — fixes cursor lag when dragging inside scrollable containers
+// ---------------------------------------------------------------------------
+
+function getDropStyle(style: React.CSSProperties | undefined, snapshot: DraggableStateSnapshot) {
+  if (!style) return {};
+  // When dropping, skip the drop animation — snap instantly
+  if (snapshot.isDropAnimating) {
+    return { ...style, transitionDuration: "0.001s" };
+  }
+  return style;
+}
+
+function PortalAwareDraggable({
+  provided,
+  snapshot,
+  children,
+}: {
+  provided: DraggableProvided;
+  snapshot: DraggableStateSnapshot;
+  children: React.ReactNode;
+}) {
+  const el = (
+    <div
+      ref={provided.innerRef}
+      {...provided.draggableProps}
+      {...provided.dragHandleProps}
+      style={getDropStyle(provided.draggableProps.style, snapshot)}
+    >
+      {children}
+    </div>
+  );
+
+  if (snapshot.isDragging) {
+    return createPortal(el, document.body);
+  }
+  return el;
 }
 
 // ---------------------------------------------------------------------------
@@ -303,6 +355,26 @@ export default function PipelinePage() {
                       </Link>
                     </div>
 
+                    {/* Area + Property Type */}
+                    <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                      {outlet.super_area_sqft != null && outlet.super_area_sqft > 0 && (
+                        <div className="flex items-center gap-1">
+                          <Ruler className="w-3 h-3 text-neutral-400" />
+                          <span className="text-xs text-neutral-500">
+                            {Number(outlet.super_area_sqft).toLocaleString()} sq ft
+                          </span>
+                        </div>
+                      )}
+                      {outlet.property_type && (
+                        <div className="flex items-center gap-1">
+                          <Building2 className="w-3 h-3 text-neutral-400" />
+                          <span className="text-xs text-neutral-500">
+                            {formatPropertyType(outlet.property_type)}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
                     <div className="flex items-center gap-2 mt-2 flex-wrap">
                       <button
                         onClick={() => handlePriorityToggle(outlet.id, outlet.deal_priority)}
@@ -390,26 +462,22 @@ export default function PipelinePage() {
                         {outlets.map((outlet, index) => (
                           <Draggable key={outlet.id} draggableId={outlet.id} index={index}>
                             {(dragProvided, dragSnapshot) => (
-                              <div
-                                ref={dragProvided.innerRef}
-                                {...dragProvided.draggableProps}
-                                className={`bg-white rounded-xl border-l-4 border p-3.5 transition-all ${
-                                  dragSnapshot.isDragging
-                                    ? "shadow-xl border-blue-300 border-l-blue-400"
-                                    : `shadow-sm hover:shadow-md border-neutral-200 ${
-                                        (outlet.deal_priority || "medium") === "high" ? "border-l-red-500" :
-                                        (outlet.deal_priority || "medium") === "low" ? "border-l-blue-400" :
-                                        "border-l-amber-400"
-                                      }`
-                                }`}
-                              >
-                                <div className="flex items-start gap-2">
-                                  <div
-                                    {...dragProvided.dragHandleProps}
-                                    className="mt-0.5 text-neutral-300 hover:text-neutral-500 cursor-grab"
-                                  >
-                                    <GripVertical className="w-3.5 h-3.5" />
-                                  </div>
+                              <PortalAwareDraggable provided={dragProvided} snapshot={dragSnapshot}>
+                                <div
+                                  className={`bg-white rounded-xl border-l-4 border p-3.5 ${
+                                    dragSnapshot.isDragging
+                                      ? "shadow-xl border-blue-300 border-l-blue-400 w-[284px]"
+                                      : `shadow-sm hover:shadow-md border-neutral-200 ${
+                                          (outlet.deal_priority || "medium") === "high" ? "border-l-red-500" :
+                                          (outlet.deal_priority || "medium") === "low" ? "border-l-blue-400" :
+                                          "border-l-amber-400"
+                                        }`
+                                  }`}
+                                >
+                                  <div className="flex items-start gap-2">
+                                    <div className="mt-0.5 text-neutral-300 hover:text-neutral-500 cursor-grab">
+                                      <GripVertical className="w-3.5 h-3.5" />
+                                    </div>
                                   <div className="flex-1 min-w-0">
                                     <div className="flex items-center justify-between gap-1">
                                       <Link
@@ -425,6 +493,8 @@ export default function PipelinePage() {
                                         <ExternalLink className="w-3 h-3" />
                                       </Link>
                                     </div>
+
+                                    {/* Location */}
                                     <div className="flex items-center gap-1 mt-1">
                                       <MapPin className="w-3 h-3 text-neutral-400" />
                                       <span className="text-xs text-neutral-600 truncate">
@@ -432,7 +502,27 @@ export default function PipelinePage() {
                                       </span>
                                     </div>
 
-                                    {/* Rent info */}
+                                    {/* Area + Property Type */}
+                                    <div className="flex items-center gap-3 mt-1.5">
+                                      {outlet.super_area_sqft != null && outlet.super_area_sqft > 0 && (
+                                        <div className="flex items-center gap-1">
+                                          <Ruler className="w-3 h-3 text-neutral-400" />
+                                          <span className="text-xs text-neutral-600">
+                                            {Number(outlet.super_area_sqft).toLocaleString()} sq ft
+                                          </span>
+                                        </div>
+                                      )}
+                                      {outlet.property_type && (
+                                        <div className="flex items-center gap-1">
+                                          <Building2 className="w-3 h-3 text-neutral-400" />
+                                          <span className="text-xs text-neutral-600">
+                                            {formatPropertyType(outlet.property_type)}
+                                          </span>
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    {/* Rent quoted */}
                                     {outlet.agreements?.[0]?.monthly_rent > 0 && (
                                       <p className="text-xs font-medium text-neutral-700 mt-1.5">
                                         {formatCurrency(outlet.agreements[0].monthly_rent)}/mo
@@ -471,6 +561,7 @@ export default function PipelinePage() {
                                   </div>
                                 </div>
                               </div>
+                              </PortalAwareDraggable>
                             )}
                           </Draggable>
                         ))}
