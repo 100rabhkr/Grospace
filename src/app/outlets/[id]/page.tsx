@@ -678,6 +678,79 @@ export default function OutletDetailPage() {
       </Dialog>
 
       {/* ----------------------------------------------------------------- */}
+      {/* KEY PEOPLE — extracted from agreements + contacts                  */}
+      {/* ----------------------------------------------------------------- */}
+      {(agreements.some(a => a.lessor_name || a.lessee_name) || contacts.length > 0) && (
+        <Card className="border-neutral-200 overflow-hidden">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
+                  <Users className="h-3.5 w-3.5 text-white" />
+                </div>
+                <CardTitle className="text-sm font-semibold">Key People</CardTitle>
+              </div>
+              {contacts.length > 0 && (
+                <Badge variant="secondary" className="text-[10px]">{contacts.length} contact{contacts.length !== 1 ? "s" : ""}</Badge>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {/* Lessor from primary agreement */}
+              {agreements[0]?.lessor_name && (
+                <div className="flex items-center gap-3 p-3 rounded-xl bg-neutral-50 border border-neutral-100">
+                  <div className="w-9 h-9 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                    <span className="text-xs font-bold text-amber-700">{agreements[0].lessor_name.charAt(0).toUpperCase()}</span>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-neutral-800 truncate">{agreements[0].lessor_name}</p>
+                    <p className="text-[10px] text-neutral-400">Lessor / Owner</p>
+                  </div>
+                </div>
+              )}
+              {/* Lessee from primary agreement */}
+              {agreements[0]?.lessee_name && (
+                <div className="flex items-center gap-3 p-3 rounded-xl bg-neutral-50 border border-neutral-100">
+                  <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                    <span className="text-xs font-bold text-blue-700">{agreements[0].lessee_name.charAt(0).toUpperCase()}</span>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-neutral-800 truncate">{agreements[0].lessee_name}</p>
+                    <p className="text-[10px] text-neutral-400">Lessee / Tenant</p>
+                  </div>
+                </div>
+              )}
+              {/* Top contacts */}
+              {contacts.slice(0, 4).map((c) => (
+                <div key={c.id} className="flex items-center gap-3 p-3 rounded-xl bg-neutral-50 border border-neutral-100">
+                  <div className="w-9 h-9 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
+                    <span className="text-xs font-bold text-emerald-700">{c.name.charAt(0).toUpperCase()}</span>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold text-neutral-800 truncate">{c.name}</p>
+                    <p className="text-[10px] text-neutral-400">{c.designation || "Contact"}</p>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    {c.phone && (
+                      <a href={`tel:${c.phone}`} className="text-neutral-400 hover:text-blue-600 transition-colors">
+                        <Phone className="h-3 w-3" />
+                      </a>
+                    )}
+                    {c.email && (
+                      <a href={`mailto:${c.email}`} className="text-neutral-400 hover:text-blue-600 transition-colors">
+                        <Mail className="h-3 w-3" />
+                      </a>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ----------------------------------------------------------------- */}
       {/* OUTLET DETAILS CARD                                               */}
       {/* ----------------------------------------------------------------- */}
       <Card className="border-neutral-200">
