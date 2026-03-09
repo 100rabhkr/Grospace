@@ -21,7 +21,7 @@ export function PageHeader({ title, description, backHref, children }: PageHeade
           variant="ghost"
           size="icon"
           className="h-8 w-8 shrink-0 text-neutral-400 hover:text-[#132337] hover:bg-slate-100"
-          onClick={() => (backHref ? router.push(backHref) : router.back())}
+          onClick={() => router.back()}
         >
           <ArrowLeft className="h-4 w-4" />
         </Button>

@@ -20,7 +20,6 @@ import {
   Users,
   Rocket,
   ArrowRight,
-  Files,
   ChevronDown,
   ChevronUp,
   ZoomIn,
@@ -342,19 +341,6 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
   );
 }
 
-type BulkFileItem = {
-  file: File;
-  status: "pending" | "extracting" | "extracted" | "activating" | "done" | "error";
-  error?: string;
-  result?: ExtractionResult;
-  activationResult?: {
-    agreement_id: number;
-    outlet_id: number;
-    obligations_count: number;
-    alerts_count: number;
-  };
-};
-
 export default function UploadAgreementPage() {
   const router = useRouter();
   const [step, setStep] = useState(1);
@@ -370,12 +356,6 @@ export default function UploadAgreementPage() {
     alerts_count: number;
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const bulkFileInputRef = useRef<HTMLInputElement>(null);
-
-  // Bulk upload state
-  const [uploadMode, setUploadMode] = useState<"single" | "bulk">("single");
-  const [bulkFiles, setBulkFiles] = useState<BulkFileItem[]>([]);
-  const [bulkProcessing, setBulkProcessing] = useState(false);
 
   // Split-screen review state
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
@@ -461,20 +441,6 @@ export default function UploadAgreementPage() {
     setIsDragOver(false);
     const files = Array.from(e.dataTransfer.files);
 
-    if (uploadMode === "bulk") {
-      const valid = files.filter(isValidFile);
-      if (valid.length === 0) {
-        setError("No valid PDF or image files found.");
-        return;
-      }
-      setBulkFiles((prev) => [
-        ...prev,
-        ...valid.map((f) => ({ file: f, status: "pending" as const })),
-      ]);
-      setError(null);
-      return;
-    }
-
     const file = files[0];
     if (file && isValidFile(file)) {
       setSelectedFile(file);
@@ -494,29 +460,10 @@ export default function UploadAgreementPage() {
     }
   }
 
-  function handleBulkFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files || []);
-    const valid = files.filter(isValidFile);
-    if (valid.length === 0) {
-      setError("No valid PDF or image files selected.");
-      return;
-    }
-    setBulkFiles((prev) => [
-      ...prev,
-      ...valid.map((f) => ({ file: f, status: "pending" as const })),
-    ]);
-    setError(null);
-    if (bulkFileInputRef.current) bulkFileInputRef.current.value = "";
-  }
-
   function handleRemoveFile() {
     setSelectedFile(null);
     setError(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
-  }
-
-  function removeBulkFile(index: number) {
-    setBulkFiles((prev) => prev.filter((_, i) => i !== index));
   }
 
   async function handleStartExtraction() {
@@ -539,96 +486,6 @@ export default function UploadAgreementPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Extraction failed. Please try again.");
       setStep(1);
-    }
-  }
-
-  async function handleBulkProcess() {
-    if (bulkFiles.length === 0) return;
-    setBulkProcessing(true);
-    setError(null);
-
-    for (let i = 0; i < bulkFiles.length; i++) {
-      if (bulkFiles[i].status !== "pending") continue;
-
-      // Mark as extracting
-      setBulkFiles((prev) => prev.map((f, idx) => idx === i ? { ...f, status: "extracting" } : f));
-
-      try {
-        const data = await uploadAndExtract(bulkFiles[i].file);
-        if (data.error && data.status === "partial" && Object.keys(data.extraction || {}).length === 0) {
-          setBulkFiles((prev) => prev.map((f, idx) => idx === i ? { ...f, status: "error", error: data.error } : f));
-          continue;
-        }
-
-        // Stop at "extracted" — let user review before activating
-        setBulkFiles((prev) => prev.map((f, idx) => idx === i ? { ...f, status: "extracted", result: data } : f));
-      } catch (err) {
-        setBulkFiles((prev) => prev.map((f, idx) => idx === i ? {
-          ...f,
-          status: "error",
-          error: err instanceof Error ? err.message : "Failed",
-        } : f));
-      }
-    }
-
-    setBulkProcessing(false);
-  }
-
-  async function handleBulkActivate(index: number) {
-    const item = bulkFiles[index];
-    if (!item?.result || item.status !== "extracted") return;
-
-    setBulkFiles((prev) => prev.map((f, idx) => idx === index ? { ...f, status: "activating" } : f));
-
-    try {
-      const activation = await confirmAndActivate({
-        extraction: item.result.extraction,
-        document_type: item.result.document_type,
-        risk_flags: item.result.risk_flags,
-        confidence: item.result.confidence,
-        filename: item.result.filename,
-        document_text: item.result.document_text,
-        document_url: item.result.document_url,
-      });
-      setBulkFiles((prev) => prev.map((f, idx) => idx === index ? { ...f, status: "done", activationResult: activation } : f));
-    } catch (err) {
-      setBulkFiles((prev) => prev.map((f, idx) => idx === index ? {
-        ...f,
-        status: "error",
-        error: err instanceof Error ? err.message : "Activation failed",
-      } : f));
-    }
-  }
-
-  async function handleBulkActivateAll() {
-    const extractedIndices = bulkFiles
-      .map((f, i) => f.status === "extracted" ? i : -1)
-      .filter((i) => i !== -1);
-
-    for (const idx of extractedIndices) {
-      await handleBulkActivate(idx);
-    }
-  }
-
-  async function handleBulkRetry(index: number) {
-    const item = bulkFiles[index];
-    if (!item || item.status !== "error") return;
-
-    setBulkFiles((prev) => prev.map((f, idx) => idx === index ? { ...f, status: "extracting", error: undefined } : f));
-
-    try {
-      const data = await uploadAndExtract(item.file);
-      if (data.error && data.status === "partial" && Object.keys(data.extraction || {}).length === 0) {
-        setBulkFiles((prev) => prev.map((f, idx) => idx === index ? { ...f, status: "error", error: data.error } : f));
-        return;
-      }
-      setBulkFiles((prev) => prev.map((f, idx) => idx === index ? { ...f, status: "extracted", result: data } : f));
-    } catch (err) {
-      setBulkFiles((prev) => prev.map((f, idx) => idx === index ? {
-        ...f,
-        status: "error",
-        error: err instanceof Error ? err.message : "Failed",
-      } : f));
     }
   }
 
@@ -662,7 +519,7 @@ export default function UploadAgreementPage() {
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       {/* Header */}
-      <PageHeader title="Upload Documents" description="Upload a lease, LOI, or license document for GroSpace AI-powered data extraction" backHref="/agreements" />
+      <PageHeader title="Upload Documents" description="Upload lease agreements or licence documents for AI-powered extraction" />
 
       {/* Step Indicator */}
       <div className="flex items-center gap-0">
@@ -721,287 +578,76 @@ export default function UploadAgreementPage() {
       {/* Step 1: Upload */}
       {step === 1 && (
         <div className="max-w-xl mx-auto space-y-6">
-          {/* Mode Toggle - Hidden for AHAAR demo */}
-
-          {uploadMode === "single" ? (
-            <>
-              <Card>
-                <CardContent className="pt-6">
-                  <h2 className="text-base font-semibold mb-4">Upload Document</h2>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tiff,.tif"
-                    className="hidden"
-                    onChange={handleFileSelect}
-                  />
-                  {!selectedFile ? (
-                    <div
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        setIsDragOver(true);
-                      }}
-                      onDragLeave={() => setIsDragOver(false)}
-                      onDrop={handleFileDrop}
-                      onClick={() => fileInputRef.current?.click()}
-                      className={`flex flex-col items-center justify-center border-2 border-dashed rounded-xl p-14 cursor-pointer transition-all ${
-                        isDragOver
-                          ? "border-black bg-neutral-50 scale-[1.01]"
-                          : "border-neutral-300 hover:border-neutral-400 hover:bg-neutral-50/50"
-                      }`}
-                    >
-                      <div className="h-14 w-14 rounded-full bg-neutral-100 flex items-center justify-center mb-4">
-                        <CloudUpload className="h-7 w-7 text-neutral-400" />
-                      </div>
-                      <p className="text-sm font-medium text-black mb-1">
-                        Drag and drop your document here
-                      </p>
-                      <p className="text-xs text-muted-foreground mb-3">
-                        or click to browse files
-                      </p>
-                      <Badge variant="outline" className="text-xs font-normal">PDF or image up to 50MB</Badge>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-3 p-4 rounded-xl border bg-neutral-50">
-                      <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${selectedFile?.type?.startsWith("image/") ? "bg-blue-100" : "bg-red-100"}`}>
-                        <FileText className={`h-5 w-5 ${selectedFile?.type?.startsWith("image/") ? "text-blue-600" : "text-red-600"}`} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{selectedFile.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {formatFileSize(selectedFile.size)}
-                        </p>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={handleRemoveFile}
-                        className="h-8 w-8 p-0 text-muted-foreground hover:text-red-600"
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              <div className="flex justify-end">
-                <Button
-                  onClick={handleStartExtraction}
-                  disabled={!selectedFile}
-                  className="gap-2 px-6"
+          <Card>
+            <CardContent className="pt-6">
+              <h2 className="text-base font-semibold mb-4">Upload Document</h2>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tiff,.tif"
+                className="hidden"
+                onChange={handleFileSelect}
+              />
+              {!selectedFile ? (
+                <div
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setIsDragOver(true);
+                  }}
+                  onDragLeave={() => setIsDragOver(false)}
+                  onDrop={handleFileDrop}
+                  onClick={() => fileInputRef.current?.click()}
+                  className={`flex flex-col items-center justify-center border-2 border-dashed rounded-xl p-14 cursor-pointer transition-all ${
+                    isDragOver
+                      ? "border-black bg-neutral-50 scale-[1.01]"
+                      : "border-neutral-300 hover:border-neutral-400 hover:bg-neutral-50/50"
+                  }`}
                 >
-                  Start GroSpace AI Extraction
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-            </>
-          ) : (
-            <>
-              <Card>
-                <CardContent className="pt-6">
-                  <h2 className="text-base font-semibold mb-2">Bulk Upload</h2>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    Select multiple files to extract. Review results before activating.
+                  <div className="h-14 w-14 rounded-full bg-neutral-100 flex items-center justify-center mb-4">
+                    <CloudUpload className="h-7 w-7 text-neutral-400" />
+                  </div>
+                  <p className="text-sm font-medium text-black mb-1">
+                    Drag and drop your document here
                   </p>
-                  <input
-                    ref={bulkFileInputRef}
-                    type="file"
-                    accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tiff,.tif"
-                    className="hidden"
-                    multiple
-                    onChange={handleBulkFileSelect}
-                  />
-                  <div
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      setIsDragOver(true);
-                    }}
-                    onDragLeave={() => setIsDragOver(false)}
-                    onDrop={handleFileDrop}
-                    onClick={() => bulkFileInputRef.current?.click()}
-                    className={`flex flex-col items-center justify-center border-2 border-dashed rounded-xl p-10 cursor-pointer transition-all ${
-                      isDragOver
-                        ? "border-black bg-neutral-50 scale-[1.01]"
-                        : "border-neutral-300 hover:border-neutral-400 hover:bg-neutral-50/50"
-                    }`}
-                  >
-                    <Files className="h-10 w-10 text-neutral-400 mb-3" />
-                    <p className="text-sm font-medium text-black mb-1">
-                      Drop multiple files or click to select
-                    </p>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    or click to browse files
+                  </p>
+                  <Badge variant="outline" className="text-xs font-normal">PDF or image up to 50MB</Badge>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3 p-4 rounded-xl border bg-neutral-50">
+                  <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${selectedFile?.type?.startsWith("image/") ? "bg-blue-100" : "bg-red-100"}`}>
+                    <FileText className={`h-5 w-5 ${selectedFile?.type?.startsWith("image/") ? "text-blue-600" : "text-red-600"}`} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{selectedFile.name}</p>
                     <p className="text-xs text-muted-foreground">
-                      PDF or image files up to 50MB each
+                      {formatFileSize(selectedFile.size)}
                     </p>
                   </div>
-
-                  {/* File Queue */}
-                  {bulkFiles.length > 0 && (
-                    <div className="mt-4 space-y-2">
-                      <p className="text-xs font-medium text-neutral-500 uppercase tracking-wide">
-                        {bulkFiles.length} file{bulkFiles.length !== 1 ? "s" : ""} queued
-                      </p>
-                      {bulkFiles.map((item, i) => (
-                        <div
-                          key={`${item.file.name}-${i}`}
-                          className={`flex items-center gap-3 p-3 rounded-lg border ${
-                            item.status === "done"
-                              ? "bg-emerald-50 border-emerald-200"
-                              : item.status === "error"
-                              ? "bg-red-50 border-red-200"
-                              : item.status === "extracted"
-                              ? "bg-amber-50 border-amber-200"
-                              : item.status === "extracting" || item.status === "activating"
-                              ? "bg-blue-50 border-blue-200"
-                              : "bg-neutral-50 border-neutral-200"
-                          }`}
-                        >
-                          {item.status === "extracting" || item.status === "activating" ? (
-                            <Loader2 className="h-4 w-4 animate-spin text-blue-600 flex-shrink-0" />
-                          ) : item.status === "done" ? (
-                            <Check className="h-4 w-4 text-emerald-600 flex-shrink-0" />
-                          ) : item.status === "error" ? (
-                            <AlertTriangle className="h-4 w-4 text-red-500 flex-shrink-0" />
-                          ) : item.status === "extracted" ? (
-                            <FileText className="h-4 w-4 text-amber-600 flex-shrink-0" />
-                          ) : (
-                            <FileText className="h-4 w-4 text-neutral-400 flex-shrink-0" />
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate">{item.file.name}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {formatFileSize(item.file.size)}
-                              {item.status === "extracting" && " — Extracting..."}
-                              {item.status === "activating" && " — Activating..."}
-                              {item.status === "extracted" && item.result && (() => {
-                                const fields = Object.values(item.result.extraction).reduce((acc, section) => {
-                                  if (typeof section === "object" && section !== null) {
-                                    return acc + Object.keys(section as Record<string, unknown>).length;
-                                  }
-                                  return acc;
-                                }, 0);
-                                return ` — ${fields} fields extracted · Ready for review`;
-                              })()}
-                              {item.status === "done" && " — Activated"}
-                              {item.status === "error" && ` — ${item.error || "Failed"}`}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-1.5 flex-shrink-0">
-                            {item.status === "pending" && !bulkProcessing && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => removeBulkFile(i)}
-                                className="h-7 w-7 p-0 text-muted-foreground hover:text-red-600"
-                              >
-                                <X className="h-3.5 w-3.5" />
-                              </Button>
-                            )}
-                            {item.status === "extracted" && (
-                              <div className="flex items-center gap-1.5">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="text-xs h-7 gap-1"
-                                  onClick={() => {
-                                    // Load this file into single review mode (step 3)
-                                    setSelectedFile(item.file);
-                                    setResult(item.result || null);
-                                    setUploadMode("single");
-                                    setStep(3);
-                                  }}
-                                >
-                                  <Eye className="h-3 w-3" />
-                                  Review
-                                </Button>
-                                <Button
-                                  variant="default"
-                                  size="sm"
-                                  className="text-xs h-7 gap-1"
-                                  onClick={() => handleBulkActivate(i)}
-                                >
-                                  <Rocket className="h-3 w-3" />
-                                  Activate
-                                </Button>
-                              </div>
-                            )}
-                            {item.status === "error" && !bulkProcessing && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="text-xs h-7"
-                                onClick={() => handleBulkRetry(i)}
-                              >
-                                Retry
-                              </Button>
-                            )}
-                            {item.status === "done" && item.activationResult && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="text-xs h-7"
-                                onClick={() => router.push(`/agreements/${item.activationResult!.agreement_id}`)}
-                              >
-                                View
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              <div className="flex items-center justify-between">
-                {bulkFiles.length > 0 && !bulkProcessing && (
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => setBulkFiles([])}
-                    className="text-sm text-muted-foreground"
+                    onClick={handleRemoveFile}
+                    className="h-8 w-8 p-0 text-muted-foreground hover:text-red-600"
                   >
-                    Clear All
-                  </Button>
-                )}
-                {bulkProcessing && (
-                  <p className="text-sm text-muted-foreground">
-                    Extracting {bulkFiles.filter((f) => f.status === "extracted" || f.status === "done" || f.status === "error").length + 1} of {bulkFiles.length}...
-                  </p>
-                )}
-                <div className="ml-auto flex items-center gap-2">
-                  {bulkFiles.some((f) => f.status === "extracted") && !bulkProcessing && (
-                    <Button
-                      variant="default"
-                      onClick={handleBulkActivateAll}
-                      className="gap-2 px-6"
-                    >
-                      <Rocket className="h-4 w-4" />
-                      Activate All ({bulkFiles.filter((f) => f.status === "extracted").length})
-                    </Button>
-                  )}
-                  <Button
-                    onClick={handleBulkProcess}
-                    disabled={bulkFiles.filter((f) => f.status === "pending").length === 0 || bulkProcessing}
-                    variant={bulkFiles.some((f) => f.status === "extracted") ? "outline" : "default"}
-                    className="gap-2 px-6"
-                  >
-                    {bulkProcessing ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Extracting...
-                      </>
-                    ) : (
-                      <>
-                        <CloudUpload className="h-4 w-4" />
-                        Extract All
-                      </>
-                    )}
+                    <X className="h-4 w-4" />
                   </Button>
                 </div>
-              </div>
-            </>
-          )}
+              )}
+            </CardContent>
+          </Card>
+
+          <div className="flex justify-end">
+            <Button
+              onClick={handleStartExtraction}
+              disabled={!selectedFile}
+              className="gap-2 px-6"
+            >
+              Start GroSpace AI Extraction
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       )}
 

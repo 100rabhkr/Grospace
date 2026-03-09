@@ -15,6 +15,7 @@ import {
   ChevronDown,
   LogOut,
   Kanban,
+  Bot,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -22,7 +23,7 @@ import { useUser } from "@/lib/hooks/use-user";
 
 const navItems = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
-  { label: "Pipeline", href: "/pipeline", icon: Kanban },
+  { label: "AI Assistant", href: "/ai-assistant", icon: Bot },
   {
     label: "Outlets",
     href: "/outlets",
@@ -41,6 +42,7 @@ const navItems = [
     ],
   },
   { label: "Alerts", href: "/alerts", icon: Bell },
+  { label: "Pipeline", href: "/pipeline", icon: Kanban },
   { label: "Payments", href: "/payments", icon: Wallet },
   { label: "Reports", href: "/reports", icon: BarChart3 },
   { label: "Settings", href: "/settings", icon: Settings },

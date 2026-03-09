@@ -13,6 +13,7 @@ import {
   Building2,
   LogOut,
   Kanban,
+  Bot,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/lib/hooks/use-user";
@@ -25,11 +26,12 @@ import {
 
 const navItems = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
-  { label: "Pipeline", href: "/pipeline", icon: Kanban },
+  { label: "AI Assistant", href: "/ai-assistant", icon: Bot },
   { label: "Outlets", href: "/outlets", icon: Store },
   { label: "Agreements", href: "/agreements", icon: FileText },
   { label: "Upload Documents", href: "/agreements/upload", icon: FileText },
   { label: "Alerts", href: "/alerts", icon: Bell },
+  { label: "Pipeline", href: "/pipeline", icon: Kanban },
   { label: "Payments", href: "/payments", icon: Wallet },
   { label: "Reports", href: "/reports", icon: BarChart3 },
   { label: "Settings", href: "/settings", icon: Settings },

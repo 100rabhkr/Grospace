@@ -908,7 +908,7 @@ async def smart_chat(request: Request, req: SmartChatRequest, user: Optional[Cur
                     "flag": f if isinstance(f, str) else f.get("flag", str(f)),
                 })
 
-    context = f"""You are GroSpace AI, a smart assistant for commercial real estate lease management.
+    context = f"""You are GrowBot AI, a smart assistant for commercial real estate lease management.
 The user manages a portfolio of {len(outlets)} outlet(s) with {len(agreements)} agreement(s).
 
 PORTFOLIO SUMMARY:
@@ -943,7 +943,13 @@ OVERDUE PAYMENTS:
 Answer the user's question based on this data. Be specific with numbers, outlet names, and dates.
 Format your response in clear, readable text. Use bullet points for lists.
 If the user asks about escalation struggles, focus on which outlets have high escalation rates and what their impact is.
-If asked for recommendations, be actionable and specific."""
+If asked for recommendations, be actionable and specific.
+
+IMPORTANT: If the user asks a general question about real estate, leasing, F&B operations, commercial property,
+licenses, compliance, or any business topic — answer it using your general knowledge even if the portfolio data
+doesn't contain the answer. You are a knowledgeable real estate AI assistant, not just a data query tool.
+For example, if someone asks "what is FSSAI" or "how does rent escalation work" or "what are typical CAM charges",
+answer from your knowledge. Never say you can't answer — always provide helpful information."""
 
     try:
         response = model.generate_content(
@@ -951,11 +957,27 @@ If asked for recommendations, be actionable and specific."""
             generation_config={"temperature": 0.3, "max_output_tokens": 4096},
         )
         if not response.candidates or not response.candidates[0].content.parts:
-            answer = "I'm sorry, I couldn't generate a response for that question. Please try rephrasing your question."
+            # Fallback: try a direct general-knowledge answer
+            try:
+                fallback_resp = model.generate_content(
+                    f"You are GrowBot AI, an expert assistant for commercial real estate, F&B chains, and retail operations. Answer this question helpfully:\n\n{question}",
+                    generation_config={"temperature": 0.3, "max_output_tokens": 2048},
+                )
+                answer = fallback_resp.text
+            except Exception:
+                answer = "I'm sorry, I couldn't generate a response for that question. Please try rephrasing your question."
         else:
             answer = response.text
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"AI generation failed: {str(e)}")
+    except Exception:
+        # Final fallback: try simpler prompt without portfolio context
+        try:
+            fallback_resp = model.generate_content(
+                f"You are GrowBot AI, a helpful real estate and business assistant. Answer concisely:\n\n{question}",
+                generation_config={"temperature": 0.3, "max_output_tokens": 2048},
+            )
+            answer = fallback_resp.text
+        except Exception:
+            answer = "I'm experiencing temporary issues but I'm still here to help. Could you please rephrase your question or try again in a moment?"
 
     return {
         "answer": answer,

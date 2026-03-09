@@ -365,16 +365,27 @@ async def extract_structured_data(text: str, doc_type: str) -> dict:
     }.get(doc_type, "document")
 
     prompt = (
-        f"You are a document extraction specialist for Indian commercial real estate. "
-        f"Extract the following fields from this {doc_type_label}. "
-        "Return valid JSON matching the schema below. "
-        "For each field, also return a confidence score: 'high', 'medium', 'low', or 'not_found'. "
-        "If a field's value is calculated from a formula (e.g., '60 days from handover'), "
-        "return the formula as a string rather than guessing a date.\n\n"
-        f"Schema:\n{json.dumps(schema, indent=2)}\n\n"
-        f"Document text:\n{text}"
+        f"You are an expert document extraction specialist for Indian commercial real estate with 20+ years experience. "
+        f"Your task is to VERY CAREFULLY extract data from this {doc_type_label}. "
+        "ACCURACY IS CRITICAL — every number, date, and name must be exact.\n\n"
+        "INSTRUCTIONS:\n"
+        "1. Read the ENTIRE document thoroughly before extracting ANY field.\n"
+        "2. For monetary amounts: Look for Rs., INR, ₹ symbols. Convert words like 'lakh' and 'crore' to numbers.\n"
+        "3. For dates: Use YYYY-MM-DD format. If only month/year given, use first of month.\n"
+        "4. For areas: Distinguish between super area, carpet area, and covered area carefully.\n"
+        "5. For rent: Check if the stated rent is monthly or annual — always return MONTHLY values.\n"
+        "6. For escalation: Look for phrases like 'escalation of X% every Y years' or 'annual increment'.\n"
+        "7. If a field's value is calculated from a formula (e.g., '60 days from handover'), "
+        "return the formula as a string rather than guessing a date.\n"
+        "8. For each field, also return a confidence score: 'high', 'medium', 'low', or 'not_found'.\n"
+        "9. Cross-verify extracted values — if rent is 2,85,000/month, total outflow should be >= that.\n"
+        "10. Pay special attention to: party names (lessor vs lessee), lock-in periods, notice periods.\n\n"
+        "Return valid JSON matching this schema:\n"
+        f"{json.dumps(schema, indent=2)}\n\n"
+        f"DOCUMENT TEXT:\n{text}"
     )
 
+    # First extraction pass
     response = model.generate_content(
         prompt,
         generation_config=genai.GenerationConfig(
@@ -386,7 +397,42 @@ async def extract_structured_data(text: str, doc_type: str) -> dict:
     result = json.loads(response.text)
     if isinstance(result, list) and len(result) > 0:
         result = result[0]
-    return result if isinstance(result, dict) else {}
+    if not isinstance(result, dict):
+        result = {}
+
+    # Verification pass — ask Gemini to double-check critical fields
+    if result and doc_type in ("lease_loi", "franchise_agreement"):
+        verify_prompt = (
+            "You previously extracted this data from a lease document. "
+            "VERIFY the following critical fields against the original text. "
+            "If ANY value is wrong, return the corrected JSON. If all correct, return the same JSON.\n\n"
+            "CRITICAL FIELDS TO VERIFY:\n"
+            "- Monthly rent amount (not annual)\n"
+            "- Party names (who is lessor vs lessee)\n"
+            "- Lease dates (commencement, expiry)\n"
+            "- Lock-in period\n"
+            "- Security deposit\n"
+            "- Area measurements\n\n"
+            f"Extracted data:\n{json.dumps(result, indent=2)}\n\n"
+            f"Original text (first 8000 chars):\n{text[:8000]}"
+        )
+        try:
+            verify_resp = model.generate_content(
+                verify_prompt,
+                generation_config=genai.GenerationConfig(
+                    response_mime_type="application/json",
+                    temperature=0,
+                ),
+            )
+            verified = json.loads(verify_resp.text)
+            if isinstance(verified, list) and len(verified) > 0:
+                verified = verified[0]
+            if isinstance(verified, dict) and verified:
+                result = verified
+        except Exception:
+            pass  # Keep original extraction if verification fails
+
+    return result
 
 
 async def extract_structured_data_vision(images: list, doc_type: str) -> dict:
@@ -409,14 +455,19 @@ async def extract_structured_data_vision(images: list, doc_type: str) -> dict:
     }.get(doc_type, "document")
 
     prompt = (
-        f"You are a document extraction specialist for Indian commercial real estate. "
-        f"Look at these document page images carefully. "
-        f"Extract the following fields from this {doc_type_label}. "
-        "Return valid JSON matching the schema below. "
-        "For each field, also return a confidence score: 'high', 'medium', 'low', or 'not_found'. "
-        "If a field's value is calculated from a formula (e.g., '60 days from handover'), "
-        "return the formula as a string rather than guessing a date. "
-        "If the document is handwritten, do your best to read the handwriting.\n\n"
+        f"You are an expert document extraction specialist for Indian commercial real estate with 20+ years experience. "
+        f"Look at ALL document page images VERY CAREFULLY. Read every word, number, and date.\n\n"
+        "ACCURACY IS CRITICAL — every number, date, and name must be exact.\n\n"
+        "INSTRUCTIONS:\n"
+        "1. Examine EVERY page thoroughly before extracting.\n"
+        "2. For monetary amounts: Look for Rs., INR, ₹. Convert 'lakh'/'crore' to numbers.\n"
+        "3. For dates: Use YYYY-MM-DD format.\n"
+        "4. For rent: Always return MONTHLY values.\n"
+        "5. Distinguish lessor (owner) from lessee (tenant) carefully.\n"
+        "6. For each field, return a confidence score: 'high', 'medium', 'low', or 'not_found'.\n"
+        "7. If handwritten, do your best to read accurately.\n"
+        "8. If a value is a formula (e.g., '60 days from handover'), return as string.\n\n"
+        f"Extract fields for this {doc_type_label}.\n"
         f"Schema:\n{json.dumps(schema, indent=2)}"
     )
 
