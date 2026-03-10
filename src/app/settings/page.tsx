@@ -43,6 +43,10 @@ import {
   Database,
   Plus,
   AlertTriangle,
+  MapPin,
+  Store,
+  Download,
+  FileText,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { useUser } from "@/lib/hooks/use-user";
@@ -106,6 +110,8 @@ type SignupRequest = {
   company: string;
   phone: string;
   email: string;
+  city?: string;
+  num_outlets?: number;
   status: "pending" | "approved" | "rejected";
   created_at: string;
 };
@@ -223,6 +229,7 @@ export default function SettingsPage() {
   const [signupRequests, setSignupRequests] = useState<SignupRequest[]>([]);
   const [loadingRequests, setLoadingRequests] = useState(true);
   const [orgs, setOrgs] = useState<OrgOption[]>([]);
+  const [approvalFeedback, setApprovalFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [approvalStates, setApprovalStates] = useState<Record<string, {
     orgId: string;
     role: string;
@@ -357,9 +364,110 @@ export default function SettingsPage() {
     fetchSignupRequests();
   }, [fetchSignupRequests]);
 
+  // Export all signup requests (all statuses) as CSV
+  async function exportCSV() {
+    try {
+      const allData = await listSignupRequests("all");
+      const rows: SignupRequest[] = allData.requests || [];
+      if (rows.length === 0) return;
+
+      const headers = ["Name", "Email", "Company", "Phone", "City", "Outlets", "Status", "Signed Up"];
+      const csvRows = [headers.join(",")];
+      for (const r of rows) {
+        csvRows.push([
+          `"${(r.name || "").replace(/"/g, '""')}"`,
+          `"${(r.email || "").replace(/"/g, '""')}"`,
+          `"${(r.company || "").replace(/"/g, '""')}"`,
+          `"${(r.phone || "").replace(/"/g, '""')}"`,
+          `"${(r.city || "").replace(/"/g, '""')}"`,
+          r.num_outlets ?? "",
+          r.status,
+          new Date(r.created_at).toLocaleString("en-IN"),
+        ].join(","));
+      }
+
+      const blob = new Blob([csvRows.join("\n")], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `signup_requests_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      // silently handle
+    }
+  }
+
+  // Export all signup requests as PDF
+  async function exportPDF() {
+    try {
+      const allData = await listSignupRequests("all");
+      const rows: SignupRequest[] = allData.requests || [];
+      if (rows.length === 0) return;
+
+      // Build HTML table for print
+      const tableRows = rows.map((r) => `
+        <tr>
+          <td style="padding:6px 10px;border:1px solid #ddd;">${r.name || ""}</td>
+          <td style="padding:6px 10px;border:1px solid #ddd;">${r.email || ""}</td>
+          <td style="padding:6px 10px;border:1px solid #ddd;">${r.company || ""}</td>
+          <td style="padding:6px 10px;border:1px solid #ddd;">${r.phone || ""}</td>
+          <td style="padding:6px 10px;border:1px solid #ddd;">${r.city || ""}</td>
+          <td style="padding:6px 10px;border:1px solid #ddd;">${r.num_outlets ?? ""}</td>
+          <td style="padding:6px 10px;border:1px solid #ddd;text-transform:capitalize;">${r.status}</td>
+          <td style="padding:6px 10px;border:1px solid #ddd;">${new Date(r.created_at).toLocaleString("en-IN")}</td>
+        </tr>
+      `).join("");
+
+      const html = `
+        <html>
+        <head>
+          <title>Signup Requests - GroSpace</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 30px; color: #1a1a1a; }
+            h1 { font-size: 20px; margin-bottom: 4px; }
+            p.subtitle { font-size: 12px; color: #666; margin-bottom: 20px; }
+            table { border-collapse: collapse; width: 100%; font-size: 12px; }
+            th { padding: 8px 10px; border: 1px solid #ddd; background: #132337; color: white; text-align: left; font-weight: 600; }
+            @media print { body { padding: 10px; } }
+          </style>
+        </head>
+        <body>
+          <h1>GroSpace — Signup Requests</h1>
+          <p class="subtitle">Exported on ${new Date().toLocaleString("en-IN")} &bull; Total: ${rows.length} requests</p>
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th><th>Email</th><th>Company</th><th>Phone</th><th>City</th><th>Outlets</th><th>Status</th><th>Signed Up</th>
+              </tr>
+            </thead>
+            <tbody>${tableRows}</tbody>
+          </table>
+        </body>
+        </html>
+      `;
+
+      const printWindow = window.open("", "_blank");
+      if (printWindow) {
+        printWindow.document.write(html);
+        printWindow.document.close();
+        printWindow.focus();
+        setTimeout(() => printWindow.print(), 300);
+      }
+    } catch {
+      // silently handle
+    }
+  }
+
+  function showFeedback(type: "success" | "error", message: string) {
+    setApprovalFeedback({ type, message });
+    setTimeout(() => setApprovalFeedback(null), 4000);
+  }
+
   async function handleApprove(requestId: string) {
     const state = approvalStates[requestId];
     if (!state) return;
+    const reqName = signupRequests.find((r) => r.id === requestId)?.name || "User";
 
     let targetOrgId = state.orgId;
 
@@ -370,14 +478,14 @@ export default function SettingsPage() {
         const res = await createOrganization(state.newOrgName.trim());
         targetOrgId = res.organization.id;
       } catch {
-        alert("Failed to create organization");
+        showFeedback("error", "Failed to create organization");
         setApprovalStates((prev) => ({ ...prev, [requestId]: { ...prev[requestId], processing: false } }));
         return;
       }
     }
 
     if (!targetOrgId || targetOrgId === "__new__") {
-      alert("Please select or create an organization");
+      showFeedback("error", "Please select or create an organization");
       return;
     }
 
@@ -385,8 +493,9 @@ export default function SettingsPage() {
     try {
       await approveSignupRequest(requestId, targetOrgId, state.role, state.fullAccess);
       setSignupRequests((prev) => prev.filter((r) => r.id !== requestId));
+      showFeedback("success", `${reqName} has been approved successfully`);
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to approve");
+      showFeedback("error", err instanceof Error ? err.message : "Failed to approve request");
     } finally {
       setApprovalStates((prev) => ({ ...prev, [requestId]: { ...prev[requestId], processing: false } }));
     }
@@ -394,12 +503,14 @@ export default function SettingsPage() {
 
   async function handleReject(requestId: string) {
     if (!confirm("Reject this signup request?")) return;
+    const reqName = signupRequests.find((r) => r.id === requestId)?.name || "User";
     setApprovalStates((prev) => ({ ...prev, [requestId]: { ...prev[requestId], processing: true } }));
     try {
       await rejectSignupRequest(requestId);
       setSignupRequests((prev) => prev.filter((r) => r.id !== requestId));
-    } catch {
-      // handle
+      showFeedback("success", `${reqName} has been rejected`);
+    } catch (err) {
+      showFeedback("error", err instanceof Error ? err.message : "Failed to reject request");
     } finally {
       setApprovalStates((prev) => ({ ...prev, [requestId]: { ...prev[requestId], processing: false } }));
     }
@@ -872,13 +983,37 @@ export default function SettingsPage() {
         {/* ============================================================= */}
         <TabsContent value="approvals" className="mt-6 space-y-4">
           <Card>
-            <CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-base flex items-center gap-2">
                 <Clock className="h-4 w-4" />
                 Pending Sign-up Requests
               </CardTitle>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" className="gap-1.5 text-xs h-8" onClick={exportCSV}>
+                  <Download className="h-3.5 w-3.5" />
+                  CSV
+                </Button>
+                <Button variant="outline" size="sm" className="gap-1.5 text-xs h-8" onClick={exportPDF}>
+                  <FileText className="h-3.5 w-3.5" />
+                  PDF
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
+              {approvalFeedback && (
+                <div className={`mb-4 px-4 py-3 rounded-lg text-sm flex items-center gap-2 ${
+                  approvalFeedback.type === "success"
+                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                    : "bg-red-50 text-red-700 border border-red-200"
+                }`}>
+                  {approvalFeedback.type === "success" ? (
+                    <CheckCircle className="h-4 w-4 shrink-0" />
+                  ) : (
+                    <AlertTriangle className="h-4 w-4 shrink-0" />
+                  )}
+                  {approvalFeedback.message}
+                </div>
+              )}
               {loadingRequests ? (
                 <div className="flex items-center gap-2 text-neutral-400 py-8 justify-center">
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -910,6 +1045,18 @@ export default function SettingsPage() {
                               )}
                               {req.phone && (
                                 <span>{req.phone}</span>
+                              )}
+                              {req.city && (
+                                <span className="flex items-center gap-1">
+                                  <MapPin className="h-3 w-3" />
+                                  {req.city}
+                                </span>
+                              )}
+                              {req.num_outlets != null && req.num_outlets > 0 && (
+                                <span className="flex items-center gap-1">
+                                  <Store className="h-3 w-3" />
+                                  {req.num_outlets} outlets
+                                </span>
                               )}
                               <span>
                                 {new Date(req.created_at).toLocaleDateString("en-IN", {

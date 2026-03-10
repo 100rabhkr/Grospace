@@ -19,8 +19,9 @@ async function getAuthToken(): Promise<string | null> {
 
 async function apiFetch(endpoint: string, options: RequestInit = {}) {
   const token = await getAuthToken();
+  const isFormData = options.body instanceof FormData;
   const headers: Record<string, string> = {
-    "Content-Type": "application/json",
+    ...(isFormData ? {} : { "Content-Type": "application/json" }),
     ...(options.headers as Record<string, string>),
   };
   if (token) {
@@ -34,7 +35,8 @@ async function apiFetch(endpoint: string, options: RequestInit = {}) {
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: "Request failed" }));
-    throw new Error(error.detail || `API error: ${response.status}`);
+    const detail = typeof error.detail === "string" ? error.detail : JSON.stringify(error.detail) || `API error: ${response.status}`;
+    throw new Error(detail);
   }
 
   return response.json();
