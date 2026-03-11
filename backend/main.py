@@ -5,12 +5,15 @@ Deployed on Railway.
 """
 
 import os
+import asyncio
 from datetime import datetime
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from core.config import limiter
 
@@ -22,6 +25,19 @@ from routes import auth, documents, outlets, agreements, payments, alerts, pipel
 # ============================================
 
 app = FastAPI(title="GroSpace AI Service", version="1.0.0")
+
+# Request timeout middleware — kills any request that takes longer than 30s
+class TimeoutMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        try:
+            return await asyncio.wait_for(call_next(request), timeout=30.0)
+        except asyncio.TimeoutError:
+            return JSONResponse(
+                status_code=504,
+                content={"detail": "Request timed out. Please try again."},
+            )
+
+app.add_middleware(TimeoutMiddleware)
 
 # Rate limiter
 app.state.limiter = limiter

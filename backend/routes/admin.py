@@ -4,6 +4,7 @@ Admin endpoints, cron triggers, org management, seed data, dashboard, smart chat
 
 import os
 import json
+import asyncio
 from typing import Optional
 from datetime import datetime, date, timedelta
 from dateutil.relativedelta import relativedelta
@@ -248,11 +249,14 @@ async def remove_org_member(org_id: str, user_id: str):
 @router.get("/dashboard", dependencies=[Depends(require_permission("view_reports"))])
 async def dashboard_stats():
     """Get dashboard statistics."""
-    outlets = supabase.table("outlets").select("id, name, status, city, property_type, franchise_model, monthly_net_revenue, deal_stage").execute()
-    agreements = supabase.table("agreements").select("id, outlet_id, status, monthly_rent, cam_monthly, total_monthly_outflow, lease_expiry_date, risk_flags").execute()
-    supabase.table("obligations").select("id, type, amount, is_active").execute()
-    alerts = supabase.table("alerts").select("id, type, severity, status, trigger_date").execute()
-    payments = supabase.table("payment_records").select("id, status, due_amount").execute()
+    # Run all sync Supabase queries in threads to avoid blocking the event loop
+    outlets, agreements, _, alerts, payments = await asyncio.gather(
+        asyncio.to_thread(lambda: supabase.table("outlets").select("id, name, status, city, property_type, franchise_model, monthly_net_revenue, deal_stage").execute()),
+        asyncio.to_thread(lambda: supabase.table("agreements").select("id, outlet_id, status, monthly_rent, cam_monthly, total_monthly_outflow, lease_expiry_date, risk_flags").execute()),
+        asyncio.to_thread(lambda: supabase.table("obligations").select("id, type, amount, is_active").execute()),
+        asyncio.to_thread(lambda: supabase.table("alerts").select("id, type, severity, status, trigger_date").execute()),
+        asyncio.to_thread(lambda: supabase.table("payment_records").select("id, status, due_amount").execute()),
+    )
 
     total_outlets = len(outlets.data)
     total_agreements = len(agreements.data)
