@@ -10,7 +10,7 @@ from core.config import supabase, ROLE_PERMISSIONS
 from core.models import CurrentUser
 
 
-async def get_current_user(authorization: Optional[str] = Header(None)) -> Optional[CurrentUser]:
+def get_current_user(authorization: Optional[str] = Header(None)) -> Optional[CurrentUser]:
     """Extract and validate user from Supabase JWT. Returns None if unauthenticated."""
     if not authorization or not authorization.startswith("Bearer "):
         return None
@@ -50,7 +50,7 @@ def check_role_permission(user_role: str, action: str) -> bool:
 
 def require_permission(action: str):
     """FastAPI dependency that checks role permission. Use with Depends()."""
-    async def _check(request: Request, authorization: Optional[str] = Header(None)):
+    def _check(request: Request, authorization: Optional[str] = Header(None)):
         # Extract user from auth token
         user = None
         if authorization and authorization.startswith("Bearer "):

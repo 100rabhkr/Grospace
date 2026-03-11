@@ -26,11 +26,20 @@ from routes import auth, documents, outlets, agreements, payments, alerts, pipel
 
 app = FastAPI(title="GroSpace AI Service", version="1.0.0")
 
-# Request timeout middleware — kills any request that takes longer than 30s
+# Endpoints that involve AI processing need longer timeouts
+_LONG_TIMEOUT_PATHS = {
+    "/api/upload-and-extract", "/api/extract", "/api/qa",
+    "/api/risk-flags", "/api/classify", "/api/smart-chat",
+    "/api/portfolio-qa", "/api/seed", "/api/cron",
+}
+
+# Request timeout middleware — kills hung requests
 class TimeoutMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        timeout = 180.0 if any(path.startswith(p) for p in _LONG_TIMEOUT_PATHS) else 30.0
         try:
-            return await asyncio.wait_for(call_next(request), timeout=30.0)
+            return await asyncio.wait_for(call_next(request), timeout=timeout)
         except asyncio.TimeoutError:
             return JSONResponse(
                 status_code=504,

@@ -33,7 +33,7 @@ _processing_times: deque = deque(maxlen=100)
 
 
 @router.get("/processing-estimate")
-async def get_processing_estimate():
+def get_processing_estimate():
     """Return average processing times from recent extractions for accurate UI estimates."""
     if len(_processing_times) == 0:
         return {
@@ -371,7 +371,7 @@ async def risk_flags_endpoint(request: Request, req: RiskFlagRequest):
 # ============================================
 
 @router.get("/outlets/{outlet_id}/documents", dependencies=[Depends(require_permission("view_outlets"))])
-async def list_outlet_documents(outlet_id: str):
+def list_outlet_documents(outlet_id: str):
     """List all documents for an outlet."""
     result = supabase.table("documents").select("*").eq("outlet_id", outlet_id).order("uploaded_at", desc=True).execute()
     return {"documents": result.data if result.data else []}
@@ -436,7 +436,7 @@ async def upload_outlet_document(
 
 
 @router.delete("/documents/{document_id}", dependencies=[Depends(require_permission("delete_outlets"))])
-async def delete_document(document_id: str, user: Optional[CurrentUser] = Depends(get_current_user)):
+def delete_document(document_id: str, user: Optional[CurrentUser] = Depends(get_current_user)):
     """Delete a document."""
     doc = supabase.table("documents").select("id, org_id, file_url, filename, outlet_id").eq("id", document_id).single().execute()
     if not doc.data:

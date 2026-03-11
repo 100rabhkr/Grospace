@@ -24,7 +24,7 @@ router = APIRouter(prefix="/api", tags=["agreements"])
 
 
 @router.get("/test-sheets")
-async def test_sheets_write():
+def test_sheets_write():
     """Debug endpoint to test Google Sheets integration."""
     import os
     import traceback
@@ -100,7 +100,7 @@ async def test_sheets_write():
 
 
 @router.get("/agreements", dependencies=[Depends(require_permission("view_agreements"))])
-async def list_agreements(
+def list_agreements(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
 ):
@@ -115,7 +115,7 @@ async def list_agreements(
 
 
 @router.get("/agreements/{agreement_id}", dependencies=[Depends(require_permission("view_agreements"))])
-async def get_agreement(agreement_id: str):
+def get_agreement(agreement_id: str):
     """Get a single agreement with full details."""
     result = supabase.table("agreements").select("*, outlets(*)").eq("id", agreement_id).single().execute()
     if not result.data:
@@ -132,7 +132,7 @@ async def get_agreement(agreement_id: str):
 
 
 @router.patch("/agreements/{agreement_id}", dependencies=[Depends(require_permission("edit_agreements"))])
-async def update_agreement(agreement_id: str, body: UpdateAgreementRequest):
+def update_agreement(agreement_id: str, body: UpdateAgreementRequest):
     """Update extracted fields on an agreement (sparse dot-notation merge)."""
     current = supabase.table("agreements").select("extracted_data").eq("id", agreement_id).single().execute()
     if not current.data:
@@ -333,7 +333,7 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
 
 
 @router.patch("/agreements/{agreement_id}/save-draft", dependencies=[Depends(require_permission("edit_agreements"))])
-async def save_as_draft(agreement_id: str, body: SaveDraftRequest):
+def save_as_draft(agreement_id: str, body: SaveDraftRequest):
     """Save extraction as draft without creating obligations/alerts."""
     current = supabase.table("agreements").select("id").eq("id", agreement_id).single().execute()
     if not current.data:

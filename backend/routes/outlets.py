@@ -15,7 +15,7 @@ router = APIRouter(prefix="/api", tags=["outlets"])
 
 
 @router.get("/outlets", dependencies=[Depends(require_permission("view_outlets"))])
-async def list_outlets(
+def list_outlets(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
 ):
@@ -30,7 +30,7 @@ async def list_outlets(
 
 
 @router.get("/outlets/{outlet_id}", dependencies=[Depends(require_permission("view_outlets"))])
-async def get_outlet(outlet_id: str):
+def get_outlet(outlet_id: str):
     """Get a single outlet with agreements, obligations, alerts, and documents."""
     result = supabase.table("outlets").select("*").eq("id", outlet_id).single().execute()
     if not result.data:
@@ -51,7 +51,7 @@ async def get_outlet(outlet_id: str):
 
 
 @router.patch("/outlets/{outlet_id}", dependencies=[Depends(require_permission("edit_outlets"))])
-async def update_outlet(outlet_id: str, req: UpdateOutletRequest, user: Optional[CurrentUser] = Depends(get_current_user)):
+def update_outlet(outlet_id: str, req: UpdateOutletRequest, user: Optional[CurrentUser] = Depends(get_current_user)):
     """Update outlet fields (revenue, status)."""
     current = supabase.table("outlets").select("status, monthly_net_revenue, org_id").eq("id", outlet_id).single().execute()
     if not current.data:

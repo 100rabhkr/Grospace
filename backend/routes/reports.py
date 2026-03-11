@@ -15,7 +15,7 @@ router = APIRouter(prefix="/api", tags=["reports"])
 
 
 @router.get("/reports", dependencies=[Depends(require_permission("view_reports"))])
-async def get_reports(user: Optional[CurrentUser] = Depends(get_current_user)):
+def get_reports(user: Optional[CurrentUser] = Depends(get_current_user)):
     """Joined outlet report: outlets + agreements + payments for the report table."""
     org_id = get_org_filter(user)
 

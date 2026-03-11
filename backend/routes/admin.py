@@ -30,7 +30,7 @@ router = APIRouter(prefix="/api", tags=["admin"])
 # ============================================
 
 @router.get("/signup-requests", dependencies=[Depends(require_permission("manage_org_members"))])
-async def list_signup_requests(status: str = Query("pending")):
+def list_signup_requests(status: str = Query("pending")):
     """List signup requests filtered by status."""
     query = supabase.table("signup_requests").select("*").order("created_at", desc=True)
     if status != "all":
@@ -40,7 +40,7 @@ async def list_signup_requests(status: str = Query("pending")):
 
 
 @router.post("/signup-requests/{request_id}/approve", dependencies=[Depends(require_permission("manage_org_members"))])
-async def approve_signup_request(
+def approve_signup_request(
     request_id: str,
     org_id: str = Form(...),
     role: str = Form("org_member"),
@@ -81,7 +81,7 @@ async def approve_signup_request(
 
 
 @router.post("/signup-requests/{request_id}/reject", dependencies=[Depends(require_permission("manage_org_members"))])
-async def reject_signup_request(
+def reject_signup_request(
     request_id: str,
     user: Optional[CurrentUser] = Depends(get_current_user),
 ):
@@ -99,7 +99,7 @@ async def reject_signup_request(
 # ============================================
 
 @router.get("/organizations", dependencies=[Depends(require_permission("manage_org_settings"))])
-async def list_organizations(
+def list_organizations(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
 ):
@@ -112,14 +112,14 @@ async def list_organizations(
 
 
 @router.post("/organizations", dependencies=[Depends(require_permission("manage_org_settings"))])
-async def create_organization(name: str = Form(...)):
+def create_organization(name: str = Form(...)):
     """Create a new organization."""
     result = supabase.table("organizations").insert({"name": name}).execute()
     return {"organization": result.data[0]}
 
 
 @router.get("/organizations/{org_id}", dependencies=[Depends(require_permission("manage_org_settings"))])
-async def get_organization(org_id: str):
+def get_organization(org_id: str):
     """Get a single organization with its outlets and agreements."""
     result = supabase.table("organizations").select("*").eq("id", org_id).single().execute()
     if not result.data:
@@ -138,7 +138,7 @@ async def get_organization(org_id: str):
 
 
 @router.patch("/organizations/{org_id}", dependencies=[Depends(require_permission("manage_org_settings"))])
-async def update_organization(org_id: str, req: UpdateOrganizationRequest):
+def update_organization(org_id: str, req: UpdateOrganizationRequest):
     """Update organization name/settings."""
     update_data: dict = {}
     if req.name is not None:
@@ -157,7 +157,7 @@ async def update_organization(org_id: str, req: UpdateOrganizationRequest):
 
 
 @router.get("/organizations/{org_id}/members", dependencies=[Depends(require_permission("manage_org_members"))])
-async def list_org_members(
+def list_org_members(
     org_id: str,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
@@ -171,7 +171,7 @@ async def list_org_members(
 
 
 @router.post("/organizations/{org_id}/invite", dependencies=[Depends(require_permission("manage_org_members"))])
-async def invite_org_member(org_id: str, req: InviteMemberRequest):
+def invite_org_member(org_id: str, req: InviteMemberRequest):
     """Invite a member -- uses Supabase Auth admin invite, then updates profile with org/role."""
     try:
         existing = supabase.table("profiles").select("id, org_id").eq("email", req.email).execute()
@@ -234,7 +234,7 @@ async def invite_org_member(org_id: str, req: InviteMemberRequest):
 
 
 @router.delete("/organizations/{org_id}/members/{user_id}", dependencies=[Depends(require_permission("manage_org_members"))])
-async def remove_org_member(org_id: str, user_id: str):
+def remove_org_member(org_id: str, user_id: str):
     """Remove a member from the organization."""
     result = supabase.table("profiles").delete().eq("id", user_id).eq("org_id", org_id).execute()
     if not result.data:
@@ -336,7 +336,7 @@ async def dashboard_stats():
 # ============================================
 
 @router.post("/seed", dependencies=[Depends(require_permission("manage_org_settings"))])
-async def seed_demo_data():
+def seed_demo_data():
     """Seed 6 realistic demo outlets with agreements, obligations, and alerts."""
     try:
         org_id = get_or_create_demo_org()
@@ -633,7 +633,7 @@ async def seed_demo_data():
 
 
 @router.delete("/seed", dependencies=[Depends(require_permission("manage_org_settings"))])
-async def remove_seed_data():
+def remove_seed_data():
     """Remove only demo/seeded data by looking up IDs stored during seeding."""
     try:
         # Find all seed_demo_data activity log entries to get seeded IDs
@@ -692,7 +692,7 @@ async def remove_seed_data():
 # ============================================
 
 @router.post("/digest/send", dependencies=[Depends(require_permission("view_reports"))])
-async def send_digest(cron_secret: Optional[str] = Header(None, alias="X-Cron-Secret")):
+def send_digest(cron_secret: Optional[str] = Header(None, alias="X-Cron-Secret")):
     """Collect today's alerts + overdue payments per org and return digest data."""
     today = date.today()
 
@@ -736,7 +736,7 @@ async def send_digest(cron_secret: Optional[str] = Header(None, alias="X-Cron-Se
                 admin_emails = []
 
             if admin_emails:
-                preview_result = await preview_digest(org_id=d["org_id"])
+                preview_result = preview_digest(org_id=d["org_id"])
                 html_body = preview_result.get("html", "")
                 subject = f"[GroSpace] Daily Digest — {d['org_name']} — {today.strftime('%b %d')}"
                 for email in admin_emails:
@@ -752,7 +752,7 @@ async def send_digest(cron_secret: Optional[str] = Header(None, alias="X-Cron-Se
 
 
 @router.post("/digest/preview", dependencies=[Depends(require_permission("view_reports"))])
-async def preview_digest(org_id: str = Query(...)):
+def preview_digest(org_id: str = Query(...)):
     """Return HTML preview of what the digest email would look like."""
     today = date.today()
 
@@ -1195,14 +1195,14 @@ def run_email_digest() -> dict:
 
 
 @router.post("/admin/run-transitions", dependencies=[Depends(require_permission("manage_org_settings"))])
-async def api_run_transitions():
+def api_run_transitions():
     """Manually trigger agreement/outlet status transitions."""
     result = run_agreement_status_transitions()
     return {"status": "ok", **result}
 
 
 @router.post("/admin/run-cron/{job_name}", dependencies=[Depends(require_permission("manage_org_settings"))])
-async def api_run_cron(job_name: str):
+def api_run_cron(job_name: str):
     """Manually trigger a cron job."""
     jobs = {
         "alert_engine": run_alert_engine,
@@ -1217,7 +1217,7 @@ async def api_run_cron(job_name: str):
 
 
 @router.post("/cron/agreement-transitions", dependencies=[Depends(require_permission("manage_org_settings"))])
-async def cron_agreement_transitions():
+def cron_agreement_transitions():
     """Manually trigger agreement status transitions."""
     today = date.today()
     updated = {"to_expiring": 0, "to_expired": 0}
@@ -1250,7 +1250,7 @@ async def cron_agreement_transitions():
 
 
 @router.post("/cron/payment-status-update", dependencies=[Depends(require_permission("manage_org_settings"))])
-async def cron_payment_status_update():
+def cron_payment_status_update():
     """Mark overdue payments automatically."""
     today = date.today()
     pending = supabase.table("payment_records").select("id, due_date").in_("status", ["pending", "due", "upcoming"]).execute().data or []
@@ -1269,7 +1269,7 @@ async def cron_payment_status_update():
 
 
 @router.post("/cron/escalation-calculator", dependencies=[Depends(require_permission("manage_org_settings"))])
-async def cron_escalation_calculator():
+def cron_escalation_calculator():
     """Check and apply rent escalations that are due."""
     today = date.today()
     escalated = 0
@@ -1347,7 +1347,7 @@ ROLE_TIER_INFO = {
 
 
 @router.get("/api/role-tiers")
-async def get_role_tiers():
+def get_role_tiers():
     """Return role tier metadata for frontend display."""
     return ROLE_TIER_INFO
 
@@ -1376,12 +1376,12 @@ def _sync_feedback_to_google_sheets(feedback_data: dict):
 
 
 @router.post("/feedback", dependencies=[Depends(require_permission("view_agreements"))])
-async def submit_feedback(
+def submit_feedback(
     req: FeedbackRequest,
     authorization: Optional[str] = Header(None),
 ):
     """Submit extraction feedback for a field."""
-    user = await get_current_user(authorization)
+    user = get_current_user(authorization)
 
     # agreement_id may be a filename (pre-confirmation) or a UUID
     agr_id = req.agreement_id
@@ -1415,7 +1415,7 @@ async def submit_feedback(
 
 
 @router.get("/feedback", dependencies=[Depends(require_permission("view_agreements"))])
-async def list_feedback(
+def list_feedback(
     org_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
@@ -1440,7 +1440,7 @@ async def list_feedback(
 # ============================================
 
 @router.get("/api/processing-stats", dependencies=[Depends(require_permission("view_reports"))])
-async def get_processing_stats():
+def get_processing_stats():
     """Return average processing time stats."""
     # Access the processing times from the documents route
     try:

@@ -17,6 +17,19 @@ async function getAuthToken(): Promise<string | null> {
   }
 }
 
+// Endpoints that involve AI processing need longer timeouts
+const LONG_TIMEOUT_PATTERNS = [
+  "/api/upload-and-extract",
+  "/api/extract",
+  "/api/qa",
+  "/api/risk-flags",
+  "/api/classify",
+  "/api/smart-chat",
+  "/api/portfolio-qa",
+  "/api/seed",
+  "/api/cron",
+];
+
 async function apiFetch(endpoint: string, options: RequestInit = {}) {
   const token = await getAuthToken();
   const isFormData = options.body instanceof FormData;
@@ -28,8 +41,9 @@ async function apiFetch(endpoint: string, options: RequestInit = {}) {
     headers["Authorization"] = `Bearer ${token}`;
   }
 
+  const isLongRunning = LONG_TIMEOUT_PATTERNS.some((p) => endpoint.startsWith(p));
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  const timeoutId = setTimeout(() => controller.abort(), isLongRunning ? 180000 : 15000);
 
   let response: Response;
   try {
