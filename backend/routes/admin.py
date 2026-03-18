@@ -1216,6 +1216,33 @@ def api_run_cron(job_name: str):
     return {"job": job_name, "result": result}
 
 
+@router.post("/cron")
+def unified_cron(cron_secret: Optional[str] = Header(None, alias="X-Cron-Secret")):
+    """
+    Unified cron endpoint for external schedulers (Railway, Vercel, etc.).
+    Runs all background jobs in sequence: transitions → payments → escalations → alerts → digest.
+    Secured via CRON_SECRET env var.
+    """
+    expected_secret = os.getenv("CRON_SECRET")
+    if expected_secret and cron_secret != expected_secret:
+        raise HTTPException(status_code=401, detail="Invalid cron secret")
+
+    results = {}
+    for name, fn in [
+        ("transitions", run_agreement_status_transitions),
+        ("payment_updater", run_payment_status_updater),
+        ("escalation_calculator", cron_escalation_calculator),
+        ("alert_engine", run_alert_engine),
+        ("email_digest", run_email_digest),
+    ]:
+        try:
+            results[name] = fn()
+        except Exception as e:
+            results[name] = {"error": str(e)}
+
+    return {"status": "ok", "timestamp": datetime.utcnow().isoformat(), "results": results}
+
+
 @router.post("/cron/agreement-transitions", dependencies=[Depends(require_permission("manage_org_settings"))])
 def cron_agreement_transitions():
     """Manually trigger agreement status transitions."""
