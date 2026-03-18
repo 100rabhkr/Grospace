@@ -248,7 +248,7 @@
   <li><a href="#backend">Backend Architecture</a>
     <ul>
       <li>API Endpoint Map (48 endpoints)</li>
-      <li>AI Pipeline (Extraction, Q&A, Risk, Smart Chat)</li>
+      <li>GroSpace AI Pipeline (Extraction, Q&A, Risk, GroSpace AI Chat)</li>
       <li>Notification Dispatch (Email + WhatsApp)</li>
     </ul>
   </li>
@@ -288,7 +288,7 @@
 <!-- ============================================================ -->
 <h1 id="overview">1. System Overview</h1>
 
-<p><strong>GroSpace</strong> is an AI-powered commercial real estate lease management platform designed for multi-brand retail operators managing portfolios of 50–500+ outlets across India. It automates lease data extraction, obligation tracking, payment management, risk analysis, and portfolio intelligence.</p>
+<p><strong>GroSpace</strong> is a GroSpace AI-powered commercial real estate lease management platform designed for multi-brand retail operators managing portfolios of 50–500+ outlets across India. It automates lease data extraction, obligation tracking, payment management, risk analysis, and portfolio intelligence.</p>
 
 <div class="two-col">
   <div class="box">
@@ -462,7 +462,7 @@ async function apiFetch(endpoint: string, options: RequestInit = {}) {
     <li><strong>Document AI Endpoints</strong> — /classify, /extract, /qa, /risk-flags, /upload-and-extract</li>
     <li><strong>Business CRUD</strong> — Agreements, outlets, alerts, payments, obligations, organizations</li>
     <li><strong>Pipeline & Showcase</strong> — Deal stages, drag-and-drop, public share tokens</li>
-    <li><strong>Smart AI Chat</strong> — Portfolio-wide natural language queries via Gemini</li>
+    <li><strong>GroSpace AI Chat</strong> — Portfolio-wide natural language queries via Gemini</li>
     <li><strong>Digest & Invite</strong> — Email digest collection + delivery, team invitation emails</li>
   </ul>
 </div>
@@ -515,7 +515,7 @@ async function apiFetch(endpoint: string, options: RequestInit = {}) {
 
   <tr><td>Dashboard</td><td>GET</td><td><code>/api/dashboard</code></td><td>Aggregated KPI stats</td></tr>
   <tr><td>Reports</td><td>GET</td><td><code>/api/reports</code></td><td>Joined outlet+agreement+payment data</td></tr>
-  <tr><td>Smart Chat</td><td>POST</td><td><code>/api/smart-chat</code></td><td>AI portfolio Q&A via Gemini</td></tr>
+  <tr><td>GroSpace AI Chat</td><td>POST</td><td><code>/api/smart-chat</code></td><td>GroSpace AI portfolio Q&A via Gemini</td></tr>
 
   <tr><td rowspan="2">Digest</td><td>POST</td><td><code>/api/digest/send</code></td><td>Collect + send daily digest emails</td></tr>
   <tr><td>POST</td><td><code>/api/digest/preview</code></td><td>HTML preview of digest</td></tr>
@@ -640,7 +640,7 @@ async function apiFetch(endpoint: string, options: RequestInit = {}) {
   <tr><td>Legal</td><td>8+</td><td>termination_clause, exclusivity, non_compete, arbitration</td></tr>
 </table>
 
-<h2>Smart Dashboard Chat (AI Assistant)</h2>
+<h2>GroSpace AI Chat (Dashboard)</h2>
 
 <div class="flow">User asks: "Where am I struggling with escalation?"
        │
@@ -875,7 +875,7 @@ PORT=8000</pre>
   <tr><td>Activity Timeline</td><td>✓</td><td>✓</td><td><span class="tag tag-done">Done</span></td></tr>
   <tr><td>Shareable Showcase (public links)</td><td>✓</td><td>✓</td><td><span class="tag tag-done">Done</span></td></tr>
   <tr><td>Portfolio Reports</td><td>✓</td><td>✓</td><td><span class="tag tag-done">Done</span></td></tr>
-  <tr><td>Smart AI Chat (Dashboard)</td><td>✓</td><td>✓</td><td><span class="tag tag-new">New</span></td></tr>
+  <tr><td>GroSpace AI Chat (Dashboard)</td><td>✓</td><td>✓</td><td><span class="tag tag-new">New</span></td></tr>
   <tr><td>Email Sending (Resend)</td><td>✓</td><td>—</td><td><span class="tag tag-new">New</span></td></tr>
   <tr><td>WhatsApp Sending (MSG91)</td><td>✓</td><td>—</td><td><span class="tag tag-new">New</span></td></tr>
   <tr><td>Multi-org + Team Management</td><td>✓</td><td>✓</td><td><span class="tag tag-done">Done</span></td></tr>

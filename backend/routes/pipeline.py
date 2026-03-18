@@ -24,15 +24,19 @@ async def get_pipeline(user: Optional[CurrentUser] = Depends(get_current_user)):
 
     query = supabase.table("outlets").select(
         "id, name, city, status, deal_stage, deal_stage_entered_at, deal_notes, deal_priority, "
-        "created_at, agreements(id, type, status, monthly_rent)"
+        "property_type, super_area_sqft, created_at, agreements(id, type, status, monthly_rent)"
     )
     if org_id:
         query = query.eq("org_id", org_id)
     result = query.order("deal_stage_entered_at", desc=False).execute()
 
+    # Map legacy stage names to current ones
+    legacy_map = {"loi_signed": "loi", "fit_out": "fitout"}
+
     stages: dict = {stage: [] for stage in DEAL_STAGES}
     for outlet in result.data:
         stage = outlet.get("deal_stage") or "lead"
+        stage = legacy_map.get(stage, stage)
         if stage not in stages:
             stage = "lead"
         stages[stage].append(outlet)

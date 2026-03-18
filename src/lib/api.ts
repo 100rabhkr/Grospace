@@ -594,6 +594,18 @@ export async function deleteDocument(documentId: string) {
 }
 
 // ============================================
+// SEED / DEMO DATA
+// ============================================
+
+export async function seedDemoData() {
+  return apiFetch("/api/admin/seed", { method: "POST" });
+}
+
+export async function removeSeedData() {
+  return apiFetch("/api/admin/seed", { method: "DELETE" });
+}
+
+// ============================================
 // PORTFOLIO Q&A
 // ============================================
 
@@ -721,4 +733,78 @@ export async function triggerPaymentStatusUpdate() {
 /** Trigger escalation calculator */
 export async function triggerEscalationCalculator() {
   return apiFetch("/api/cron/escalation-calculator", { method: "POST" });
+}
+
+// ============================================
+// OUTLET CONTACTS
+// ============================================
+
+/** List contacts for an outlet */
+export async function listOutletContacts(outletId: string) {
+  return apiFetch(`/api/outlets/${outletId}/contacts`);
+}
+
+/** Add a contact to an outlet */
+export async function addOutletContact(outletId: string, data: {
+  name: string;
+  designation?: string;
+  phone?: string;
+  email?: string;
+  notes?: string;
+}) {
+  return apiFetch(`/api/outlets/${outletId}/contacts`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+/** Update a contact */
+export async function updateContact(contactId: string, data: {
+  name?: string;
+  designation?: string;
+  phone?: string;
+  email?: string;
+  notes?: string;
+}) {
+  return apiFetch(`/api/contacts/${contactId}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+/** Delete a contact */
+export async function deleteContact(contactId: string) {
+  return apiFetch(`/api/contacts/${contactId}`, {
+    method: "DELETE",
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Signup Requests / Approvals
+// ---------------------------------------------------------------------------
+
+export async function listSignupRequests(status: string = "pending") {
+  return apiFetch(`/api/signup-requests?status=${status}`);
+}
+
+export async function approveSignupRequest(
+  requestId: string,
+  orgId: string,
+  role: string = "org_member",
+  fullAccess: boolean = false,
+) {
+  const form = new FormData();
+  form.append("org_id", orgId);
+  form.append("role", role);
+  form.append("full_access", String(fullAccess));
+  return apiFetch(`/api/signup-requests/${requestId}/approve`, {
+    method: "POST",
+    body: form,
+  });
+}
+
+export async function rejectSignupRequest(requestId: string) {
+  return apiFetch(`/api/signup-requests/${requestId}/reject`, {
+    method: "POST",
+  });
 }

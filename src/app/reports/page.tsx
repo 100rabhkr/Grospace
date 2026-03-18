@@ -86,26 +86,26 @@ function statusLabel(s: string): string {
 
 function statusColor(status: string): string {
   const map: Record<string, string> = {
-    pipeline: "bg-neutral-100 text-neutral-600",
-    fit_out: "bg-blue-100 text-blue-800",
+    pipeline: "bg-[#f4f6f9] text-[#132337]",
+    fit_out: "bg-[#f4f6f9] text-[#132337]",
     operational: "bg-emerald-100 text-emerald-800",
     up_for_renewal: "bg-amber-100 text-amber-800",
     renewed: "bg-green-100 text-green-800",
     closed: "bg-red-100 text-red-800",
   };
-  return map[status] || "bg-neutral-100 text-neutral-600";
+  return map[status] || "bg-[#f4f6f9] text-[#132337]";
 }
 
 function agreementStatusColor(status: string): string {
   const map: Record<string, string> = {
     active: "bg-emerald-100 text-emerald-800",
-    draft: "bg-neutral-100 text-neutral-600",
+    draft: "bg-[#f4f6f9] text-[#132337]",
     pending: "bg-amber-100 text-amber-800",
     expired: "bg-red-100 text-red-800",
     terminated: "bg-red-100 text-red-800",
     renewed: "bg-green-100 text-green-800",
   };
-  return map[status] || "bg-neutral-100 text-neutral-600";
+  return map[status] || "bg-[#f4f6f9] text-[#132337]";
 }
 
 function daysToExpiryColor(days: number | null): string {
@@ -271,6 +271,101 @@ export default function ReportsPage() {
     URL.revokeObjectURL(url);
   }, [filteredData]);
 
+  // ---------- Excel Export ----------
+
+  const exportExcel = useCallback(() => {
+    const headers = [
+      "Outlet Name", "Brand", "City", "State", "Property Type", "Model Type",
+      "Outlet Status", "Agreement Status", "Monthly Rent", "CAM",
+      "Total Monthly Outflow", "Area (sqft)", "Rent/sqft", "Security Deposit",
+      "Lease Expiry Date", "Days to Expiry", "Revenue",
+      "Rent-to-Revenue %", "Risk Flags", "Overdue Amount",
+    ];
+
+    const rows = filteredData.map((r) => [
+      r.outlet_name, r.brand, r.city, r.state,
+      statusLabel(r.property_type), r.franchise_model,
+      statusLabel(r.outlet_status), statusLabel(r.agreement_status || ""),
+      r.monthly_rent, r.monthly_cam, r.total_outflow,
+      r.super_area, r.rent_per_sqft,
+      r.security_deposit ?? "N/A",
+      r.lease_expiry || "N/A",
+      r.days_to_expiry !== null ? r.days_to_expiry : "N/A",
+      r.revenue ?? "N/A",
+      r.rent_to_revenue !== null ? r.rent_to_revenue.toFixed(1) : "N/A",
+      r.risk_flags_count, r.overdue_amount,
+    ].join("\t"));
+
+    const content = [headers.join("\t"), ...rows].join("\n");
+    const blob = new Blob([content], { type: "application/vnd.ms-excel;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `grospace_report_${new Date().toISOString().split("T")[0]}.xls`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, [filteredData]);
+
+  // ---------- PDF Export ----------
+
+  const exportPDF = useCallback(() => {
+    const headers = [
+      "Outlet Name", "Brand", "City", "Property Type", "Model",
+      "Status", "Monthly Rent", "CAM", "Total Outflow",
+      "Area (sqft)", "Rent/sqft", "Lease Expiry", "Days to Expiry",
+      "Risk Flags", "Revenue", "Rent/Rev %", "Overdue",
+    ];
+
+    const rows = filteredData.map((r) => [
+      r.outlet_name, r.brand, r.city,
+      statusLabel(r.property_type), r.franchise_model,
+      statusLabel(r.outlet_status),
+      r.monthly_rent > 0 ? `Rs ${r.monthly_rent.toLocaleString("en-IN")}` : "--",
+      r.monthly_cam > 0 ? `Rs ${r.monthly_cam.toLocaleString("en-IN")}` : "--",
+      r.total_outflow > 0 ? `Rs ${r.total_outflow.toLocaleString("en-IN")}` : "--",
+      r.super_area > 0 ? r.super_area.toLocaleString("en-IN") : "--",
+      r.rent_per_sqft > 0 ? `Rs ${r.rent_per_sqft}` : "--",
+      r.lease_expiry ? formatDate(r.lease_expiry) : "--",
+      r.days_to_expiry !== null ? String(r.days_to_expiry) : "--",
+      String(r.risk_flags_count),
+      r.revenue !== null ? `Rs ${r.revenue.toLocaleString("en-IN")}` : "--",
+      r.rent_to_revenue !== null ? `${r.rent_to_revenue.toFixed(1)}%` : "--",
+      r.overdue_amount > 0 ? `Rs ${r.overdue_amount.toLocaleString("en-IN")}` : "--",
+    ]);
+
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) return;
+
+    const html = `<!DOCTYPE html>
+<html><head><title>GroSpace Outlet Report</title>
+<style>
+  body { font-family: Arial, sans-serif; font-size: 9px; margin: 12px; }
+  h1 { font-size: 16px; margin-bottom: 4px; }
+  p { font-size: 10px; color: #666; margin-bottom: 12px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { border: 1px solid #ddd; padding: 4px 6px; text-align: left; white-space: nowrap; }
+  th { background: #f5f5f5; font-weight: 600; font-size: 8px; text-transform: uppercase; }
+  tr:nth-child(even) { background: #fafafa; }
+  @media print { body { margin: 0; } }
+</style></head><body>
+<h1>GroSpace — Outlet Report</h1>
+<p>Generated: ${new Date().toLocaleDateString("en-IN", { day: "numeric", month: "long", year: "numeric" })} &middot; ${filteredData.length} outlets</p>
+<table>
+  <thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead>
+  <tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${cell}</td>`).join("")}</tr>`).join("")}</tbody>
+</table>
+</body></html>`;
+
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.onload = () => {
+      printWindow.print();
+      printWindow.close();
+    };
+  }, [filteredData]);
+
   // ---------- Clear filters ----------
 
   function clearFilters() {
@@ -302,16 +397,26 @@ export default function ReportsPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* ---------- Header ---------- */}
-      <PageHeader title="Outlet Report" backHref="/">
+      <PageHeader title="Outlet Report">
         {!loading && (
           <Badge variant="secondary" className="text-sm">
             {filteredData.length} outlets
           </Badge>
         )}
-        <Button onClick={exportCSV} disabled={loading || filteredData.length === 0}>
-          <Download className="h-4 w-4 mr-2" />
-          Export CSV
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button onClick={exportCSV} variant="outline" size="sm" disabled={loading || filteredData.length === 0}>
+            <Download className="h-4 w-4 mr-1" />
+            CSV
+          </Button>
+          <Button onClick={exportExcel} variant="outline" size="sm" disabled={loading || filteredData.length === 0}>
+            <Download className="h-4 w-4 mr-1" />
+            Excel
+          </Button>
+          <Button onClick={exportPDF} variant="outline" size="sm" disabled={loading || filteredData.length === 0}>
+            <Download className="h-4 w-4 mr-1" />
+            PDF
+          </Button>
+        </div>
       </PageHeader>
 
       {/* Error State */}
@@ -445,9 +550,9 @@ export default function ReportsPage() {
         <Card>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
-              <Table>
+              <Table id="reports-table">
                 <TableHeader>
-                  <TableRow className="bg-neutral-50/80">
+                  <TableRow className="bg-[#f4f6f9]">
                     <TableHead className="cursor-pointer select-none whitespace-nowrap min-w-[180px]" onClick={() => handleSort("outlet_name")}>
                       <span className="flex items-center">Outlet Name<SortIcon field="outlet_name" /></span>
                     </TableHead>

@@ -13,6 +13,7 @@ import {
   Building2,
   LogOut,
   Kanban,
+  Bot,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/lib/hooks/use-user";
@@ -25,11 +26,12 @@ import {
 
 const navItems = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
-  { label: "Pipeline", href: "/pipeline", icon: Kanban },
+  { label: "GroBot", href: "/ai-assistant", icon: Bot },
   { label: "Outlets", href: "/outlets", icon: Store },
   { label: "Agreements", href: "/agreements", icon: FileText },
-  { label: "Upload Agreement", href: "/agreements/upload", icon: FileText },
+  { label: "Upload Documents", href: "/agreements/upload", icon: FileText },
   { label: "Alerts", href: "/alerts", icon: Bell },
+  { label: "Pipeline", href: "/pipeline", icon: Kanban },
   { label: "Payments", href: "/payments", icon: Wallet },
   { label: "Reports", href: "/reports", icon: BarChart3 },
   { label: "Settings", href: "/settings", icon: Settings },
@@ -60,10 +62,10 @@ export function MobileNav({ open, onOpenChange }: MobileNavProps) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="left" className="w-[280px] p-0">
-        <SheetHeader className="p-4 border-b border-neutral-100">
+        <SheetHeader className="p-4 border-b border-[#e4e8ef]">
           <SheetTitle className="flex items-center gap-2.5">
             <Image src="/logo.png" alt="GroSpace" width={28} height={28} className="rounded-md" />
-            <span className="text-[17px] font-semibold tracking-tight text-[#132337]">GroSpace</span>
+            <span className="text-[17px] font-semibold tracking-tight text-foreground">GroSpace</span>
           </SheetTitle>
         </SheetHeader>
 
@@ -84,7 +86,7 @@ export function MobileNav({ open, onOpenChange }: MobileNavProps) {
                     "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors w-full text-left",
                     isActive
                       ? "bg-[#132337] text-white"
-                      : "text-neutral-500 hover:text-[#132337] hover:bg-slate-50"
+                      : "text-[#132337]/50 hover:text-[#132337] hover:bg-[#f4f6f9]"
                   )}
                 >
                   <Icon className="w-4 h-4" />
@@ -96,7 +98,7 @@ export function MobileNav({ open, onOpenChange }: MobileNavProps) {
         </nav>
 
         {/* User section */}
-        <div className="p-3 border-t border-neutral-100 mt-auto">
+        <div className="p-3 border-t border-[#e4e8ef] mt-auto">
           <div className="flex items-center gap-2.5 px-2 py-1.5">
             <div className="w-7 h-7 rounded-full bg-[#132337] flex items-center justify-center">
               <span className="text-white text-[10px] font-semibold">
@@ -107,7 +109,7 @@ export function MobileNav({ open, onOpenChange }: MobileNavProps) {
               <p className="text-xs font-medium truncate">
                 {userLoading ? "Loading..." : user?.fullName || "User"}
               </p>
-              <p className="text-[10px] text-neutral-400 truncate">
+              <p className="text-[10px] text-[#132337]/40 truncate">
                 {userLoading ? "" : roleLabels[user?.role || ""] || "Member"}
               </p>
             </div>
@@ -117,7 +119,7 @@ export function MobileNav({ open, onOpenChange }: MobileNavProps) {
                   window.location.href = "/auth/login";
                 });
               }}
-              className="text-neutral-400 hover:text-black transition-colors"
+              className="text-[#132337]/40 hover:text-[#132337] transition-colors"
               title="Sign out"
             >
               <LogOut className="w-3.5 h-3.5" />

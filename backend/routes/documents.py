@@ -239,7 +239,7 @@ async def qa_endpoint(request: Request, req: QARequest):
                     else:
                         history_block = f"\nConversation history:\n{formatted_history}\n" if formatted_history else ""
                         qa_prompt = (
-                            "You are an AI assistant helping users understand their commercial lease documents. "
+                            "You are GroBot, an AI assistant built by 360Labs, helping users understand their commercial lease documents. "
                             "Look at these document page images carefully.\n\n"
                             "Rules:\n"
                             "- Only answer based on the document provided. Do not make assumptions.\n"
@@ -267,7 +267,7 @@ async def qa_endpoint(request: Request, req: QARequest):
 
         if document_text and len(document_text.strip()) >= 100:
             prompt = (
-                "You are an AI assistant helping users understand their commercial lease documents. "
+                "You are GroBot, an AI assistant built by 360Labs, helping users understand their commercial lease documents. "
                 "You have access to the full text of a specific lease/agreement document.\n\n"
                 "Rules:\n"
                 "- Only answer based on the document provided. Do not make assumptions.\n"
@@ -283,7 +283,7 @@ async def qa_endpoint(request: Request, req: QARequest):
             )
         elif extraction_summary and extraction_summary != "{}":
             prompt = (
-                "You are an AI assistant helping users understand their commercial lease documents. "
+                "You are GroBot, an AI assistant built by 360Labs, helping users understand their commercial lease documents. "
                 "You have access to the AI-extracted structured data from this agreement.\n\n"
                 "Rules:\n"
                 "- Only answer based on the extracted data provided. Do not make assumptions.\n"
@@ -405,7 +405,10 @@ async def upload_outlet_document(
         supabase.storage.from_("documents").upload(storage_path, file_bytes, {
             "content-type": file.content_type or "application/octet-stream"
         })
-        file_url = supabase.storage.from_("documents").get_public_url(storage_path)
+        signed = supabase.storage.from_("documents").create_signed_url(storage_path, 31536000)
+        file_url = signed.get("signedURL") or signed.get("signedUrl")
+        if not file_url:
+            file_url = supabase.storage.from_("documents").get_public_url(storage_path)
     except Exception:
         file_url = f"storage://{storage_path}"
 

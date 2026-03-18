@@ -40,6 +40,7 @@ import {
 import { getAgreement, askDocumentQuestion, updateAgreement } from "@/lib/api";
 import { PdfViewer } from "@/components/pdf-viewer";
 import { EditableField } from "@/components/editable-field";
+import { FeedbackButton } from "@/components/feedback-button";
 import AgreementTimeline from "@/components/agreement-timeline";
 
 // --- Types ---
@@ -242,24 +243,24 @@ function parseField(fieldVal: unknown): {
 }
 
 function statusColor(status: string): string {
-  if (!status) return "bg-neutral-100 text-neutral-600";
+  if (!status) return "bg-[#f4f6f9] text-[#4a5568]";
   const map: Record<string, string> = {
     active: "bg-emerald-100 text-emerald-800",
     expiring: "bg-orange-100 text-orange-800",
     expired: "bg-red-100 text-red-800",
     terminated: "bg-red-100 text-red-800",
-    draft: "bg-neutral-100 text-neutral-600",
+    draft: "bg-[#f4f6f9] text-[#4a5568]",
     renewed: "bg-teal-100 text-teal-800",
     confirmed: "bg-emerald-100 text-emerald-800",
     review: "bg-amber-100 text-amber-800",
-    processing: "bg-blue-100 text-blue-800",
-    pending: "bg-neutral-100 text-neutral-600",
+    processing: "bg-[#f4f6f9] text-[#132337]",
+    pending: "bg-[#f4f6f9] text-[#4a5568]",
     failed: "bg-red-100 text-red-800",
     high: "bg-red-100 text-red-700",
     medium: "bg-amber-100 text-amber-700",
-    low: "bg-blue-100 text-blue-700",
+    low: "bg-[#f4f6f9] text-[#132337]",
   };
-  return map[status] || "bg-neutral-100 text-neutral-600";
+  return map[status] || "bg-[#f4f6f9] text-[#4a5568]";
 }
 
 function statusLabel(status: string): string {
@@ -290,31 +291,31 @@ function DetailSkeleton() {
     <div className="space-y-6">
       {/* Header skeleton */}
       <div className="flex items-start gap-3">
-        <div className="h-9 w-16 bg-neutral-200 rounded animate-pulse" />
+        <div className="h-9 w-16 bg-[#e4e8ef] rounded animate-pulse" />
         <div className="space-y-2 flex-1">
           <div className="flex gap-2">
-            <div className="h-5 w-20 bg-neutral-200 rounded animate-pulse" />
-            <div className="h-5 w-16 bg-neutral-200 rounded animate-pulse" />
+            <div className="h-5 w-20 bg-[#e4e8ef] rounded animate-pulse" />
+            <div className="h-5 w-16 bg-[#e4e8ef] rounded animate-pulse" />
           </div>
-          <div className="h-7 w-64 bg-neutral-200 rounded animate-pulse" />
-          <div className="h-4 w-96 bg-neutral-200 rounded animate-pulse" />
+          <div className="h-7 w-64 bg-[#e4e8ef] rounded animate-pulse" />
+          <div className="h-4 w-96 bg-[#e4e8ef] rounded animate-pulse" />
         </div>
       </div>
 
       {/* Tabs skeleton */}
-      <div className="h-10 w-full max-w-2xl bg-neutral-200 rounded animate-pulse" />
+      <div className="h-10 w-full max-w-2xl bg-[#e4e8ef] rounded animate-pulse" />
 
       {/* Content skeleton */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {Array.from({ length: 6 }).map((_, i) => (
           <Card key={i}>
             <CardContent className="pt-4 pb-3">
-              <div className="h-5 w-32 bg-neutral-200 rounded animate-pulse mb-4" />
+              <div className="h-5 w-32 bg-[#e4e8ef] rounded animate-pulse mb-4" />
               <div className="space-y-3">
                 {Array.from({ length: 4 }).map((_, j) => (
                   <div key={j}>
-                    <div className="h-3 w-20 bg-neutral-200 rounded animate-pulse mb-1" />
-                    <div className="h-4 w-40 bg-neutral-200 rounded animate-pulse" />
+                    <div className="h-3 w-20 bg-[#e4e8ef] rounded animate-pulse mb-1" />
+                    <div className="h-4 w-40 bg-[#e4e8ef] rounded animate-pulse" />
                   </div>
                 ))}
               </div>
@@ -483,7 +484,7 @@ export default function AgreementDetailPage() {
   if (!agreement) {
     return (
       <div className="flex flex-col items-center justify-center h-[60vh] space-y-4">
-        <FileText className="h-12 w-12 text-neutral-300" />
+        <FileText className="h-12 w-12 text-[#d1d5db]" />
         <h2 className="text-lg font-semibold">Agreement not found</h2>
         <p className="text-sm text-muted-foreground">
           The agreement with ID &quot;{agreementId}&quot; does not exist.
@@ -623,7 +624,7 @@ export default function AgreementDetailPage() {
         <Card>
           <CardContent className="pt-4 pb-3">
             <div className="flex items-center gap-2 mb-2">
-              <CalendarClock className="h-4 w-4 text-neutral-500" />
+              <CalendarClock className="h-4 w-4 text-[#6b7280]" />
               <h3 className="text-sm font-semibold">Lease Timeline</h3>
             </div>
             <AgreementTimeline dates={timelineDates} />
@@ -661,7 +662,7 @@ export default function AgreementDetailPage() {
           </TabsTrigger>
           <TabsTrigger value="qa" className="gap-1.5 text-xs sm:text-sm">
             <MessageSquare className="h-3.5 w-3.5 hidden sm:block" />
-            Q&A
+            GroBot
           </TabsTrigger>
         </TabsList>
 
@@ -671,7 +672,7 @@ export default function AgreementDetailPage() {
           Object.keys(extractedData).length === 0 ? (
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-16">
-                <ClipboardList className="h-10 w-10 text-neutral-300 mb-3" />
+                <ClipboardList className="h-10 w-10 text-[#d1d5db] mb-3" />
                 <h3 className="text-base font-semibold mb-1">
                   No extracted data
                 </h3>
@@ -707,7 +708,7 @@ export default function AgreementDetailPage() {
                     <Card key={sectionKey}>
                       <CardContent className="pt-4 pb-4">
                         <div className="flex items-center gap-2 mb-3">
-                          <Icon className="h-4 w-4 text-neutral-500" />
+                          <Icon className="h-4 w-4 text-[#6b7280]" />
                           <h3 className="text-sm font-semibold">
                             {config.title}
                           </h3>
@@ -729,11 +730,18 @@ export default function AgreementDetailPage() {
                                     {formatFieldLabel(fieldKey)}
                                   </p>
                                 </div>
-                                <EditableField
-                                  value={currentVal}
-                                  isNotFound={currentVal === "Not found"}
-                                  onChange={(v) => handleFieldEdit(sectionKey, fieldKey, v)}
-                                />
+                                <div className="flex items-center gap-1">
+                                  <EditableField
+                                    value={currentVal}
+                                    isNotFound={currentVal === "Not found"}
+                                    onChange={(v) => handleFieldEdit(sectionKey, fieldKey, v)}
+                                  />
+                                  <FeedbackButton
+                                    agreementId={agreementId}
+                                    fieldName={dotKey}
+                                    originalValue={displayVal}
+                                  />
+                                </div>
                               </div>
                             );
                           })}
@@ -779,7 +787,7 @@ export default function AgreementDetailPage() {
                   No Risk Flags Detected
                 </h3>
                 <p className="text-sm text-muted-foreground">
-                  The AI analysis did not detect any risk flags in this
+                  GroBot analysis did not detect any risk flags in this
                   agreement.
                 </p>
               </CardContent>
@@ -819,7 +827,7 @@ export default function AgreementDetailPage() {
                       {flag.explanation}
                     </p>
                     {flag.clause_text && (
-                      <div className="bg-neutral-50 border rounded-md p-3">
+                      <div className="bg-[#f4f6f9] border rounded-md p-3">
                         <p className="text-xs text-muted-foreground mb-1 font-medium">
                           Referenced Clause
                         </p>
@@ -840,7 +848,7 @@ export default function AgreementDetailPage() {
           {obligations.length === 0 ? (
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-16">
-                <CalendarClock className="h-10 w-10 text-neutral-300 mb-3" />
+                <CalendarClock className="h-10 w-10 text-[#d1d5db] mb-3" />
                 <h3 className="text-base font-semibold mb-1">
                   No Obligations Found
                 </h3>
@@ -855,7 +863,7 @@ export default function AgreementDetailPage() {
               <div className="rounded-lg overflow-hidden">
                 <Table>
                   <TableHeader>
-                    <TableRow className="hover:bg-transparent">
+                    <TableRow className="bg-[#f4f6f9] hover:bg-[#f4f6f9]">
                       <TableHead>Type</TableHead>
                       <TableHead>Frequency</TableHead>
                       <TableHead className="text-right">Amount</TableHead>
@@ -902,7 +910,7 @@ export default function AgreementDetailPage() {
                             className={`border-0 text-xs font-medium ${
                               obl.is_active
                                 ? "bg-emerald-100 text-emerald-800"
-                                : "bg-neutral-100 text-neutral-600"
+                                : "bg-[#f4f6f9] text-[#4a5568]"
                             }`}
                           >
                             {obl.is_active ? "Active" : "Inactive"}
@@ -931,14 +939,14 @@ export default function AgreementDetailPage() {
                 {agreement.document_filename?.endsWith(".pdf") ? "PDF" : "Document"}
               </Badge>
             </div>
-            <CardContent className="flex-1 p-0 bg-neutral-50 overflow-hidden">
+            <CardContent className="flex-1 p-0 bg-[#f4f6f9] overflow-hidden">
               {agreement.document_url ? (
                 <PdfViewer url={agreement.document_url} />
               ) : (
                 <div className="flex-1 flex items-center justify-center py-16">
                   <div className="text-center space-y-3">
-                    <FileText className="h-20 w-20 text-neutral-300 mx-auto" />
-                    <p className="text-base font-medium text-neutral-500">
+                    <FileText className="h-20 w-20 text-[#d1d5db] mx-auto" />
+                    <p className="text-base font-medium text-[#6b7280]">
                       No document uploaded
                     </p>
                     <p className="text-sm text-muted-foreground">
@@ -951,7 +959,7 @@ export default function AgreementDetailPage() {
           </Card>
         </TabsContent>
 
-        {/* Q&A Tab */}
+        {/* GroBot Tab */}
         <TabsContent value="qa">
           <Card className="flex flex-col h-[calc(100vh-280px)] sm:h-[calc(100vh-340px)] min-h-[500px]">
             {/* Chat Header */}
@@ -961,12 +969,12 @@ export default function AgreementDetailPage() {
                 Ask questions about this agreement
               </span>
               <Badge variant="secondary" className="text-xs ml-auto">
-                AI-Powered
+                Powered by GroBot
               </Badge>
               {chatMessages.length > 0 && (
                 <button
                   onClick={clearConversation}
-                  className="text-xs text-neutral-400 hover:text-neutral-600 flex items-center gap-1 transition-colors"
+                  className="text-xs text-[#9ca3af] hover:text-[#4a5568] flex items-center gap-1 transition-colors"
                   title="Clear conversation"
                 >
                   <RotateCcw className="h-3 w-3" />
@@ -984,9 +992,9 @@ export default function AgreementDetailPage() {
                 </div>
                 <div className="flex-1">
                   <p className="text-xs text-muted-foreground mb-1">
-                    GroSpace AI
+                    GroBot
                   </p>
-                  <div className="bg-neutral-100 rounded-lg rounded-tl-none p-3 max-w-[85%]">
+                  <div className="bg-[#f4f6f9] rounded-lg rounded-tl-none p-3 max-w-[85%]">
                     <p className="text-sm">
                       I have analyzed the agreement for{" "}
                       <span className="font-semibold">{outletName}</span>.
@@ -1011,9 +1019,9 @@ export default function AgreementDetailPage() {
                       key={q}
                       onClick={() => handleSendMessage(q)}
                       disabled={chatLoading}
-                      className="text-xs bg-white border border-neutral-200 rounded-full px-3 py-1.5 text-neutral-600 hover:bg-neutral-50 hover:border-neutral-300 transition-colors flex items-center gap-1.5"
+                      className="text-xs bg-[#fafbfd] border border-[#e4e8ef] rounded-full px-3 py-1.5 text-[#4a5568] hover:bg-[#f4f6f9] hover:border-neutral-300 transition-colors flex items-center gap-1.5"
                     >
-                      <Sparkles className="h-3 w-3 text-neutral-400" />
+                      <Sparkles className="h-3 w-3 text-[#9ca3af]" />
                       {q}
                     </button>
                   ))}
@@ -1028,27 +1036,27 @@ export default function AgreementDetailPage() {
                       <Bot className="h-4 w-4 text-white" />
                     </div>
                   ) : (
-                    <div className="h-7 w-7 rounded-full bg-neutral-200 flex items-center justify-center flex-shrink-0">
-                      <User className="h-4 w-4 text-neutral-600" />
+                    <div className="h-7 w-7 rounded-full bg-[#e4e8ef] flex items-center justify-center flex-shrink-0">
+                      <User className="h-4 w-4 text-[#4a5568]" />
                     </div>
                   )}
                   <div className="flex-1">
                     <p className="text-xs text-muted-foreground mb-1">
-                      {msg.role === "assistant" ? "GroSpace AI" : "You"}
+                      {msg.role === "assistant" ? "GroBot" : "You"}
                     </p>
                     <div
                       className={`rounded-lg p-3 max-w-[85%] ${
                         msg.role === "assistant"
-                          ? "bg-neutral-100 rounded-tl-none"
+                          ? "bg-[#f4f6f9] rounded-tl-none"
                           : "bg-[#132337] text-white rounded-tr-none ml-auto"
                       }`}
                     >
                       {msg.role === "assistant" ? (
-                        <div className="text-sm whitespace-pre-wrap prose prose-sm prose-neutral max-w-none [&_blockquote]:border-l-2 [&_blockquote]:border-neutral-300 [&_blockquote]:pl-3 [&_blockquote]:italic [&_blockquote]:text-neutral-600 [&_blockquote]:my-2">
+                        <div className="text-sm whitespace-pre-wrap prose prose-sm prose-neutral max-w-none [&_blockquote]:border-l-2 [&_blockquote]:border-neutral-300 [&_blockquote]:pl-3 [&_blockquote]:italic [&_blockquote]:text-[#4a5568] [&_blockquote]:my-2">
                           {msg.message.split("\n").map((line, li) => {
                             if (line.startsWith("> ")) {
                               return (
-                                <blockquote key={li} className="border-l-2 border-neutral-300 pl-3 italic text-neutral-600 my-2 text-[13px]">
+                                <blockquote key={li} className="border-l-2 border-neutral-300 pl-3 italic text-[#4a5568] my-2 text-[13px]">
                                   {line.slice(2)}
                                 </blockquote>
                               );
@@ -1077,9 +1085,9 @@ export default function AgreementDetailPage() {
                   </div>
                   <div className="flex-1">
                     <p className="text-xs text-muted-foreground mb-1">
-                      GroSpace AI
+                      GroBot
                     </p>
-                    <div className="bg-neutral-100 rounded-lg rounded-tl-none p-3 max-w-[85%]">
+                    <div className="bg-[#f4f6f9] rounded-lg rounded-tl-none p-3 max-w-[85%]">
                       <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         Analyzing the agreement...

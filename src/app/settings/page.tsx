@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Card,
   CardContent,
@@ -35,6 +35,14 @@ import {
   Check,
   Loader2,
   MessageCircle,
+  Clock,
+  CheckCircle,
+  XCircle,
+  Building2,
+  Eye,
+  Database,
+  Plus,
+  AlertTriangle,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { useUser } from "@/lib/hooks/use-user";
@@ -50,6 +58,13 @@ import {
   saveAlertPreferences,
   getNotificationPreferences,
   saveNotificationPreferences,
+  listSignupRequests,
+  approveSignupRequest,
+  rejectSignupRequest,
+  listOrganizations,
+  createOrganization,
+  seedDemoData,
+  removeSeedData,
 } from "@/lib/api";
 
 // -------------------------------------------------------------------
@@ -84,6 +99,22 @@ const NOTIFICATION_ALERT_TYPES = [
   { key: "custom", label: "Custom Reminder" },
 ];
 
+type SignupRequest = {
+  id: string;
+  user_id: string;
+  name: string;
+  company: string;
+  phone: string;
+  email: string;
+  status: "pending" | "approved" | "rejected";
+  created_at: string;
+};
+
+type OrgOption = {
+  id: string;
+  name: string;
+};
+
 type NotifRoute = { email: boolean; whatsapp: boolean };
 
 const DEFAULT_ALERT_PREFS: AlertPreference[] = [
@@ -110,8 +141,8 @@ function getInitials(name: string): string {
 
 const roleLabels: Record<string, { label: string; className: string }> = {
   platform_admin: { label: "Platform Admin", className: "bg-[#132337] text-white" },
-  org_admin: { label: "Org Admin", className: "bg-blue-100 text-blue-800" },
-  org_member: { label: "Org Member", className: "bg-neutral-100 text-neutral-700" },
+  org_admin: { label: "Org Admin", className: "bg-[#f4f6f9] text-[#132337]" },
+  org_member: { label: "Org Member", className: "bg-[#f4f6f9] text-[#132337]" },
 };
 
 function roleBadge(role: string) {
@@ -182,6 +213,23 @@ export default function SettingsPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [accountSaved, setAccountSaved] = useState(false);
   const [accountSaving, setAccountSaving] = useState(false);
+
+  // Data management
+  const [seedLoading, setSeedLoading] = useState(false);
+  const [removeLoading, setRemoveLoading] = useState(false);
+  const [seedResult, setSeedResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
+
+  // Pending approvals state
+  const [signupRequests, setSignupRequests] = useState<SignupRequest[]>([]);
+  const [loadingRequests, setLoadingRequests] = useState(true);
+  const [orgs, setOrgs] = useState<OrgOption[]>([]);
+  const [approvalStates, setApprovalStates] = useState<Record<string, {
+    orgId: string;
+    role: string;
+    fullAccess: boolean;
+    newOrgName: string;
+    processing: boolean;
+  }>>({});
 
   const orgId = user?.orgId;
 
@@ -275,6 +323,94 @@ export default function SettingsPage() {
         .finally(() => setLoadingProfile(false));
     }
   }, [user, userLoading]);
+
+  // Fetch signup requests and orgs for approvals
+  const fetchSignupRequests = useCallback(async () => {
+    try {
+      setLoadingRequests(true);
+      const [reqData, orgData] = await Promise.all([
+        listSignupRequests("pending"),
+        listOrganizations(),
+      ]);
+      setSignupRequests(reqData.requests || []);
+      setOrgs((orgData.items || []).map((o: { id: string; name: string }) => ({ id: o.id, name: o.name })));
+      // Initialize approval state for each request
+      const states: typeof approvalStates = {};
+      for (const req of reqData.requests || []) {
+        states[req.id] = {
+          orgId: orgId || "",
+          role: "org_member",
+          fullAccess: false,
+          newOrgName: "",
+          processing: false,
+        };
+      }
+      setApprovalStates(states);
+    } catch {
+      // silently handle
+    } finally {
+      setLoadingRequests(false);
+    }
+  }, [orgId]);
+
+  useEffect(() => {
+    fetchSignupRequests();
+  }, [fetchSignupRequests]);
+
+  async function handleApprove(requestId: string) {
+    const state = approvalStates[requestId];
+    if (!state) return;
+
+    let targetOrgId = state.orgId;
+
+    // If "new" org selected, create it first
+    if (targetOrgId === "__new__" && state.newOrgName.trim()) {
+      setApprovalStates((prev) => ({ ...prev, [requestId]: { ...prev[requestId], processing: true } }));
+      try {
+        const res = await createOrganization(state.newOrgName.trim());
+        targetOrgId = res.organization.id;
+      } catch {
+        alert("Failed to create organization");
+        setApprovalStates((prev) => ({ ...prev, [requestId]: { ...prev[requestId], processing: false } }));
+        return;
+      }
+    }
+
+    if (!targetOrgId || targetOrgId === "__new__") {
+      alert("Please select or create an organization");
+      return;
+    }
+
+    setApprovalStates((prev) => ({ ...prev, [requestId]: { ...prev[requestId], processing: true } }));
+    try {
+      await approveSignupRequest(requestId, targetOrgId, state.role, state.fullAccess);
+      setSignupRequests((prev) => prev.filter((r) => r.id !== requestId));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to approve");
+    } finally {
+      setApprovalStates((prev) => ({ ...prev, [requestId]: { ...prev[requestId], processing: false } }));
+    }
+  }
+
+  async function handleReject(requestId: string) {
+    if (!confirm("Reject this signup request?")) return;
+    setApprovalStates((prev) => ({ ...prev, [requestId]: { ...prev[requestId], processing: true } }));
+    try {
+      await rejectSignupRequest(requestId);
+      setSignupRequests((prev) => prev.filter((r) => r.id !== requestId));
+    } catch {
+      // handle
+    } finally {
+      setApprovalStates((prev) => ({ ...prev, [requestId]: { ...prev[requestId], processing: false } }));
+    }
+  }
+
+  function updateApprovalState(requestId: string, updates: Partial<typeof approvalStates[string]>) {
+    setApprovalStates((prev) => ({
+      ...prev,
+      [requestId]: { ...prev[requestId], ...updates },
+    }));
+  }
 
   // Handlers
   async function handleOrgSave() {
@@ -398,11 +534,11 @@ export default function SettingsPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Page Header */}
-      <PageHeader title="Settings" description="Manage your organization, team, alerts, and account preferences" backHref="/" />
+      <PageHeader title="Settings" description="Manage your organization, team, alerts, and account preferences" />
 
       {/* Tabs */}
       <Tabs defaultValue="organization" className="w-full">
-        <TabsList className="grid w-full max-w-2xl grid-cols-2 sm:grid-cols-4">
+        <TabsList className="grid w-full max-w-3xl grid-cols-3 sm:grid-cols-6">
           <TabsTrigger value="organization" className="gap-1.5 text-xs sm:text-sm">
             <Settings className="w-3.5 h-3.5 hidden sm:inline-block" />
             Organization
@@ -411,6 +547,15 @@ export default function SettingsPage() {
             <Users className="w-3.5 h-3.5 hidden sm:inline-block" />
             Team & Roles
           </TabsTrigger>
+          <TabsTrigger value="approvals" className="gap-1.5 text-xs sm:text-sm relative">
+            <Clock className="w-3.5 h-3.5 hidden sm:inline-block" />
+            Approvals
+            {signupRequests.length > 0 && (
+              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+                {signupRequests.length}
+              </span>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="alerts" className="gap-1.5 text-xs sm:text-sm">
             <Bell className="w-3.5 h-3.5 hidden sm:inline-block" />
             Alert Preferences
@@ -418,6 +563,10 @@ export default function SettingsPage() {
           <TabsTrigger value="account" className="gap-1.5 text-xs sm:text-sm">
             <User className="w-3.5 h-3.5 hidden sm:inline-block" />
             Account
+          </TabsTrigger>
+          <TabsTrigger value="data" className="gap-1.5 text-xs sm:text-sm">
+            <Database className="w-3.5 h-3.5 hidden sm:inline-block" />
+            Data
           </TabsTrigger>
         </TabsList>
 
@@ -452,7 +601,7 @@ export default function SettingsPage() {
                   <div className="grid gap-2 max-w-md">
                     <Label>Organization Logo</Label>
                     <div className="flex items-center gap-4">
-                      <div className="w-20 h-20 rounded-lg border-2 border-dashed border-neutral-300 bg-neutral-50 flex items-center justify-center">
+                      <div className="w-20 h-20 rounded-lg border-2 border-dashed border-[#e4e8ef] bg-[#f4f6f9] flex items-center justify-center">
                         <Upload className="w-6 h-6 text-neutral-400" />
                       </div>
                       <div className="flex flex-col gap-1.5">
@@ -547,18 +696,18 @@ export default function SettingsPage() {
                       {teamMembers.filter((m) => m.role === "platform_admin").length} member{teamMembers.filter((m) => m.role === "platform_admin").length !== 1 ? "s" : ""}
                     </p>
                   </div>
-                  <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-3">
+                  <div className="rounded-lg border border-[#e4e8ef] bg-[#f4f6f9]/50 p-3">
                     <div className="flex items-center gap-2 mb-1">
-                      <Badge className="bg-blue-100 text-blue-800 border-blue-200 text-[10px]">Admin</Badge>
+                      <Badge className="bg-[#f4f6f9] text-[#132337] border-[#e4e8ef] text-[10px]">Admin</Badge>
                     </div>
                     <p className="text-xs text-neutral-600">Full access within organization, team management</p>
                     <p className="text-xs text-neutral-400 mt-1">
                       {teamMembers.filter((m) => m.role === "org_admin").length} member{teamMembers.filter((m) => m.role === "org_admin").length !== 1 ? "s" : ""}
                     </p>
                   </div>
-                  <div className="rounded-lg border border-neutral-200 bg-neutral-50/50 p-3">
+                  <div className="rounded-lg border border-[#e4e8ef] bg-[#f4f6f9]/50 p-3">
                     <div className="flex items-center gap-2 mb-1">
-                      <Badge className="bg-neutral-100 text-neutral-700 border-neutral-200 text-[10px]">Member</Badge>
+                      <Badge className="bg-[#f4f6f9] text-[#132337] border-[#e4e8ef] text-[10px]">Member</Badge>
                     </div>
                     <p className="text-xs text-neutral-600">Standard view access, limited actions</p>
                     <p className="text-xs text-neutral-400 mt-1">
@@ -645,7 +794,7 @@ export default function SettingsPage() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="border-b border-neutral-200 bg-neutral-50/80">
+                      <tr className="border-b border-[#e4e8ef] bg-[#f4f6f9]/80">
                         <th className="text-left font-medium text-neutral-500 px-4 py-3">
                           Name
                         </th>
@@ -667,7 +816,7 @@ export default function SettingsPage() {
                       {teamMembers.map((member) => (
                         <tr
                           key={member.id}
-                          className="border-b border-neutral-100 last:border-0 hover:bg-neutral-50/50 transition-colors"
+                          className="border-b border-[#e4e8ef] last:border-0 hover:bg-[#f4f6f9]/50 transition-colors"
                         >
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-2.5">
@@ -712,6 +861,162 @@ export default function SettingsPage() {
                       )}
                     </tbody>
                   </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ============================================================= */}
+        {/* Pending Approvals Tab                                          */}
+        {/* ============================================================= */}
+        <TabsContent value="approvals" className="mt-6 space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Clock className="h-4 w-4" />
+                Pending Sign-up Requests
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {loadingRequests ? (
+                <div className="flex items-center gap-2 text-neutral-400 py-8 justify-center">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span className="text-sm">Loading requests...</span>
+                </div>
+              ) : signupRequests.length === 0 ? (
+                <div className="text-center py-12 text-neutral-400">
+                  <CheckCircle className="h-10 w-10 mx-auto mb-3 opacity-40" />
+                  <p className="text-sm font-medium">No pending requests</p>
+                  <p className="text-xs mt-1">New sign-up requests will appear here for approval</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {signupRequests.map((req) => {
+                    const state = approvalStates[req.id] || { orgId: "", role: "org_member", fullAccess: false, newOrgName: "", processing: false };
+                    return (
+                      <div key={req.id} className="border rounded-lg p-4 space-y-4">
+                        {/* Request info */}
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <h4 className="font-semibold text-sm">{req.name}</h4>
+                            <p className="text-xs text-muted-foreground mt-0.5">{req.email}</p>
+                            <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
+                              {req.company && (
+                                <span className="flex items-center gap-1">
+                                  <Building2 className="h-3 w-3" />
+                                  {req.company}
+                                </span>
+                              )}
+                              {req.phone && (
+                                <span>{req.phone}</span>
+                              )}
+                              <span>
+                                {new Date(req.created_at).toLocaleDateString("en-IN", {
+                                  day: "numeric",
+                                  month: "short",
+                                  year: "numeric",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}
+                              </span>
+                            </div>
+                          </div>
+                          <Badge variant="secondary" className="bg-amber-100 text-amber-800">Pending</Badge>
+                        </div>
+
+                        {/* Approval controls */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t">
+                          {/* Assign to Organization */}
+                          <div className="space-y-1.5">
+                            <Label className="text-xs">Assign to Organization</Label>
+                            <Select
+                              value={state.orgId}
+                              onValueChange={(v) => updateApprovalState(req.id, { orgId: v })}
+                            >
+                              <SelectTrigger className="h-9">
+                                <SelectValue placeholder="Select org..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {orgs.map((org) => (
+                                  <SelectItem key={org.id} value={org.id}>{org.name}</SelectItem>
+                                ))}
+                                <SelectItem value="__new__">+ Create New Organization</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            {state.orgId === "__new__" && (
+                              <Input
+                                placeholder="New organization name"
+                                value={state.newOrgName}
+                                onChange={(e) => updateApprovalState(req.id, { newOrgName: e.target.value })}
+                                className="h-9 mt-1.5"
+                              />
+                            )}
+                          </div>
+
+                          {/* Role */}
+                          <div className="space-y-1.5">
+                            <Label className="text-xs">Role</Label>
+                            <Select
+                              value={state.role}
+                              onValueChange={(v) => updateApprovalState(req.id, { role: v })}
+                            >
+                              <SelectTrigger className="h-9">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="org_member">Org Member</SelectItem>
+                                <SelectItem value="org_admin">Org Admin</SelectItem>
+                                <SelectItem value="platform_admin">Platform Admin</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          {/* Full Access Toggle */}
+                          <div className="space-y-1.5">
+                            <Label className="text-xs">Access Level</Label>
+                            <div className="flex items-center gap-2 h-9">
+                              <Switch
+                                checked={state.fullAccess}
+                                onCheckedChange={(v) => updateApprovalState(req.id, { fullAccess: v })}
+                              />
+                              <span className="text-xs text-muted-foreground flex items-center gap-1">
+                                <Eye className="h-3 w-3" />
+                                {state.fullAccess ? "Full Access (all orgs)" : "Org-only access"}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Action buttons */}
+                        <div className="flex items-center gap-2 pt-2">
+                          <Button
+                            size="sm"
+                            onClick={() => handleApprove(req.id)}
+                            disabled={state.processing || (!state.orgId || (state.orgId === "__new__" && !state.newOrgName.trim()))}
+                            className="gap-1.5 bg-emerald-600 hover:bg-emerald-700"
+                          >
+                            {state.processing ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <CheckCircle className="h-3.5 w-3.5" />
+                            )}
+                            Approve
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleReject(req.id)}
+                            disabled={state.processing}
+                            className="gap-1.5 text-red-600 hover:text-red-700 hover:bg-red-50"
+                          >
+                            <XCircle className="h-3.5 w-3.5" />
+                            Reject
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </CardContent>
@@ -820,8 +1125,8 @@ export default function SettingsPage() {
 
           <Separator className="my-4" />
 
-          {/* Notification Routing */}
-          <Card>
+          {/* Notification Routing - Hidden for AHAAR demo */}
+          {false && (<Card>
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
                 <MessageCircle className="w-4 h-4" />
@@ -839,25 +1144,6 @@ export default function SettingsPage() {
                 </div>
               ) : (
                 <>
-                  {/* WhatsApp Number */}
-                  <div className="grid gap-2 max-w-md">
-                    <Label htmlFor="wa-number" className="flex items-center gap-1.5">
-                      <MessageCircle className="w-3.5 h-3.5" />
-                      WhatsApp Number
-                    </Label>
-                    <Input
-                      id="wa-number"
-                      placeholder="+91 98765 43210"
-                      value={whatsappNumber}
-                      onChange={(e) => setWhatsappNumber(e.target.value)}
-                    />
-                    <p className="text-xs text-neutral-400">
-                      Used for WhatsApp alerts via MSG91 (not yet active)
-                    </p>
-                  </div>
-
-                  <Separator />
-
                   {/* Default Routing */}
                   <div>
                     <p className="text-sm font-medium mb-3">Default Routing</p>
@@ -875,13 +1161,6 @@ export default function SettingsPage() {
                             />
                             <span className="text-xs text-neutral-500">Email</span>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <Switch
-                              checked={defaultHighSeverity.whatsapp}
-                              onCheckedChange={(v) => setDefaultHighSeverity((p) => ({ ...p, whatsapp: v }))}
-                            />
-                            <span className="text-xs text-neutral-500">WhatsApp</span>
-                          </div>
                         </div>
                       </div>
                       <div className="flex items-center justify-between">
@@ -897,13 +1176,6 @@ export default function SettingsPage() {
                             />
                             <span className="text-xs text-neutral-500">Email</span>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <Switch
-                              checked={defaultNormal.whatsapp}
-                              onCheckedChange={(v) => setDefaultNormal((p) => ({ ...p, whatsapp: v }))}
-                            />
-                            <span className="text-xs text-neutral-500">WhatsApp</span>
-                          </div>
                         </div>
                       </div>
                     </div>
@@ -916,11 +1188,10 @@ export default function SettingsPage() {
                     <p className="text-sm font-medium mb-3">Per-Type Overrides</p>
                     <div className="space-y-0">
                       {/* Header */}
-                      <div className="flex items-center justify-between py-2 px-2 bg-neutral-50 rounded-t-md border border-neutral-200">
+                      <div className="flex items-center justify-between py-2 px-2 bg-[#f4f6f9] rounded-t-md border border-[#e4e8ef]">
                         <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">Alert Type</span>
                         <div className="flex items-center gap-6">
                           <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wide w-14 text-center">Email</span>
-                          <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wide w-14 text-center">WhatsApp</span>
                         </div>
                       </div>
                       {NOTIFICATION_ALERT_TYPES.map((at, idx) => {
@@ -928,7 +1199,7 @@ export default function SettingsPage() {
                         return (
                           <div
                             key={at.key}
-                            className={`flex items-center justify-between py-2.5 px-2 border-x border-neutral-200 ${
+                            className={`flex items-center justify-between py-2.5 px-2 border-x border-[#e4e8ef] ${
                               idx === NOTIFICATION_ALERT_TYPES.length - 1 ? "border-b rounded-b-md" : "border-b"
                             }`}
                           >
@@ -938,12 +1209,6 @@ export default function SettingsPage() {
                                 <Switch
                                   checked={route.email}
                                   onCheckedChange={() => toggleRoute(at.key, "email")}
-                                />
-                              </div>
-                              <div className="w-14 flex justify-center">
-                                <Switch
-                                  checked={route.whatsapp}
-                                  onCheckedChange={() => toggleRoute(at.key, "whatsapp")}
                                 />
                               </div>
                             </div>
@@ -975,6 +1240,7 @@ export default function SettingsPage() {
               )}
             </CardContent>
           </Card>
+          )}
         </TabsContent>
 
         {/* ============================================================= */}
@@ -1010,7 +1276,7 @@ export default function SettingsPage() {
                       Email
                       <Badge
                         variant="secondary"
-                        className="text-[10px] py-0 px-1.5 bg-neutral-100 text-neutral-500"
+                        className="text-[10px] py-0 px-1.5 bg-[#f4f6f9] text-[#132337]"
                       >
                         Read-only
                       </Badge>
@@ -1019,7 +1285,7 @@ export default function SettingsPage() {
                       id="account-email"
                       value={accountEmail}
                       disabled
-                      className="bg-neutral-50 text-neutral-500 cursor-not-allowed"
+                      className="bg-[#f4f6f9] text-neutral-500 cursor-not-allowed"
                     />
                   </div>
 
@@ -1029,12 +1295,12 @@ export default function SettingsPage() {
                       Role
                       <Badge
                         variant="secondary"
-                        className="text-[10px] py-0 px-1.5 bg-neutral-100 text-neutral-500"
+                        className="text-[10px] py-0 px-1.5 bg-[#f4f6f9] text-[#132337]"
                       >
                         Read-only
                       </Badge>
                     </Label>
-                    <div className="flex items-center gap-2 h-9 px-3 rounded-md border border-neutral-200 bg-neutral-50 text-sm text-neutral-500">
+                    <div className="flex items-center gap-2 h-9 px-3 rounded-md border border-[#e4e8ef] bg-[#f4f6f9] text-sm text-neutral-500">
                       <Shield className="w-3.5 h-3.5" />
                       {roleLabels[accountRole]?.label || "Member"}
                     </div>
@@ -1113,6 +1379,124 @@ export default function SettingsPage() {
               </span>
             )}
           </div>
+        </TabsContent>
+
+        {/* ============================================================= */}
+        {/* Data Management Tab                                            */}
+        {/* ============================================================= */}
+        <TabsContent value="data" className="mt-6 space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Database className="w-4 h-4" />
+                Demo Data Management
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <p className="text-sm text-muted-foreground">
+                Seed realistic demo data to explore the platform, or remove it when you&apos;re done. Only demo data is affected — your real data always stays safe.
+              </p>
+
+              <div className="grid sm:grid-cols-2 gap-4">
+                {/* Add Seed Data */}
+                <div className="border rounded-lg p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <div className="h-8 w-8 rounded-full bg-emerald-100 flex items-center justify-center">
+                      <Plus className="h-4 w-4 text-emerald-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium">Add Demo Data</p>
+                      <p className="text-xs text-muted-foreground">6 outlets, agreements, obligations & alerts</p>
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    className="w-full gap-1.5 border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                    disabled={seedLoading}
+                    onClick={async () => {
+                      setSeedLoading(true);
+                      setSeedResult(null);
+                      try {
+                        const res = await seedDemoData();
+                        setSeedResult({ type: "success", message: res.message || "Demo data added!" });
+                      } catch {
+                        setSeedResult({ type: "error", message: "Failed to seed data. Try again." });
+                      } finally {
+                        setSeedLoading(false);
+                      }
+                    }}
+                  >
+                    {seedLoading ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Plus className="h-3.5 w-3.5" />
+                    )}
+                    {seedLoading ? "Seeding..." : "Seed Demo Data"}
+                  </Button>
+                </div>
+
+                {/* Remove Seed Data */}
+                <div className="border rounded-lg p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <div className="h-8 w-8 rounded-full bg-red-100 flex items-center justify-center">
+                      <Trash2 className="h-4 w-4 text-red-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium">Remove Demo Data</p>
+                      <p className="text-xs text-muted-foreground">Only removes seeded data, real data stays</p>
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    className="w-full gap-1.5 border-red-200 text-red-700 hover:bg-red-50"
+                    disabled={removeLoading}
+                    onClick={async () => {
+                      if (!confirm("Remove all demo data? Your real data will NOT be affected.")) return;
+                      setRemoveLoading(true);
+                      setSeedResult(null);
+                      try {
+                        const res = await removeSeedData();
+                        setSeedResult({ type: "success", message: res.message || "Demo data removed!" });
+                      } catch {
+                        setSeedResult({ type: "error", message: "Failed to remove data. Try again." });
+                      } finally {
+                        setRemoveLoading(false);
+                      }
+                    }}
+                  >
+                    {removeLoading ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-3.5 w-3.5" />
+                    )}
+                    {removeLoading ? "Removing..." : "Remove Demo Data"}
+                  </Button>
+                </div>
+              </div>
+
+              {seedResult && (
+                <div className={`flex items-center gap-2 p-3 rounded-lg text-sm ${
+                  seedResult.type === "success" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"
+                }`}>
+                  {seedResult.type === "success" ? (
+                    <CheckCircle className="h-4 w-4 flex-shrink-0" />
+                  ) : (
+                    <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                  )}
+                  {seedResult.message}
+                </div>
+              )}
+
+              <Separator />
+
+              <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 text-amber-800">
+                <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                <p className="text-xs">
+                  <strong>Note:</strong> Seeding multiple times will create duplicate demo entries. Remove existing demo data first before re-seeding.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>

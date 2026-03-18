@@ -84,7 +84,7 @@ function statusColor(status: string): string {
     overdue: "bg-red-100 text-red-800",
     partially_paid: "bg-orange-100 text-orange-800",
   };
-  return map[status] || "bg-neutral-100 text-neutral-600";
+  return map[status] || "bg-[#f4f6f9] text-[#132337]";
 }
 
 function statusLabel(s: string): string {
@@ -306,7 +306,7 @@ export default function PaymentsPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
-      <PageHeader title="Payments" backHref="/">
+      <PageHeader title="Payments">
         {!loading && (
           <Badge variant="secondary" className="text-sm">
             {total}
@@ -385,7 +385,7 @@ export default function PaymentsPage() {
           <Card>
             <CardContent className="pt-6">
               <p className="text-xs text-muted-foreground uppercase tracking-wide">Upcoming</p>
-              <p className="text-2xl font-semibold text-blue-700 mt-1">{upcomingCount}</p>
+              <p className="text-2xl font-semibold text-[#132337] mt-1">{upcomingCount}</p>
             </CardContent>
           </Card>
         </div>
@@ -470,7 +470,7 @@ export default function PaymentsPage() {
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
-                  <TableRow className="bg-neutral-50/80">
+                  <TableRow className="bg-[#f4f6f9]">
                     <TableHead className="whitespace-nowrap">Outlet</TableHead>
                     <TableHead className="whitespace-nowrap">Type</TableHead>
                     <TableHead className="whitespace-nowrap">Period</TableHead>

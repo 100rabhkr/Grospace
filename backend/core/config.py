@@ -25,7 +25,7 @@ ALERT_TYPES_LIST = [
     "revenue_reconciliation", "custom",
 ]
 
-DEAL_STAGES = ["lead", "site_visit", "negotiation", "loi_signed", "fit_out", "operational"]
+DEAL_STAGES = ["lead", "site_visit", "negotiation", "loi", "agreement", "fitout", "operational"]
 
 CITY_ABBREVIATIONS = {
     "delhi": "Del", "new delhi": "Del", "mumbai": "Mum", "bengaluru": "Blr", "bangalore": "Blr",
