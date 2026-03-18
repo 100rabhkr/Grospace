@@ -52,15 +52,22 @@ app.add_middleware(TimeoutMiddleware)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# CORS - allow Vercel deployment, localhost, and configured origins
+# CORS - restrict to known production and development origins
 _env_origins = os.getenv("ALLOWED_ORIGINS", "")
 _frontend_url = os.getenv("FRONTEND_URL", "")
-ALLOWED_ORIGINS = list(set(filter(None, [
+_is_production = os.getenv("RAILWAY_ENVIRONMENT", "") == "production" or os.getenv("NODE_ENV", "") == "production"
+
+_dev_origins = [
     "http://localhost:3000",
-    "http://localhost:3001",
-    "http://localhost:3002",
-    "http://localhost:3003",
+]
+
+_prod_origins = [
     "https://grospace-sandy.vercel.app",
+]
+
+ALLOWED_ORIGINS = list(set(filter(None, [
+    *(_prod_origins),
+    *([] if _is_production else _dev_origins),
     _frontend_url,
     *(_env_origins.split(",") if _env_origins else []),
 ])))
@@ -69,8 +76,9 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Org-Id", "X-Request-ID"],
+    max_age=600,
 )
 
 # ============================================
