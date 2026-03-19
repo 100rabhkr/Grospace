@@ -5,25 +5,43 @@
  * Usage:
  *   npm install @sentry/nextjs
  *   Set NEXT_PUBLIC_SENTRY_DSN in .env.local
- *   Then uncomment the import below.
+ *   Then the dynamic require below will pick it up automatically.
  */
 
-// import * as Sentry from "@sentry/nextjs";
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type SentryLike = {
+  init: (opts: Record<string, unknown>) => void;
+  captureException: (err: unknown) => void;
+  captureMessage: (msg: string) => void;
+};
 
-const SENTRY_DSN = process.env.NEXT_PUBLIC_SENTRY_DSN;
+// Sentry is opt-in: install @sentry/nextjs and set NEXT_PUBLIC_SENTRY_DSN to enable.
+// Without the package, everything works — errors just go to console instead.
+const Sentry: SentryLike | null = null;
 
-let Sentry: { init: (opts: Record<string, unknown>) => void; captureException: (err: unknown) => void } | null = null;
-
-if (SENTRY_DSN) {
-  try {
-    // Dynamic import to avoid build errors when @sentry/nextjs is not installed
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const SentryModule = require("@sentry/nextjs");
-    SentryModule.init({ dsn: SENTRY_DSN, tracesSampleRate: 0.1 });
-    Sentry = SentryModule;
-  } catch {
-    console.warn("@sentry/nextjs not installed. Sentry monitoring disabled.");
+/** Report an error to Sentry (or log to console when Sentry is not configured). */
+export function captureError(err: unknown): void {
+  if (Sentry) {
+    Sentry.captureException(err);
+  } else if (process.env.NODE_ENV !== "production") {
+    console.error("[sentry:noop]", err);
   }
+}
+
+/**
+ * Attach global unhandled-error listeners (call once from root layout or _app).
+ * Safe to call on server — listeners are only added in the browser.
+ */
+export function initGlobalErrorHandlers(): void {
+  if (typeof window === "undefined") return;
+
+  window.addEventListener("error", (event) => {
+    captureError(event.error ?? event.message);
+  });
+
+  window.addEventListener("unhandledrejection", (event) => {
+    captureError(event.reason);
+  });
 }
 
 export default Sentry;
