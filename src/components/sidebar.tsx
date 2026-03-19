@@ -22,7 +22,35 @@ import { cn } from "@/lib/utils";
 import { useState } from "react";
 import { useUser } from "@/lib/hooks/use-user";
 
-const navItems = [
+type UserRole = "platform_admin" | "org_admin" | "org_member";
+
+interface NavChild {
+  label: string;
+  href: string;
+  minRole?: UserRole;
+}
+
+interface NavItem {
+  label: string;
+  href: string;
+  icon: typeof LayoutDashboard;
+  minRole?: UserRole;
+  children?: NavChild[];
+}
+
+/** Roles ordered by access level (highest first). */
+const ROLE_RANK: Record<UserRole, number> = {
+  platform_admin: 3,
+  org_admin: 2,
+  org_member: 1,
+};
+
+function hasAccess(userRole: UserRole, minRole?: UserRole): boolean {
+  if (!minRole) return true;
+  return ROLE_RANK[userRole] >= ROLE_RANK[minRole];
+}
+
+const navItems: NavItem[] = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
   { label: "Map View", href: "/map", icon: Map },
   { label: "GroBot", href: "/ai-assistant", icon: Bot },
@@ -40,14 +68,14 @@ const navItems = [
     icon: FileText,
     children: [
       { label: "All Agreements", href: "/agreements" },
-      { label: "Upload Documents", href: "/agreements/upload" },
+      { label: "Upload Documents", href: "/agreements/upload", minRole: "org_admin" },
     ],
   },
   { label: "Alerts", href: "/alerts", icon: Bell },
-  { label: "Pipeline", href: "/pipeline", icon: Kanban },
+  { label: "Pipeline", href: "/pipeline", icon: Kanban, minRole: "org_admin" },
   { label: "Payments", href: "/payments", icon: Wallet },
   { label: "Reports", href: "/reports", icon: BarChart3 },
-  { label: "Settings", href: "/settings", icon: Settings },
+  { label: "Settings", href: "/settings", icon: Settings, minRole: "org_admin" },
 ];
 
 const roleLabels: Record<string, string> = {
@@ -65,6 +93,8 @@ export function Sidebar() {
     Agreements: true,
   });
 
+  const userRole: UserRole = user?.role || "org_member";
+
   return (
     <aside className="w-[240px] h-screen bg-[#fafbfd] border-r border-[#e4e8ef] flex flex-col shrink-0">
       {/* Logo */}
@@ -78,13 +108,14 @@ export function Sidebar() {
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto py-3 px-3">
         <div className="space-y-0.5">
-          {navItems.map((item) => {
+          {navItems.filter((item) => hasAccess(userRole, item.minRole)).map((item) => {
             const isActive =
               pathname === item.href ||
               (item.children && item.children.some((c) => pathname === c.href)) ||
               (item.href !== "/" && pathname.startsWith(item.href));
             const Icon = item.icon;
-            const hasChildren = item.children && item.children.length > 0;
+            const visibleChildren = item.children?.filter((c) => hasAccess(userRole, c.minRole));
+            const hasChildren = visibleChildren && visibleChildren.length > 0;
             const isExpanded = expanded[item.label];
 
             return (
@@ -126,7 +157,7 @@ export function Sidebar() {
                 </div>
                 {hasChildren && isExpanded && (
                   <div className="ml-6 mt-0.5 space-y-0.5">
-                    {item.children!.map((child) => (
+                    {visibleChildren!.map((child) => (
                       <Link
                         key={child.href}
                         href={child.href}
@@ -147,24 +178,26 @@ export function Sidebar() {
           })}
         </div>
 
-        {/* Platform Admin section */}
-        <div className="mt-6 pt-4 border-t border-[#e4e8ef]">
-          <p className="px-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-2">
-            Platform Admin
-          </p>
-          <Link
-            href="/organizations"
-            className={cn(
-              "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-              pathname === "/organizations"
-                ? "bg-[#132337] text-white"
-                : "text-slate-500 hover:text-[#132337] hover:bg-slate-50/80"
-            )}
-          >
-            <Building2 className={cn("w-4 h-4", pathname === "/organizations" && "text-white")} />
-            <span>Organizations</span>
-          </Link>
-        </div>
+        {/* Platform Admin section — only visible to platform_admin */}
+        {hasAccess(userRole, "platform_admin") && (
+          <div className="mt-6 pt-4 border-t border-[#e4e8ef]">
+            <p className="px-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-2">
+              Platform Admin
+            </p>
+            <Link
+              href="/organizations"
+              className={cn(
+                "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                pathname === "/organizations"
+                  ? "bg-[#132337] text-white"
+                  : "text-slate-500 hover:text-[#132337] hover:bg-slate-50/80"
+              )}
+            >
+              <Building2 className={cn("w-4 h-4", pathname === "/organizations" && "text-white")} />
+              <span>Organizations</span>
+            </Link>
+          </div>
+        )}
       </nav>
 
       {/* User */}
