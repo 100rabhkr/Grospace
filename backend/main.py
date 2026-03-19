@@ -5,12 +5,15 @@ Deployed on Railway.
 """
 
 import os
+import asyncio
 from datetime import datetime
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from core.config import limiter
 
@@ -23,19 +26,48 @@ from routes import auth, documents, outlets, agreements, payments, alerts, pipel
 
 app = FastAPI(title="GroSpace AI Service", version="1.0.0")
 
+# Endpoints that involve AI processing need longer timeouts
+_LONG_TIMEOUT_PATHS = {
+    "/api/upload-and-extract", "/api/extract", "/api/qa",
+    "/api/risk-flags", "/api/classify", "/api/smart-chat",
+    "/api/portfolio-qa", "/api/seed", "/api/cron",
+}
+
+# Request timeout middleware — kills hung requests
+class TimeoutMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        timeout = 180.0 if any(path.startswith(p) for p in _LONG_TIMEOUT_PATHS) else 30.0
+        try:
+            return await asyncio.wait_for(call_next(request), timeout=timeout)
+        except asyncio.TimeoutError:
+            return JSONResponse(
+                status_code=504,
+                content={"detail": "Request timed out. Please try again."},
+            )
+
+app.add_middleware(TimeoutMiddleware)
+
 # Rate limiter
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# CORS - allow Vercel deployment, localhost, and configured origins
+# CORS - restrict to known production and development origins
 _env_origins = os.getenv("ALLOWED_ORIGINS", "")
 _frontend_url = os.getenv("FRONTEND_URL", "")
-ALLOWED_ORIGINS = list(set(filter(None, [
+_is_production = os.getenv("RAILWAY_ENVIRONMENT", "") == "production" or os.getenv("NODE_ENV", "") == "production"
+
+_dev_origins = [
     "http://localhost:3000",
-    "http://localhost:3001",
-    "http://localhost:3002",
-    "http://localhost:3003",
+]
+
+_prod_origins = [
     "https://grospace-sandy.vercel.app",
+]
+
+ALLOWED_ORIGINS = list(set(filter(None, [
+    *(_prod_origins),
+    *([] if _is_production else _dev_origins),
     _frontend_url,
     *(_env_origins.split(",") if _env_origins else []),
 ])))
@@ -44,8 +76,9 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Org-Id", "X-Request-ID"],
+    max_age=600,
 )
 
 # ============================================

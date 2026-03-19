@@ -28,14 +28,14 @@ class ContactUpdate(BaseModel):
 
 
 @router.get("/outlets/{outlet_id}/contacts")
-async def list_contacts(outlet_id: str, user: Optional[CurrentUser] = Depends(get_current_user)):
+def list_contacts(outlet_id: str, user: Optional[CurrentUser] = Depends(get_current_user)):
     """List all contacts for an outlet."""
     result = supabase.table("outlet_contacts").select("*").eq("outlet_id", outlet_id).order("created_at").execute()
     return {"contacts": result.data}
 
 
 @router.post("/outlets/{outlet_id}/contacts")
-async def add_contact(outlet_id: str, req: ContactCreate, user: Optional[CurrentUser] = Depends(get_current_user)):
+def add_contact(outlet_id: str, req: ContactCreate, user: Optional[CurrentUser] = Depends(get_current_user)):
     """Add a contact to an outlet."""
     org_id = get_org_filter(user)
     if not org_id:
@@ -57,7 +57,7 @@ async def add_contact(outlet_id: str, req: ContactCreate, user: Optional[Current
 
 
 @router.patch("/contacts/{contact_id}")
-async def update_contact(contact_id: str, req: ContactUpdate, user: Optional[CurrentUser] = Depends(get_current_user)):
+def update_contact(contact_id: str, req: ContactUpdate, user: Optional[CurrentUser] = Depends(get_current_user)):
     """Update a contact."""
     updates = {k: v for k, v in req.model_dump().items() if v is not None}
     if not updates:
@@ -67,7 +67,7 @@ async def update_contact(contact_id: str, req: ContactUpdate, user: Optional[Cur
 
 
 @router.delete("/contacts/{contact_id}")
-async def delete_contact(contact_id: str, user: Optional[CurrentUser] = Depends(get_current_user)):
+def delete_contact(contact_id: str, user: Optional[CurrentUser] = Depends(get_current_user)):
     """Delete a contact."""
     supabase.table("outlet_contacts").delete().eq("id", contact_id).execute()
     return {"ok": True}

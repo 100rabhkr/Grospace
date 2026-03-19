@@ -19,7 +19,7 @@ router = APIRouter(prefix="/api", tags=["alerts"])
 
 
 @router.get("/alerts", dependencies=[Depends(require_permission("view_alerts"))])
-async def list_alerts(
+def list_alerts(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
 ):
@@ -34,7 +34,7 @@ async def list_alerts(
 
 
 @router.patch("/alerts/{alert_id}/acknowledge", dependencies=[Depends(require_permission("acknowledge_alerts"))])
-async def acknowledge_alert(
+def acknowledge_alert(
     alert_id: str,
     user: Optional[CurrentUser] = Depends(get_current_user),
 ):
@@ -54,7 +54,7 @@ async def acknowledge_alert(
 
 
 @router.patch("/alerts/{alert_id}/snooze", dependencies=[Depends(require_permission("acknowledge_alerts"))])
-async def snooze_alert(
+def snooze_alert(
     alert_id: str,
     req: SnoozeRequest,
     user: Optional[CurrentUser] = Depends(get_current_user),
@@ -74,7 +74,7 @@ async def snooze_alert(
 
 
 @router.patch("/alerts/{alert_id}/assign", dependencies=[Depends(require_permission("assign_alerts"))])
-async def assign_alert(
+def assign_alert(
     alert_id: str,
     req: AssignRequest,
     user: Optional[CurrentUser] = Depends(get_current_user),
@@ -94,7 +94,7 @@ async def assign_alert(
 # ============================================
 
 @router.post("/reminders", dependencies=[Depends(require_permission("view_alerts"))])
-async def create_reminder(
+def create_reminder(
     req: CreateReminderRequest,
     user: Optional[CurrentUser] = Depends(get_current_user),
 ):
@@ -154,7 +154,7 @@ async def create_reminder(
 
 
 @router.patch("/reminders/{reminder_id}", dependencies=[Depends(require_permission("view_alerts"))])
-async def update_reminder(reminder_id: str, req: UpdateReminderRequest):
+def update_reminder(reminder_id: str, req: UpdateReminderRequest):
     """Update a custom reminder. Only type='custom' alerts can be edited."""
     existing = supabase.table("alerts").select("type, org_id, outlet_id").eq("id", reminder_id).single().execute()
     if not existing.data:
@@ -189,7 +189,7 @@ async def update_reminder(reminder_id: str, req: UpdateReminderRequest):
 
 
 @router.delete("/reminders/{reminder_id}", dependencies=[Depends(require_permission("view_alerts"))])
-async def delete_reminder(reminder_id: str):
+def delete_reminder(reminder_id: str):
     """Delete a custom reminder. Only type='custom' alerts can be deleted."""
     existing = supabase.table("alerts").select("type").eq("id", reminder_id).single().execute()
     if not existing.data:
@@ -206,7 +206,7 @@ async def delete_reminder(reminder_id: str):
 # ============================================
 
 @router.get("/activity-log", dependencies=[Depends(require_permission("view_reports"))])
-async def get_activity_log(
+def get_activity_log(
     entity_type: str = Query(...),
     entity_id: str = Query(...),
     limit: int = Query(50, ge=1, le=200),

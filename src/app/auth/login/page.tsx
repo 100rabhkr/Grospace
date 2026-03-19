@@ -14,6 +14,8 @@ export default function LoginPage() {
   const [fullName, setFullName] = useState("");
   const [company, setCompany] = useState("");
   const [phone, setPhone] = useState("");
+  const [city, setCity] = useState("");
+  const [numOutlets, setNumOutlets] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [signupSuccess, setSignupSuccess] = useState(false);
@@ -66,6 +68,8 @@ export default function LoginPage() {
               full_name: fullName,
               company,
               phone,
+              city,
+              num_outlets: numOutlets ? parseInt(numOutlets, 10) : undefined,
             },
           },
         });
@@ -166,16 +170,21 @@ export default function LoginPage() {
         }} />
 
         <div className="relative z-10">
-          {/* Logo */}
+          {/* Logo + tagline */}
           <div
-            className="flex items-center gap-3 mb-20 transition-all duration-700 ease-out"
+            className="mb-16 transition-all duration-700 ease-out"
             style={{
               opacity: mounted ? 1 : 0,
               transform: mounted ? "translateY(0)" : "translateY(-10px)",
             }}
           >
-            <Image src="/logo.png" alt="GroSpace" width={40} height={40} className="rounded-xl shadow-lg shadow-white/5" />
-            <span className="text-2xl font-bold tracking-tight text-white">GroSpace</span>
+            <div className="flex items-center gap-3 mb-3">
+              <Image src="/logo.png" alt="GroSpace" width={40} height={40} className="rounded-xl shadow-lg shadow-white/5" />
+              <span className="text-2xl font-bold tracking-tight text-white">GroSpace</span>
+            </div>
+            <p className="text-white/40 text-sm font-medium tracking-wide">
+              AI-Native Real Estate Platform
+            </p>
           </div>
 
           {/* Hero text */}
@@ -186,20 +195,17 @@ export default function LoginPage() {
               transform: mounted ? "translateY(0)" : "translateY(20px)",
             }}
           >
-            <p className="text-white/50 text-sm font-medium tracking-wide uppercase mb-4">
-              Your real estate, made smarter
-            </p>
             <h1 className="text-[44px] leading-[1.08] font-bold text-white tracking-tight">
-              AI-native
+              Operate.
               <br />
               <span className="text-white/80">
-                Real Estate
+                Optimize.
               </span>
               <br />
-              Platform
+              Scale.
             </h1>
             <p className="mt-6 text-[15px] text-white/40 leading-relaxed max-w-[380px]">
-              Helping F&B and retail brands operate, optimize, and scale their real estate portfolios — from outlet leases, licenses to making smarter expansion decisions — all in one place.
+              Helping F&B and retail brands manage their real estate portfolios — from outlet leases and licenses to smarter expansion decisions — all in one place.
             </p>
           </div>
         </div>
@@ -268,7 +274,7 @@ export default function LoginPage() {
       </div>
 
       {/* Right panel — form */}
-      <div className="flex-1 flex items-center justify-center px-6 sm:px-12 relative"
+      <div className="flex-1 flex items-center justify-center px-6 sm:px-12 relative overflow-y-auto"
         style={{ background: "linear-gradient(180deg, #f8f9fb 0%, #f4f6f9 50%, #f0f2f6 100%)" }}
       >
         {/* Subtle pattern */}
@@ -278,11 +284,7 @@ export default function LoginPage() {
         }} />
 
         <div
-          className="w-full max-w-[400px] relative z-10 transition-all duration-700 ease-out"
-          style={{
-            opacity: mounted ? 1 : 0,
-            transform: mounted ? "translateY(0)" : "translateY(16px)",
-          }}
+          className="w-full max-w-[400px] relative z-10 py-8"
         >
           {/* Mobile logo */}
           <div className="flex items-center gap-2.5 mb-10 lg:hidden">
@@ -360,6 +362,31 @@ export default function LoginPage() {
                         placeholder="+91 98765 43210"
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
+                        className="h-12 bg-[#fafbfd] border-[#e4e8ef] rounded-xl text-sm placeholder:text-[#132337]/30 focus:border-[#132337]/40 focus:ring-[#132337]/10 transition-all duration-200 shadow-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="city" className="text-[11px] font-semibold text-[#132337]/50 uppercase tracking-wider">City</Label>
+                      <Input
+                        id="city"
+                        type="text"
+                        placeholder="e.g. Mumbai"
+                        value={city}
+                        onChange={(e) => setCity(e.target.value)}
+                        required
+                        className="h-12 bg-[#fafbfd] border-[#e4e8ef] rounded-xl text-sm placeholder:text-[#132337]/30 focus:border-[#132337]/40 focus:ring-[#132337]/10 transition-all duration-200 shadow-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="numOutlets" className="text-[11px] font-semibold text-[#132337]/50 uppercase tracking-wider">No. of Outlets</Label>
+                      <Input
+                        id="numOutlets"
+                        type="number"
+                        placeholder="e.g. 10"
+                        value={numOutlets}
+                        onChange={(e) => setNumOutlets(e.target.value)}
+                        required
+                        min="1"
                         className="h-12 bg-[#fafbfd] border-[#e4e8ef] rounded-xl text-sm placeholder:text-[#132337]/30 focus:border-[#132337]/40 focus:ring-[#132337]/10 transition-all duration-200 shadow-sm"
                       />
                     </div>

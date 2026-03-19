@@ -38,6 +38,8 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
+  const isPendingPage = request.nextUrl.pathname === "/auth/pending-approval";
+
   // Redirect unauthenticated users to login (except auth pages)
   if (
     !user &&
@@ -49,11 +51,28 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Redirect authenticated users away from auth pages
-  if (user && request.nextUrl.pathname.startsWith("/auth")) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/";
-    return NextResponse.redirect(url);
+  // For authenticated users, check if they are approved (have org_id or are platform_admin)
+  if (user && !isPendingPage && !request.nextUrl.pathname.startsWith("/api/auth")) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("role, org_id")
+      .eq("id", user.id)
+      .single();
+
+    const isApproved = profile?.org_id || profile?.role === "platform_admin";
+
+    if (!isApproved) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/auth/pending-approval";
+      return NextResponse.redirect(url);
+    }
+
+    // Approved user trying to visit auth pages — redirect to home
+    if (request.nextUrl.pathname.startsWith("/auth")) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/";
+      return NextResponse.redirect(url);
+    }
   }
 
   return response;

@@ -21,7 +21,7 @@ router = APIRouter(prefix="/api", tags=["payments"])
 
 
 @router.get("/payments", dependencies=[Depends(require_permission("view_payments"))])
-async def list_payments(
+def list_payments(
     outlet_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     period_year: Optional[int] = Query(None),
@@ -62,7 +62,7 @@ async def list_payments(
 
 
 @router.patch("/payments/{payment_id}", dependencies=[Depends(require_permission("update_payments"))])
-async def update_payment(
+def update_payment(
     payment_id: str,
     req: PaymentUpdateRequest,
     user: Optional[CurrentUser] = Depends(get_current_user),
@@ -90,7 +90,7 @@ async def update_payment(
 
 
 @router.get("/obligations", dependencies=[Depends(require_permission("view_payments"))])
-async def list_obligations(
+def list_obligations(
     outlet_id: Optional[str] = Query(None),
     active_only: bool = Query(True),
     page: int = Query(1, ge=1),
@@ -123,7 +123,7 @@ async def list_obligations(
 
 
 @router.post("/payments/generate", dependencies=[Depends(require_permission("update_payments"))])
-async def generate_payment_records(
+def generate_payment_records(
     req: GeneratePaymentsRequest,
     user: Optional[CurrentUser] = Depends(get_current_user),
 ):
@@ -188,7 +188,7 @@ async def generate_payment_records(
 
 
 @router.post("/payments/bulk-mark-paid", dependencies=[Depends(require_permission("update_payments"))])
-async def bulk_mark_paid(body: BulkMarkPaidRequest):
+def bulk_mark_paid(body: BulkMarkPaidRequest):
     """Bulk mark payments as paid -- by IDs or by month/year."""
     updated = 0
 
@@ -261,7 +261,7 @@ async def mark_all_paid(request: Request):
 
 
 @router.post("/calculate-mglr", dependencies=[Depends(require_permission("view_payments"))])
-async def calculate_mglr(body: MGLRRequest):
+def calculate_mglr(body: MGLRRequest):
     """Calculate hybrid MGLR rent for an outlet based on revenue."""
     agreements = supabase.table("agreements").select("*").eq("outlet_id", body.outlet_id).eq("status", "active").execute().data or []
     if not agreements:

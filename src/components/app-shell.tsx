@@ -16,6 +16,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
   }
 
+  const isMapPage = pathname === "/map";
+
   return (
     <div className="flex h-screen overflow-hidden">
       {/* Desktop sidebar — hidden on mobile */}
@@ -28,7 +30,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       <div className="flex flex-col flex-1 overflow-hidden">
         <TopBar onMenuClick={() => setMobileNavOpen(true)} />
-        <main className="flex-1 overflow-y-auto bg-background p-4 sm:p-6 lg:p-8">
+        <main className={isMapPage
+          ? "flex-1 overflow-hidden bg-background"
+          : "flex-1 overflow-y-auto bg-background p-4 sm:p-6 lg:p-8"
+        }>
           {children}
         </main>
       </div>

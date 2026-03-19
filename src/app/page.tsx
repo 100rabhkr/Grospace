@@ -727,28 +727,28 @@ export default function Dashboard() {
       </div>
 
       {/* -------------------------------------------------------------- */}
-      {/* Map Teaser -- scrolls to map section                              */}
+      {/* Map Teaser -- links to dedicated Map View page                     */}
       {/* -------------------------------------------------------------- */}
       {isPlatformAdmin && outletsByCity.length > 0 && (
         <button
           onClick={() => mapSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
-          className="w-full group"
+          className="w-full group block"
         >
-          <div className="flex items-center justify-between px-4 py-3 rounded-xl border border-[#e4e8ef] bg-[#fafbfd] hover:border-[#e4e8ef] hover:shadow-sm transition-all duration-200 cursor-pointer">
+          <div className="flex items-center justify-between px-4 py-3 rounded-xl border border-[#e4e8ef] bg-[#fafbfd] hover:border-[#132337]/20 hover:shadow-sm transition-all duration-200 cursor-pointer">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-lg bg-[#132337] flex items-center justify-center">
                 <Map className="h-4 w-4 text-white" />
               </div>
               <div className="text-left">
-                <p className="text-xs font-semibold text-neutral-800">Explore Outlet Map</p>
+                <p className="text-xs font-semibold text-neutral-800">Outlet Map</p>
                 <p className="text-[10px] text-neutral-400">
-                  {outletsByCity.length} {outletsByCity.length === 1 ? "city" : "cities"} &middot; Interactive map with live outlet data
+                  {outletsByCity.length} {outletsByCity.length === 1 ? "city" : "cities"} &middot; Scroll to interactive map
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-1.5 text-neutral-400 group-hover:text-neutral-600 transition-colors">
+            <div className="flex items-center gap-1.5 text-neutral-400 group-hover:text-[#132337] transition-colors">
               <span className="text-[10px] font-medium hidden sm:inline">Scroll to map</span>
-              <ChevronDown className="h-4 w-4 animate-bounce" />
+              <ChevronDown className="h-4 w-4" />
             </div>
           </div>
         </button>
@@ -1048,6 +1048,7 @@ export default function Dashboard() {
                 outletDetails={stats?.outlet_details_by_city}
                 selectedCluster={mapCluster?.label ?? null}
                 onSelectCluster={setMapCluster}
+                compact
               />
             )}
           </CardContent>
@@ -1212,6 +1213,64 @@ export default function Dashboard() {
                         </div>
                       );
                     })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Rent by City */}
+          <Card className="flex flex-col overflow-hidden">
+            <CardHeader className="p-4 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 rounded-lg bg-[#132337] flex items-center justify-center">
+                  <IndianRupee className="h-3 w-3 text-white" />
+                </div>
+                <CardTitle className="text-sm font-semibold">
+                  Rent by City
+                </CardTitle>
+                <Badge variant="secondary" className="text-[10px] ml-auto font-semibold">
+                  {formatINR(stats?.total_monthly_rent ?? 0)}/mo
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="p-4 pt-0">
+              {outletsByCity.length === 0 ? (
+                <p className="text-xs text-neutral-400">No rent data yet.</p>
+              ) : (
+                <div className="space-y-2.5">
+                  {outletsByCity.map(({ city }) => {
+                    const cityOutlets = stats?.outlet_details_by_city?.[city] || [];
+                    const cityRent = cityOutlets.reduce((s, o) => s + (o.rent ?? 0), 0);
+                    if (cityRent === 0) return null;
+                    const totalRent = stats?.total_monthly_rent || 1;
+                    const pct = Math.round((cityRent / totalRent) * 100);
+                    return (
+                      <div key={city}>
+                        <div className="flex items-center justify-between mb-0.5">
+                          <span className="text-xs font-medium text-neutral-600">{city}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-neutral-400">{pct}%</span>
+                            <span className="text-xs font-semibold text-[#132337] tabular-nums">{formatINR(cityRent)}</span>
+                          </div>
+                        </div>
+                        <div className="h-1.5 w-full rounded-full bg-[#132337]/10 overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-blue-500 transition-all duration-700 ease-out"
+                            style={{ width: `${pct}%`, opacity: 0.3 + (pct / 100) * 0.7 }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {/* Avg rent per outlet */}
+                  {(stats?.total_outlets ?? 0) > 0 && (
+                    <div className="mt-2 pt-2 border-t border-[#e4e8ef] flex items-center justify-between">
+                      <span className="text-[11px] text-neutral-500">Avg rent per outlet</span>
+                      <span className="text-xs font-bold text-[#132337] tabular-nums">
+                        {formatINR((stats?.total_monthly_rent ?? 0) / (stats?.total_outlets ?? 1))}
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
             </CardContent>

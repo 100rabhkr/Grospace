@@ -13,7 +13,7 @@ router = APIRouter(prefix="/api", tags=["auth"])
 
 
 @router.get("/profile")
-async def get_profile(user: Optional[CurrentUser] = Depends(get_current_user)):
+def get_profile(user: Optional[CurrentUser] = Depends(get_current_user)):
     """Get the current user's profile."""
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -24,7 +24,7 @@ async def get_profile(user: Optional[CurrentUser] = Depends(get_current_user)):
 
 
 @router.patch("/profile")
-async def update_profile(req: UpdateProfileRequest, user: Optional[CurrentUser] = Depends(get_current_user)):
+def update_profile(req: UpdateProfileRequest, user: Optional[CurrentUser] = Depends(get_current_user)):
     """Update the current user's profile."""
     if not user:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -41,7 +41,7 @@ async def update_profile(req: UpdateProfileRequest, user: Optional[CurrentUser] 
 
 
 @router.get("/alert-preferences/{org_id}", dependencies=[Depends(require_permission("manage_org_settings"))])
-async def get_alert_preferences(org_id: str):
+def get_alert_preferences(org_id: str):
     """Get alert preferences for an organization."""
     result = supabase.table("organizations").select("alert_preferences").eq("id", org_id).single().execute()
     if not result.data:
@@ -50,7 +50,7 @@ async def get_alert_preferences(org_id: str):
 
 
 @router.put("/alert-preferences/{org_id}", dependencies=[Depends(require_permission("manage_org_settings"))])
-async def save_alert_preferences(org_id: str, req: AlertPreferencesRequest):
+def save_alert_preferences(org_id: str, req: AlertPreferencesRequest):
     """Save alert preferences for an organization."""
     result = supabase.table("organizations").update({"alert_preferences": req.preferences}).eq("id", org_id).execute()
     if not result.data:

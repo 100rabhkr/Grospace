@@ -117,17 +117,22 @@ $$;
 
 -- ============================================
 -- SCHEDULE THE JOBS (requires pg_cron extension)
--- Uncomment these after enabling pg_cron
+-- Run these AFTER enabling pg_cron in Supabase Dashboard
 -- ============================================
 
+-- First, remove any existing schedules to avoid duplicates
+SELECT cron.unschedule(jobname) FROM cron.job WHERE jobname IN (
+  'update-overdue-payments', 'transition-agreements', 'calculate-escalations'
+);
+
 -- Run payment status updater daily at 1:00 AM IST (19:30 UTC previous day)
--- SELECT cron.schedule('update-overdue-payments', '30 19 * * *', 'SELECT update_overdue_payments()');
+SELECT cron.schedule('update-overdue-payments', '30 19 * * *', 'SELECT update_overdue_payments()');
 
 -- Run agreement transitions daily at 1:30 AM IST (20:00 UTC previous day)
--- SELECT cron.schedule('transition-agreements', '0 20 * * *', 'SELECT transition_agreement_statuses()');
+SELECT cron.schedule('transition-agreements', '0 20 * * *', 'SELECT transition_agreement_statuses()');
 
 -- Run escalation calculator daily at 2:00 AM IST (20:30 UTC previous day)
--- SELECT cron.schedule('calculate-escalations', '30 20 * * *', 'SELECT calculate_escalations()');
+SELECT cron.schedule('calculate-escalations', '30 20 * * *', 'SELECT calculate_escalations()');
 
 -- To verify scheduled jobs:
 -- SELECT * FROM cron.job;
