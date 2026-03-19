@@ -4,7 +4,8 @@ Core configuration: environment variables, constants, shared clients, and helper
 
 import os
 from dotenv import load_dotenv
-from supabase import create_client, Client
+from supabase import create_client, Client, ClientOptions
+from httpx import Timeout
 import google.generativeai as genai
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -97,6 +98,9 @@ Important notes:
 supabase: Client = create_client(
     os.getenv("SUPABASE_URL", ""),
     os.getenv("SUPABASE_SERVICE_ROLE_KEY", ""),
+    options=ClientOptions(
+        postgrest_client_timeout=Timeout(10.0, connect=5.0),
+    ),
 )
 
 genai.configure(api_key=os.getenv("GEMINI_API_KEY", ""))

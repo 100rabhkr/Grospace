@@ -17,24 +17,54 @@ async function getAuthToken(): Promise<string | null> {
   }
 }
 
+// Endpoints that involve AI processing need longer timeouts
+const LONG_TIMEOUT_PATTERNS = [
+  "/api/upload-and-extract",
+  "/api/extract",
+  "/api/qa",
+  "/api/risk-flags",
+  "/api/classify",
+  "/api/smart-chat",
+  "/api/portfolio-qa",
+  "/api/seed",
+  "/api/cron",
+];
+
 async function apiFetch(endpoint: string, options: RequestInit = {}) {
   const token = await getAuthToken();
+  const isFormData = options.body instanceof FormData;
   const headers: Record<string, string> = {
-    "Content-Type": "application/json",
+    ...(isFormData ? {} : { "Content-Type": "application/json" }),
     ...(options.headers as Record<string, string>),
   };
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${API_URL}${endpoint}`, {
-    ...options,
-    headers,
-  });
+  const isLongRunning = LONG_TIMEOUT_PATTERNS.some((p) => endpoint.startsWith(p));
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), isLongRunning ? 180000 : 15000);
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_URL}${endpoint}`, {
+      ...options,
+      headers,
+      signal: controller.signal,
+    });
+  } catch (err: unknown) {
+    clearTimeout(timeoutId);
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error("Request timed out — server may be starting up. Please retry in a moment.");
+    }
+    throw new Error("Network error — unable to reach the server.");
+  }
+  clearTimeout(timeoutId);
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: "Request failed" }));
-    throw new Error(error.detail || `API error: ${response.status}`);
+    const detail = typeof error.detail === "string" ? error.detail : JSON.stringify(error.detail) || `API error: ${response.status}`;
+    throw new Error(detail);
   }
 
   return response.json();

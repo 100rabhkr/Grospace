@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api", tags=["pipeline"])
 
 
 @router.get("/pipeline", dependencies=[Depends(require_permission("view_outlets"))])
-async def get_pipeline(user: Optional[CurrentUser] = Depends(get_current_user)):
+def get_pipeline(user: Optional[CurrentUser] = Depends(get_current_user)):
     """Get all outlets grouped by deal_stage for the Kanban board."""
     org_id = get_org_filter(user)
 
@@ -45,7 +45,7 @@ async def get_pipeline(user: Optional[CurrentUser] = Depends(get_current_user)):
 
 
 @router.patch("/pipeline/move", dependencies=[Depends(require_permission("edit_outlets"))])
-async def move_pipeline_card(req: MovePipelineRequest, user: Optional[CurrentUser] = Depends(get_current_user)):
+def move_pipeline_card(req: MovePipelineRequest, user: Optional[CurrentUser] = Depends(get_current_user)):
     """Move an outlet to a new deal stage."""
     if req.new_stage not in DEAL_STAGES:
         raise HTTPException(status_code=400, detail=f"Invalid stage. Must be one of: {', '.join(DEAL_STAGES)}")
@@ -77,7 +77,7 @@ async def move_pipeline_card(req: MovePipelineRequest, user: Optional[CurrentUse
 
 
 @router.patch("/pipeline/{outlet_id}", dependencies=[Depends(require_permission("edit_outlets"))])
-async def update_pipeline_deal(outlet_id: str, req: UpdatePipelineDealRequest):
+def update_pipeline_deal(outlet_id: str, req: UpdatePipelineDealRequest):
     """Update deal priority or notes without changing stage."""
     update_data: dict = {}
     if req.deal_priority is not None:
@@ -100,7 +100,7 @@ async def update_pipeline_deal(outlet_id: str, req: UpdatePipelineDealRequest):
 # ============================================
 
 @router.post("/showcase", dependencies=[Depends(require_permission("view_outlets"))])
-async def create_showcase(req: CreateShowcaseRequest, user: Optional[CurrentUser] = Depends(get_current_user)):
+def create_showcase(req: CreateShowcaseRequest, user: Optional[CurrentUser] = Depends(get_current_user)):
     """Create a shareable showcase token for an outlet."""
     outlet = supabase.table("outlets").select("org_id, name").eq("id", req.outlet_id).single().execute()
     if not outlet.data:
@@ -127,7 +127,7 @@ async def create_showcase(req: CreateShowcaseRequest, user: Optional[CurrentUser
 
 
 @router.get("/showcase", dependencies=[Depends(require_permission("view_outlets"))])
-async def list_showcases(
+def list_showcases(
     outlet_id: Optional[str] = Query(None),
     user: Optional[CurrentUser] = Depends(get_current_user),
 ):
@@ -143,7 +143,7 @@ async def list_showcases(
 
 
 @router.patch("/showcase/{token_id}", dependencies=[Depends(require_permission("edit_outlets"))])
-async def update_showcase(token_id: str, req: UpdateShowcaseRequest):
+def update_showcase(token_id: str, req: UpdateShowcaseRequest):
     """Update a showcase token."""
     update_data: dict = {}
     if req.title is not None:
@@ -164,7 +164,7 @@ async def update_showcase(token_id: str, req: UpdateShowcaseRequest):
 
 
 @router.get("/showcase/public/{token}")
-async def get_public_showcase(token: str):
+def get_public_showcase(token: str):
     """Public endpoint -- no auth required. Returns outlet info for a valid showcase token."""
     result = supabase.table("showcase_tokens").select(
         "*, outlets(id, name, brand_name, address, city, state, property_type, floor, unit_number, "
