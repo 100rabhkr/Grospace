@@ -18,7 +18,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from core.config import limiter
 
 # Import all route modules
-from routes import auth, documents, outlets, agreements, payments, alerts, pipeline, admin, reports, contacts
+from routes import auth, documents, outlets, agreements, payments, alerts, pipeline, admin, reports, contacts, leasebot, revenue
 
 # ============================================
 # APP SETUP
@@ -31,6 +31,7 @@ _LONG_TIMEOUT_PATHS = {
     "/api/upload-and-extract", "/api/extract", "/api/qa",
     "/api/risk-flags", "/api/classify", "/api/smart-chat",
     "/api/portfolio-qa", "/api/seed", "/api/cron",
+    "/api/leasebot/analyze",
 }
 
 # Request timeout middleware — kills hung requests
@@ -103,6 +104,8 @@ app.include_router(pipeline.router)
 app.include_router(admin.router)
 app.include_router(reports.router)
 app.include_router(contacts.router)
+app.include_router(leasebot.router)
+app.include_router(revenue.router)
 
 # ============================================
 # ENTRYPOINT

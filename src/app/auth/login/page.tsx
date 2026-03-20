@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,12 @@ export default function LoginPage() {
   const [signupSuccess, setSignupSuccess] = useState(false);
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [mounted, setMounted] = useState(false);
+  const searchParams = useSearchParams();
+  const redirectTo = searchParams.get("redirect") || "/";
+
+  const goToApp = useCallback(() => {
+    window.location.href = redirectTo;
+  }, [redirectTo]);
 
   useEffect(() => {
     setMounted(true);
@@ -38,7 +45,7 @@ export default function LoginPage() {
         body: JSON.stringify({ email, password }),
       });
       if (demoRes.ok) {
-        window.location.href = "/";
+        goToApp();
         return;
       }
     } catch {
@@ -79,7 +86,7 @@ export default function LoginPage() {
         return;
       }
 
-      window.location.href = "/";
+      goToApp();
     } catch {
       setError("Invalid email or password");
       setLoading(false);
@@ -99,7 +106,7 @@ export default function LoginPage() {
         body: JSON.stringify({ email: demoEmail, password: demoPassword }),
       });
       if (demoRes.ok) {
-        window.location.href = "/";
+        goToApp();
         return;
       }
     } catch {

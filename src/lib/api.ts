@@ -27,6 +27,7 @@ const LONG_TIMEOUT_PATTERNS = [
   "/api/smart-chat",
   "/api/portfolio-qa",
   "/api/seed",
+  "/api/leasebot/analyze",
   "/api/cron",
 ];
 
@@ -272,6 +273,8 @@ export async function listPayments(params?: {
   status?: string;
   period_year?: number;
   period_month?: number;
+  due_from?: string;
+  due_to?: string;
   page?: number;
   page_size?: number;
 }) {
@@ -280,6 +283,8 @@ export async function listPayments(params?: {
   if (params?.status) searchParams.set("status", params.status);
   if (params?.period_year) searchParams.set("period_year", String(params.period_year));
   if (params?.period_month) searchParams.set("period_month", String(params.period_month));
+  if (params?.due_from) searchParams.set("due_from", params.due_from);
+  if (params?.due_to) searchParams.set("due_to", params.due_to);
   if (params?.page) searchParams.set("page", String(params.page));
   if (params?.page_size) searchParams.set("page_size", String(params.page_size));
   const qs = searchParams.toString();
@@ -837,4 +842,123 @@ export async function rejectSignupRequest(requestId: string) {
   return apiFetch(`/api/signup-requests/${requestId}/reject`, {
     method: "POST",
   });
+}
+
+// ============================================
+// OUTLET PHOTOS (Supabase Storage)
+// ============================================
+
+/** Upload a photo for an outlet to Supabase storage */
+export async function uploadOutletPhoto(outletId: string, file: File) {
+  const { createClient } = await import("@/lib/supabase/client");
+  const supabase = createClient();
+
+  const ext = file.name.split(".").pop() || "jpg";
+  const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const path = `${outletId}/${filename}`;
+
+  const { error } = await supabase.storage
+    .from("outlet-photos")
+    .upload(path, file, { upsert: false });
+
+  if (error) throw new Error(error.message);
+
+  const { data: urlData } = supabase.storage
+    .from("outlet-photos")
+    .getPublicUrl(path);
+
+  return { path, url: urlData.publicUrl, filename };
+}
+
+/** List photos for an outlet from Supabase storage */
+export async function listOutletPhotos(outletId: string) {
+  const { createClient } = await import("@/lib/supabase/client");
+  const supabase = createClient();
+
+  const { data, error } = await supabase.storage
+    .from("outlet-photos")
+    .list(outletId, { limit: 100, sortBy: { column: "created_at", order: "desc" } });
+
+  if (error) throw new Error(error.message);
+
+  const photos = (data || [])
+    .filter((f) => !f.name.startsWith("."))
+    .map((f) => {
+      const { data: urlData } = supabase.storage
+        .from("outlet-photos")
+        .getPublicUrl(`${outletId}/${f.name}`);
+      return {
+        name: f.name,
+        path: `${outletId}/${f.name}`,
+        url: urlData.publicUrl,
+        created_at: f.created_at,
+      };
+    });
+
+  return photos;
+}
+
+/** Delete an outlet photo from Supabase storage */
+export async function deleteOutletPhoto(path: string) {
+  const { createClient } = await import("@/lib/supabase/client");
+  const supabase = createClient();
+
+  const { error } = await supabase.storage
+    .from("outlet-photos")
+    .remove([path]);
+
+  if (error) throw new Error(error.message);
+}
+
+// ============================================
+// ONBOARDING CHECKS
+// ============================================
+
+/** Get onboarding status for the current org */
+export async function getOnboardingStatus() {
+  return apiFetch("/api/dashboard");
+}
+
+// ============================================
+// LEASEBOT
+// ============================================
+
+/** Analyze a lease document via Leasebot (no auth required) */
+export async function analyzeLeasebot(file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiFetch("/api/leasebot/analyze", {
+    method: "POST",
+    body: formData,
+    isAIEndpoint: true,
+  });
+}
+
+/** Get Leasebot results by token */
+export async function getLeasebotResults(token: string) {
+  return apiFetch(`/api/leasebot/results/${token}`);
+}
+
+/** Convert Leasebot analysis to full agreement (auth required) */
+export async function convertLeasebot(token: string) {
+  return apiFetch(`/api/leasebot/convert/${token}`, { method: "POST" });
+}
+
+// ============================================
+// ASYNC EXTRACTION
+// ============================================
+
+/** Upload and extract a document asynchronously (returns job_id) */
+export async function uploadAndExtractAsync(file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiFetch("/api/upload-and-extract-async", {
+    method: "POST",
+    body: formData,
+  });
+}
+
+/** Get extraction job status */
+export async function getExtractionJob(jobId: string) {
+  return apiFetch(`/api/extraction-jobs/${jobId}`);
 }
