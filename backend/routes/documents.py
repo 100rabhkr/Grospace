@@ -6,11 +6,12 @@ import os
 import uuid
 import json
 import time
+import asyncio
 from typing import Optional
 from datetime import datetime
 from collections import deque
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends, Query
 from starlette.requests import Request
 import google.generativeai as genai
 
@@ -460,3 +461,106 @@ def delete_document(document_id: str, user: Optional[CurrentUser] = Depends(get_
         })
 
     return {"deleted": True}
+
+
+# ============================================
+# ASYNC BULK UPLOAD SUPPORT
+# ============================================
+
+@router.post("/upload-and-extract-async", dependencies=[Depends(require_permission("create_agreements"))])
+@limiter.limit("5/minute")
+async def upload_and_extract_async(
+    request: Request,
+    file: UploadFile = File(...),
+    user: Optional[CurrentUser] = Depends(get_current_user),
+):
+    """Upload a document and extract in background. Returns job_id immediately."""
+    MAX_FILE_SIZE = 50 * 1024 * 1024
+    ALLOWED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff", ".tif"}
+
+    filename = file.filename or "unknown"
+    file_ext = ("." + filename.rsplit(".", 1)[-1]).lower() if "." in filename else ""
+
+    if file_ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"Unsupported file type: {file_ext}")
+
+    file_bytes = await file.read()
+    if len(file_bytes) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=413, detail="File too large. Maximum is 50MB.")
+
+    # Determine org_id
+    org_id = user.org_id if user else None
+    if not org_id:
+        # Try to find from profile
+        try:
+            if user:
+                profile = supabase.table("profiles").select("org_id").eq("id", user.user_id).single().execute()
+                org_id = profile.data.get("org_id") if profile.data else None
+        except Exception:
+            pass
+
+    # Create job record
+    job_id = str(uuid.uuid4())
+    job_data = {
+        "id": job_id,
+        "org_id": org_id,
+        "user_id": user.user_id if user else None,
+        "filename": filename,
+        "status": "processing",
+    }
+    clean_job = {k: v for k, v in job_data.items() if v is not None}
+    supabase.table("extraction_jobs").insert(clean_job).execute()
+
+    # Run extraction in background
+    asyncio.create_task(_process_extraction_job(job_id, file_bytes, filename, file_ext))
+
+    return {"job_id": job_id, "status": "processing", "filename": filename}
+
+
+async def _process_extraction_job(job_id: str, file_bytes: bytes, filename: str, file_ext: str):
+    """Background task to process document extraction and update job status."""
+    try:
+        # Upload to storage
+        document_url = None
+        try:
+            storage_path = f"uploads/{uuid.uuid4()}{file_ext}"
+            content_type = "application/pdf" if file_ext == ".pdf" else f"image/{file_ext.lstrip('.')}"
+            supabase.storage.from_("documents").upload(storage_path, file_bytes, {
+                "content-type": content_type
+            })
+            signed = supabase.storage.from_("documents").create_signed_url(storage_path, 31536000)
+            document_url = signed.get("signedURL") or signed.get("signedUrl")
+            if not document_url:
+                document_url = supabase.storage.from_("documents").get_public_url(storage_path)
+        except Exception:
+            pass
+
+        start_time = time.time()
+        result = await process_document(file_bytes, filename)
+        duration = round(time.time() - start_time, 2)
+        _processing_times.append(duration)
+        result["processing_duration_seconds"] = duration
+        if document_url:
+            result["document_url"] = document_url
+
+        supabase.table("extraction_jobs").update({
+            "status": "completed",
+            "result": result,
+            "updated_at": datetime.utcnow().isoformat(),
+        }).eq("id", job_id).execute()
+
+    except Exception as e:
+        supabase.table("extraction_jobs").update({
+            "status": "failed",
+            "error": str(e),
+            "updated_at": datetime.utcnow().isoformat(),
+        }).eq("id", job_id).execute()
+
+
+@router.get("/extraction-jobs/{job_id}", dependencies=[Depends(require_permission("view_agreements"))])
+def get_extraction_job(job_id: str):
+    """Get the status and result of an extraction job."""
+    result = supabase.table("extraction_jobs").select("*").eq("id", job_id).single().execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Extraction job not found")
+    return result.data

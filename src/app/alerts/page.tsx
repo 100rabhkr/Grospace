@@ -35,10 +35,14 @@ import {
   CalendarDays,
   X,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   AlertTriangle,
   Pencil,
   Trash2,
   Loader2,
+  List,
+  CalendarIcon,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 
@@ -235,6 +239,14 @@ export default function AlertsPage() {
     severity: "medium" as string,
   });
 
+  // Calendar view state
+  const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const now = new Date();
+    return { year: now.getFullYear(), month: now.getMonth() };
+  });
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState<string | null>(null);
+
   // ---------- Fetch alerts ----------
 
   async function fetchAlerts() {
@@ -373,6 +385,79 @@ export default function AlertsPage() {
     severityFilter !== "all" ||
     statusFilter !== "all";
 
+  // ---------- Calendar helpers ----------
+
+  const alertsByDate = useMemo(() => {
+    const map: Record<string, Alert[]> = {};
+    for (const alert of filteredAlerts) {
+      const date = (alert.trigger_date || "").split("T")[0];
+      if (!date) continue;
+      if (!map[date]) map[date] = [];
+      map[date].push(alert);
+    }
+    return map;
+  }, [filteredAlerts]);
+
+  function getCalendarDays(year: number, month: number) {
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const startDow = firstDay.getDay(); // 0=Sun
+    const totalDays = lastDay.getDate();
+
+    const days: { date: string; day: number; isCurrentMonth: boolean }[] = [];
+
+    // Fill in days from previous month
+    for (let i = startDow - 1; i >= 0; i--) {
+      const d = new Date(year, month, -i);
+      days.push({
+        date: d.toISOString().split("T")[0],
+        day: d.getDate(),
+        isCurrentMonth: false,
+      });
+    }
+
+    // Current month days
+    for (let d = 1; d <= totalDays; d++) {
+      const date = new Date(year, month, d);
+      days.push({
+        date: date.toISOString().split("T")[0],
+        day: d,
+        isCurrentMonth: true,
+      });
+    }
+
+    // Fill remaining cells to complete the grid (up to 42 cells = 6 rows)
+    while (days.length < 42) {
+      const d = new Date(year, month + 1, days.length - startDow - totalDays + 1);
+      days.push({
+        date: d.toISOString().split("T")[0],
+        day: d.getDate(),
+        isCurrentMonth: false,
+      });
+    }
+
+    return days;
+  }
+
+  function getMaxSeverityForDate(alerts: Alert[]): string {
+    if (alerts.some((a) => a.severity === "high")) return "high";
+    if (alerts.some((a) => a.severity === "medium")) return "medium";
+    return "low";
+  }
+
+  function severityCalendarColor(severity: string): string {
+    switch (severity) {
+      case "high": return "bg-red-500";
+      case "medium": return "bg-amber-500";
+      default: return "bg-blue-500";
+    }
+  }
+
+  const calDays = getCalendarDays(calendarMonth.year, calendarMonth.month);
+  const calMonthName = new Date(calendarMonth.year, calendarMonth.month).toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+
+  const selectedDateAlerts = selectedCalendarDate ? (alertsByDate[selectedCalendarDate] || []) : [];
+
   // ---------- Render ----------
 
   return (
@@ -384,7 +469,22 @@ export default function AlertsPage() {
             {total}
           </Badge>
         )}
-        {/* Add Reminder button hidden for AHAAR demo */}
+        <div className="flex items-center gap-1 ml-2 border border-[#e4e8ef] rounded-lg p-0.5">
+          <button
+            onClick={() => setViewMode("list")}
+            className={`p-1.5 rounded transition-colors ${viewMode === "list" ? "bg-[#132337] text-white" : "text-neutral-500 hover:text-neutral-700"}`}
+            title="List view"
+          >
+            <List className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => setViewMode("calendar")}
+            className={`p-1.5 rounded transition-colors ${viewMode === "calendar" ? "bg-[#132337] text-white" : "text-neutral-500 hover:text-neutral-700"}`}
+            title="Calendar view"
+          >
+            <CalendarIcon className="h-4 w-4" />
+          </button>
+        </div>
       </PageHeader>
 
       {/* Error State */}
@@ -514,9 +614,167 @@ export default function AlertsPage() {
         </Card>
       )}
 
+      {/* ============ CALENDAR VIEW ============ */}
+      {!loading && !error && viewMode === "calendar" && filteredAlerts.length > 0 && (
+        <div className="space-y-4">
+          <Card>
+            <CardContent className="p-4">
+              {/* Month navigation */}
+              <div className="flex items-center justify-between mb-4">
+                <button
+                  onClick={() => setCalendarMonth((prev) => {
+                    const d = new Date(prev.year, prev.month - 1);
+                    return { year: d.getFullYear(), month: d.getMonth() };
+                  })}
+                  className="p-1.5 rounded hover:bg-[#f4f6f9] transition-colors"
+                >
+                  <ChevronLeft className="h-4 w-4 text-neutral-600" />
+                </button>
+                <h3 className="text-sm font-semibold text-[#132337]">{calMonthName}</h3>
+                <button
+                  onClick={() => setCalendarMonth((prev) => {
+                    const d = new Date(prev.year, prev.month + 1);
+                    return { year: d.getFullYear(), month: d.getMonth() };
+                  })}
+                  className="p-1.5 rounded hover:bg-[#f4f6f9] transition-colors"
+                >
+                  <ChevronRight className="h-4 w-4 text-neutral-600" />
+                </button>
+              </div>
+
+              {/* Day headers */}
+              <div className="grid grid-cols-7 gap-1 mb-1">
+                {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
+                  <div key={d} className="text-center text-[10px] font-semibold text-neutral-500 uppercase py-1">
+                    {d}
+                  </div>
+                ))}
+              </div>
+
+              {/* Calendar grid */}
+              <div className="grid grid-cols-7 gap-1">
+                {calDays.map((day, idx) => {
+                  const dayAlerts = alertsByDate[day.date] || [];
+                  const isToday = day.date === new Date().toISOString().split("T")[0];
+                  const isSelected = day.date === selectedCalendarDate;
+                  const hasAlerts = dayAlerts.length > 0;
+
+                  return (
+                    <button
+                      key={idx}
+                      onClick={() => setSelectedCalendarDate(isSelected ? null : day.date)}
+                      className={`relative aspect-square flex flex-col items-center justify-center rounded-lg text-xs transition-all ${
+                        !day.isCurrentMonth
+                          ? "text-neutral-300"
+                          : isSelected
+                            ? "bg-[#132337] text-white"
+                            : isToday
+                              ? "bg-[#f4f6f9] font-semibold text-[#132337]"
+                              : "text-neutral-700 hover:bg-[#f4f6f9]"
+                      }`}
+                    >
+                      <span>{day.day}</span>
+                      {hasAlerts && day.isCurrentMonth && (
+                        <div className="flex items-center gap-0.5 mt-0.5">
+                          <div className={`w-1.5 h-1.5 rounded-full ${isSelected ? "bg-white" : severityCalendarColor(getMaxSeverityForDate(dayAlerts))}`} />
+                          {dayAlerts.length > 1 && (
+                            <span className={`text-[8px] ${isSelected ? "text-white/80" : "text-neutral-400"}`}>
+                              {dayAlerts.length}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Legend */}
+              <div className="flex items-center gap-4 mt-3 pt-3 border-t border-[#e4e8ef]">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2 h-2 rounded-full bg-red-500" />
+                  <span className="text-[10px] text-neutral-500">High</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2 h-2 rounded-full bg-amber-500" />
+                  <span className="text-[10px] text-neutral-500">Medium</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2 h-2 rounded-full bg-blue-500" />
+                  <span className="text-[10px] text-neutral-500">Low</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Selected date alerts */}
+          {selectedCalendarDate && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <CalendarDays className="h-4 w-4 text-muted-foreground" />
+                <h2 className="text-sm font-semibold text-[#132337]">
+                  {formatDate(selectedCalendarDate)}
+                </h2>
+                <span className="text-xs text-muted-foreground">
+                  ({selectedDateAlerts.length} alert{selectedDateAlerts.length !== 1 ? "s" : ""})
+                </span>
+                <button
+                  onClick={() => setSelectedCalendarDate(null)}
+                  className="ml-auto p-1 rounded hover:bg-[#f4f6f9]"
+                >
+                  <X className="h-3.5 w-3.5 text-neutral-400" />
+                </button>
+              </div>
+
+              {selectedDateAlerts.length === 0 ? (
+                <Card>
+                  <CardContent className="py-8 text-center">
+                    <p className="text-sm text-muted-foreground">No alerts on this date.</p>
+                  </CardContent>
+                </Card>
+              ) : (
+                selectedDateAlerts.map((alert) => {
+                  const effectiveStatus = alertStates[alert.id] || alert.status;
+                  return (
+                    <Card key={alert.id} className={`transition-opacity ${effectiveStatus === "acknowledged" || effectiveStatus === "snoozed" ? "opacity-60" : ""}`}>
+                      <CardContent className="py-3 px-4">
+                        <div className="flex items-start gap-3">
+                          <div className={`mt-1 h-2.5 w-2.5 rounded-full flex-shrink-0 ${severityDotColor(alert.severity)}`} />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h3 className="font-semibold text-sm text-black">{alert.title}</h3>
+                              <Badge variant="outline" className="text-[11px] font-normal">{statusLabel(alert.type)}</Badge>
+                              <Badge className={`${statusColor(effectiveStatus)} border-0 text-[11px]`}>{statusLabel(effectiveStatus)}</Badge>
+                            </div>
+                            {alert.message && <p className="text-sm text-neutral-600 mt-1">{alert.message}</p>}
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {alert.outlets?.name || "Unknown Outlet"}{alert.outlets?.city ? ` | ${alert.outlets.city}` : ""}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                            {effectiveStatus !== "acknowledged" && (
+                              <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => handleAcknowledge(alert.id)}>
+                                <CheckCircle2 className="h-3 w-3 mr-1" />
+                                Ack
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ============ LIST VIEW ============ */}
       {/* Alert Cards grouped by trigger date */}
       {!loading &&
         !error &&
+        viewMode === "list" &&
         groupedAlerts.map((group) => (
           <div key={group.date} className="space-y-3">
             {/* Date group header */}
@@ -704,8 +962,8 @@ export default function AlertsPage() {
           </div>
         ))}
 
-      {/* Pagination */}
-      {!loading && !error && (
+      {/* Pagination (list view only) */}
+      {!loading && !error && viewMode === "list" && (
         <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} />
       )}
 

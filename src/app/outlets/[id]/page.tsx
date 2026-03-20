@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { getOutlet, updateOutlet, getActivityLog, listShowcases, createShowcase, updateShowcase, uploadOutletDocument, deleteDocument, listOutletContacts, addOutletContact, updateContact, deleteContact } from "@/lib/api";
+import { getOutlet, updateOutlet, getActivityLog, listShowcases, createShowcase, updateShowcase, uploadOutletDocument, deleteDocument, listOutletContacts, addOutletContact, updateContact, deleteContact, uploadOutletPhoto, listOutletPhotos, deleteOutletPhoto } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -42,6 +42,9 @@ import {
   Pencil,
   Phone,
   Mail,
+  ImageIcon,
+  X,
+  Camera,
 } from "lucide-react";
 import {
   Dialog,
@@ -306,6 +309,54 @@ export default function OutletDetailPage() {
   const [editingContact, setEditingContact] = useState<OutletContact | null>(null);
   const [contactForm, setContactForm] = useState({ name: "", designation: "", phone: "", email: "", notes: "" });
   const [contactSaving, setContactSaving] = useState(false);
+
+  // Photos state
+  const [photos, setPhotos] = useState<{ name: string; path: string; url: string; created_at?: string }[]>([]);
+  const [photosLoading, setPhotosLoading] = useState(false);
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [viewingPhoto, setViewingPhoto] = useState<string | null>(null);
+
+  const fetchPhotos = useCallback(async () => {
+    if (!outletId) return;
+    try {
+      setPhotosLoading(true);
+      const result = await listOutletPhotos(outletId);
+      setPhotos(result || []);
+    } catch {
+      // silently handle — bucket may not exist
+    } finally {
+      setPhotosLoading(false);
+    }
+  }, [outletId]);
+
+  useEffect(() => {
+    fetchPhotos();
+  }, [fetchPhotos]);
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setPhotoUploading(true);
+    try {
+      const result = await uploadOutletPhoto(outletId, file);
+      setPhotos((prev) => [{ name: result.filename, path: result.path, url: result.url }, ...prev]);
+    } catch {
+      // handle silently
+    } finally {
+      setPhotoUploading(false);
+      e.target.value = "";
+    }
+  };
+
+  const handlePhotoDelete = async (path: string) => {
+    if (!confirm("Delete this photo?")) return;
+    try {
+      await deleteOutletPhoto(path);
+      setPhotos((prev) => prev.filter((p) => p.path !== path));
+    } catch {
+      // handle silently
+    }
+  };
 
   const fetchContacts = useCallback(async () => {
     if (!outletId) return;
@@ -824,6 +875,101 @@ export default function OutletDetailPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* ----------------------------------------------------------------- */}
+      {/* PHOTOS                                                            */}
+      {/* ----------------------------------------------------------------- */}
+      <Card className="border-[#e4e8ef]">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Camera className="h-4 w-4" />
+              Photos
+              {photos.length > 0 && (
+                <Badge variant="secondary" className="text-[10px]">
+                  {photos.length}
+                </Badge>
+              )}
+            </CardTitle>
+            <label className="cursor-pointer">
+              <input
+                type="file"
+                className="hidden"
+                accept="image/*"
+                onChange={handlePhotoUpload}
+                disabled={photoUploading}
+              />
+              <Button size="sm" variant="outline" className="gap-1.5" asChild>
+                <span>
+                  {photoUploading ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Upload className="h-3.5 w-3.5" />
+                  )}
+                  Upload Photo
+                </span>
+              </Button>
+            </label>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {photosLoading ? (
+            <div className="flex items-center gap-2 text-[#9ca3af] py-4 justify-center">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span className="text-sm">Loading photos...</span>
+            </div>
+          ) : photos.length === 0 ? (
+            <div className="text-center py-8 text-[#9ca3af]">
+              <ImageIcon className="h-8 w-8 mx-auto mb-2 opacity-50" />
+              <p className="text-sm">No photos uploaded yet</p>
+              <p className="text-xs mt-1">Upload photos of the outlet location</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3">
+              {photos.map((photo) => (
+                <div key={photo.path} className="relative group aspect-square rounded-lg overflow-hidden border border-[#e4e8ef] bg-[#f4f6f9]">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={photo.url}
+                    alt={photo.name}
+                    className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                    onClick={() => setViewingPhoto(photo.url)}
+                  />
+                  <button
+                    onClick={() => handlePhotoDelete(photo.path)}
+                    className="absolute top-1 right-1 p-1 rounded-full bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/70"
+                    title="Delete photo"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Photo Viewer Dialog */}
+      {viewingPhoto && (
+        <Dialog open={!!viewingPhoto} onOpenChange={() => setViewingPhoto(null)}>
+          <DialogContent className="max-w-3xl p-0 overflow-hidden">
+            <div className="relative">
+              <button
+                onClick={() => setViewingPhoto(null)}
+                className="absolute top-3 right-3 z-10 p-2 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={viewingPhoto}
+                alt="Outlet photo"
+                className="w-full max-h-[80vh] object-contain bg-black"
+              />
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* ----------------------------------------------------------------- */}
       {/* REVENUE INPUT                                                     */}

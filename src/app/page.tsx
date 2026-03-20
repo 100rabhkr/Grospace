@@ -2,11 +2,13 @@
 
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
-import { getDashboardStats, smartChat, listOutlets } from "@/lib/api";
+import { getDashboardStats, smartChat, listOutlets, listPayments, updatePayment, listAgreements, getOrgMembers } from "@/lib/api";
 import { useUser } from "@/lib/hooks/use-user";
 import dynamic from "next/dynamic";
 
 const IndiaMap = dynamic(() => import("@/components/india-map"), { ssr: false });
+import { HealthScoreGauge } from "@/components/health-score-gauge";
+import { OnboardingChecklist } from "@/components/onboarding-checklist";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,7 +36,11 @@ import {
   Activity,
   Settings,
   ChevronDown,
+  ChevronUp,
   Map,
+  CheckCircle2,
+  Calendar,
+  Heart,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -420,6 +426,25 @@ export default function Dashboard() {
   const [propertyTypeCounts, setPropertyTypeCounts] = useState<Record<string, number>>({});
   const mapSectionRef = useRef<HTMLDivElement>(null);
 
+  // Due This Week state
+  const [dueThisWeek, setDueThisWeek] = useState<{
+    items: { id: string; outlet_name: string; type: string; amount: number; due_date: string }[];
+    total: number;
+    totalAmount: number;
+  }>({ items: [], total: 0, totalAmount: 0 });
+  const [dueExpanded, setDueExpanded] = useState(false);
+  const [markingPaid, setMarkingPaid] = useState<string | null>(null);
+
+  // Health Score state
+  const [avgHealthScore, setAvgHealthScore] = useState<number | null>(null);
+
+  // Onboarding state
+  const [onboardingData, setOnboardingData] = useState<{
+    totalAgreements: number;
+    hasConfirmedExtraction: boolean;
+    orgMemberCount: number;
+  } | null>(null);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -479,6 +504,146 @@ export default function Dashboard() {
     if (stats) fetchPropertyTypes();
     return () => { cancelled = true; };
   }, [stats]);
+
+  // Fetch payments due this week
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchDueThisWeek() {
+      try {
+        const now = new Date();
+        const end = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+        const dueFrom = now.toISOString().split("T")[0];
+        const dueTo = end.toISOString().split("T")[0];
+
+        const data = await listPayments({
+          due_from: dueFrom,
+          due_to: dueTo,
+          page: 1,
+          page_size: 50,
+        });
+
+        if (!cancelled && data?.items) {
+          // Filter out already paid
+          const unpaid = data.items.filter(
+            (p: { status?: string }) => p.status !== "paid"
+          );
+          const totalAmount = unpaid.reduce(
+            (sum: number, p: { amount?: number }) => sum + (p.amount || 0),
+            0
+          );
+          setDueThisWeek({
+            items: unpaid.map((p: {
+              id: string;
+              outlet_name?: string;
+              outlets?: { name?: string };
+              type?: string;
+              obligation_type?: string;
+              amount?: number;
+              due_date?: string;
+            }) => ({
+              id: p.id,
+              outlet_name: p.outlet_name || p.outlets?.name || "Unknown",
+              type: p.type || p.obligation_type || "payment",
+              amount: p.amount || 0,
+              due_date: p.due_date || "",
+            })),
+            total: unpaid.length,
+            totalAmount,
+          });
+        }
+      } catch {
+        // Non-critical
+      }
+    }
+
+    if (stats) fetchDueThisWeek();
+    return () => { cancelled = true; };
+  }, [stats]);
+
+  // Fetch health score and onboarding data
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchHealthAndOnboarding() {
+      try {
+        const agrData = await listAgreements({ page: 1, page_size: 200 });
+        if (cancelled) return;
+
+        const agreements = agrData?.items || [];
+        const totalAgreements = agreements.length;
+
+        // Calculate average health score from agreements with health_score in extracted_data
+        const scores: number[] = [];
+        let hasConfirmed = false;
+        for (const agr of agreements) {
+          if (agr.extraction_status === "confirmed") hasConfirmed = true;
+          const ed = agr.extracted_data;
+          if (ed && typeof ed === "object") {
+            // Check various places health_score might be
+            const hs =
+              (ed as Record<string, unknown>).health_score ||
+              ((ed as Record<string, Record<string, unknown>>).lease_term || {}).health_score;
+            if (typeof hs === "number") scores.push(hs);
+            else if (typeof hs === "object" && hs && "value" in (hs as Record<string, unknown>)) {
+              const val = (hs as Record<string, unknown>).value;
+              if (typeof val === "number") scores.push(val);
+            }
+          }
+        }
+
+        if (!cancelled) {
+          if (scores.length > 0) {
+            setAvgHealthScore(Math.round(scores.reduce((a, b) => a + b, 0) / scores.length));
+          }
+
+          // Get org member count for onboarding
+          let memberCount = 1;
+          try {
+            if (user?.orgId) {
+              const members = await getOrgMembers(user.orgId);
+              memberCount = members?.members?.length || 1;
+            }
+          } catch {
+            // ignore
+          }
+
+          setOnboardingData({
+            totalAgreements,
+            hasConfirmedExtraction: hasConfirmed,
+            orgMemberCount: memberCount,
+          });
+        }
+      } catch {
+        // Non-critical
+      }
+    }
+
+    if (stats && user) fetchHealthAndOnboarding();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stats, user?.orgId]);
+
+  // Mark payment as paid handler
+  async function handleMarkPaid(paymentId: string) {
+    setMarkingPaid(paymentId);
+    try {
+      await updatePayment(paymentId, { status: "paid" });
+      setDueThisWeek((prev) => {
+        const remaining = prev.items.filter((i) => i.id !== paymentId);
+        const paidItem = prev.items.find((i) => i.id === paymentId);
+        return {
+          items: remaining,
+          total: remaining.length,
+          totalAmount: prev.totalAmount - (paidItem?.amount || 0),
+        };
+      });
+    } catch {
+      // ignore
+    } finally {
+      setMarkingPaid(null);
+    }
+  }
 
   // Role-based visibility helpers
   // TODO: If role-scoped backend endpoints are added, filter data server-side as well
@@ -594,6 +759,128 @@ export default function Dashboard() {
             </Badge>
           </div>
         )}
+      </div>
+
+      {/* -------------------------------------------------------------- */}
+      {/* Onboarding Checklist (for new users)                             */}
+      {/* -------------------------------------------------------------- */}
+      {onboardingData && (
+        <OnboardingChecklist
+          totalAgreements={onboardingData.totalAgreements}
+          hasConfirmedExtraction={onboardingData.hasConfirmedExtraction}
+          orgMemberCount={onboardingData.orgMemberCount}
+        />
+      )}
+
+      {/* -------------------------------------------------------------- */}
+      {/* Portfolio Health + Due This Week row                              */}
+      {/* -------------------------------------------------------------- */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 lg:gap-5">
+        {/* Portfolio Health Score */}
+        {avgHealthScore !== null && (
+          <Card>
+            <CardContent className="p-4 flex items-center gap-4">
+              <HealthScoreGauge score={avgHealthScore} size="sm" />
+              <div className="flex-1 min-w-0">
+                <h3 className="text-sm font-semibold text-[#132337]">Portfolio Health</h3>
+                <p className="text-[11px] text-neutral-500 mt-0.5">
+                  Average across {stats?.total_agreements ?? 0} agreements
+                </p>
+                <div className="flex items-center gap-1.5 mt-1.5">
+                  <Heart className="h-3 w-3 text-neutral-400" />
+                  <span className="text-xs text-neutral-600">
+                    {avgHealthScore >= 70
+                      ? "Portfolio is in good shape"
+                      : avgHealthScore >= 40
+                        ? "Some agreements need attention"
+                        : "Multiple agreements at risk"}
+                  </span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Due This Week Widget */}
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <Calendar className="h-4 w-4 text-neutral-500" />
+                <h3 className="text-sm font-semibold text-[#132337]">Due This Week</h3>
+              </div>
+              {dueThisWeek.total > 0 && (
+                <button
+                  onClick={() => setDueExpanded(!dueExpanded)}
+                  className="p-1 rounded hover:bg-[#f4f6f9] transition-colors"
+                >
+                  {dueExpanded ? (
+                    <ChevronUp className="h-4 w-4 text-neutral-400" />
+                  ) : (
+                    <ChevronDown className="h-4 w-4 text-neutral-400" />
+                  )}
+                </button>
+              )}
+            </div>
+
+            {dueThisWeek.total === 0 ? (
+              <div className="flex items-center gap-2 py-2">
+                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                <span className="text-sm text-neutral-600">No payments due this week</span>
+              </div>
+            ) : (
+              <>
+                <p className="text-sm text-neutral-700">
+                  <span className="font-semibold text-[#132337]">{dueThisWeek.total}</span>{" "}
+                  payment{dueThisWeek.total !== 1 ? "s" : ""} due this week totaling{" "}
+                  <span className="font-semibold text-[#132337]">{formatINR(dueThisWeek.totalAmount)}</span>
+                </p>
+
+                {dueExpanded && (
+                  <div className="mt-3 space-y-2 max-h-[240px] overflow-y-auto">
+                    {dueThisWeek.items.map((item) => (
+                      <div
+                        key={item.id}
+                        className="flex items-center gap-3 p-2.5 rounded-lg border border-[#e4e8ef] bg-[#fafbfd]"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium text-[#132337] truncate">
+                            {item.outlet_name}
+                          </p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-[10px] text-neutral-500 capitalize">
+                              {item.type.replace(/_/g, " ")}
+                            </span>
+                            <span className="text-[10px] text-neutral-400">
+                              Due {item.due_date ? new Date(item.due_date).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : "--"}
+                            </span>
+                          </div>
+                        </div>
+                        <span className="text-xs font-semibold text-[#132337] tabular-nums flex-shrink-0">
+                          {formatINR(item.amount)}
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-[11px] gap-1 flex-shrink-0"
+                          disabled={markingPaid === item.id}
+                          onClick={() => handleMarkPaid(item.id)}
+                        >
+                          {markingPaid === item.id ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <CheckCircle2 className="h-3 w-3" />
+                          )}
+                          Paid
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       {/* -------------------------------------------------------------- */}

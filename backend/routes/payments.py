@@ -12,7 +12,7 @@ from starlette.requests import Request
 from core.config import supabase, limiter
 from core.models import (
     CurrentUser, PaymentUpdateRequest, GeneratePaymentsRequest,
-    BulkMarkPaidRequest, MGLRRequest,
+    BulkMarkPaidRequest, MGLRRequest, CreateObligationRequest, UpdateObligationRequest,
 )
 from core.dependencies import get_current_user, get_org_filter, require_permission
 from services.extraction import get_num
@@ -293,3 +293,110 @@ def calculate_mglr(body: MGLRRequest):
         "payable_rent": round(payable_rent, 2),
         "higher_of": "revenue_share" if revenue_share > mglr else "mglr",
     }
+
+
+# ============================================
+# CUSTOM OBLIGATIONS
+# ============================================
+
+@router.post("/outlets/{outlet_id}/obligations", dependencies=[Depends(require_permission("update_payments"))])
+def create_obligation(
+    outlet_id: str,
+    req: CreateObligationRequest,
+    user: Optional[CurrentUser] = Depends(get_current_user),
+):
+    """Create a custom (manual) obligation for an outlet."""
+    outlet = supabase.table("outlets").select("id, org_id").eq("id", outlet_id).single().execute()
+    if not outlet.data:
+        raise HTTPException(status_code=404, detail="Outlet not found")
+
+    org_id = outlet.data.get("org_id")
+
+    valid_types = {"rent", "cam", "electricity", "water", "hvac", "insurance", "property_tax", "custom"}
+    if req.type not in valid_types:
+        raise HTTPException(status_code=400, detail=f"Invalid type. Must be one of: {', '.join(valid_types)}")
+
+    if req.type == "custom" and not req.custom_label:
+        raise HTTPException(status_code=400, detail="custom_label is required when type is 'custom'")
+
+    valid_frequencies = {"monthly", "quarterly", "yearly", "one_time"}
+    if req.frequency not in valid_frequencies:
+        raise HTTPException(status_code=400, detail=f"Invalid frequency. Must be one of: {', '.join(valid_frequencies)}")
+
+    obl_data = {
+        "outlet_id": outlet_id,
+        "org_id": org_id,
+        "type": req.type,
+        "custom_label": req.custom_label,
+        "amount": req.amount,
+        "frequency": req.frequency,
+        "due_day_of_month": req.due_day,
+        "start_date": req.start_date,
+        "end_date": req.end_date,
+        "notes": req.notes,
+        "source": "manual",
+        "is_active": True,
+    }
+    clean = {k: v for k, v in obl_data.items() if v is not None}
+
+    result = supabase.table("obligations").insert(clean).execute()
+    return {"obligation": result.data[0] if result.data else clean}
+
+
+@router.patch("/obligations/{obligation_id}", dependencies=[Depends(require_permission("update_payments"))])
+def update_obligation(
+    obligation_id: str,
+    req: UpdateObligationRequest,
+    user: Optional[CurrentUser] = Depends(get_current_user),
+):
+    """Update a manual obligation. Only source='manual' obligations can be edited."""
+    existing = supabase.table("obligations").select("id, source").eq("id", obligation_id).single().execute()
+    if not existing.data:
+        raise HTTPException(status_code=404, detail="Obligation not found")
+
+    if existing.data.get("source") != "manual":
+        raise HTTPException(status_code=403, detail="Only manually created obligations can be edited")
+
+    update_data: dict = {}
+    if req.type is not None:
+        update_data["type"] = req.type
+    if req.custom_label is not None:
+        update_data["custom_label"] = req.custom_label
+    if req.amount is not None:
+        update_data["amount"] = req.amount
+    if req.frequency is not None:
+        update_data["frequency"] = req.frequency
+    if req.due_day is not None:
+        update_data["due_day_of_month"] = req.due_day
+    if req.start_date is not None:
+        update_data["start_date"] = req.start_date
+    if req.end_date is not None:
+        update_data["end_date"] = req.end_date
+    if req.notes is not None:
+        update_data["notes"] = req.notes
+
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    result = supabase.table("obligations").update(update_data).eq("id", obligation_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Obligation not found")
+
+    return {"obligation": result.data[0]}
+
+
+@router.delete("/obligations/{obligation_id}", dependencies=[Depends(require_permission("update_payments"))])
+def delete_obligation(
+    obligation_id: str,
+    user: Optional[CurrentUser] = Depends(get_current_user),
+):
+    """Delete a manual obligation. Only source='manual' obligations can be deleted."""
+    existing = supabase.table("obligations").select("id, source").eq("id", obligation_id).single().execute()
+    if not existing.data:
+        raise HTTPException(status_code=404, detail="Obligation not found")
+
+    if existing.data.get("source") != "manual":
+        raise HTTPException(status_code=403, detail="Only manually created obligations can be deleted")
+
+    supabase.table("obligations").delete().eq("id", obligation_id).execute()
+    return {"deleted": True}
