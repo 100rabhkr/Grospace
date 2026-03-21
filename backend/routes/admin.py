@@ -12,10 +12,11 @@ from dateutil.relativedelta import relativedelta
 from fastapi import APIRouter, HTTPException, Depends, Header, Query, Form
 from starlette.requests import Request
 
-from core.config import supabase, model, limiter, PORTFOLIO_QA_SCHEMA
+from core.config import supabase, model, limiter, PORTFOLIO_QA_SCHEMA, CITY_ABBREVIATIONS
 from core.models import (
     CurrentUser, UpdateOrganizationRequest, InviteMemberRequest,
     PortfolioQARequest, SmartChatRequest, FeedbackRequest,
+    CreatePilotRequest,
 )
 from core.dependencies import get_current_user, require_permission
 from services.extraction import get_num, get_or_create_demo_org
@@ -708,6 +709,364 @@ def remove_seed_data():
             "outlets_removed": counts["outlets"],
             "message": "Demo data removed successfully! Your real data is untouched.",
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================
+# PILOT PROGRAM
+# ============================================
+
+CITY_LOCALITIES = {
+    "Mumbai": ["Andheri West", "Bandra West", "Lower Parel", "Powai", "Worli", "Juhu", "Malad West", "Goregaon East"],
+    "Delhi": ["Connaught Place", "Saket", "Vasant Kunj", "Nehru Place", "Rajouri Garden", "Lajpat Nagar", "Khan Market", "Hauz Khas"],
+    "New Delhi": ["Connaught Place", "Saket", "Vasant Kunj", "Nehru Place", "Rajouri Garden", "Lajpat Nagar", "Khan Market", "Hauz Khas"],
+    "Bengaluru": ["Indiranagar", "Koramangala", "Whitefield", "HSR Layout", "JP Nagar", "Jayanagar", "MG Road", "Marathahalli"],
+    "Chennai": ["T. Nagar", "Anna Nagar", "Velachery", "Adyar", "Mylapore", "OMR", "Nungambakkam", "Guindy"],
+    "Hyderabad": ["Banjara Hills", "Jubilee Hills", "Hitech City", "Gachibowli", "Madhapur", "Kukatpally", "Secunderabad", "Ameerpet"],
+    "Pune": ["Koregaon Park", "Viman Nagar", "Hinjewadi", "Kothrud", "Aundh", "Baner", "Hadapsar", "Magarpatta"],
+    "Kolkata": ["Park Street", "Salt Lake", "New Town", "Gariahat", "Ballygunge", "Esplanade", "Howrah", "Alipore"],
+    "Gurugram": ["DLF Cyber City", "MG Road", "Sector 29", "Golf Course Road", "Sohna Road", "Udyog Vihar", "Sector 14", "Sector 44"],
+    "Jaipur": ["MI Road", "C-Scheme", "Vaishali Nagar", "Malviya Nagar", "Tonk Road", "Raja Park", "Mansarovar", "Sitapura"],
+}
+
+CITY_RENT_RANGES = {
+    "Mumbai": (150000, 200000),
+    "Delhi": (150000, 200000),
+    "New Delhi": (150000, 200000),
+    "Bengaluru": (100000, 150000),
+    "Chennai": (100000, 150000),
+    "Hyderabad": (80000, 120000),
+    "Pune": (80000, 120000),
+    "Kolkata": (70000, 110000),
+    "Gurugram": (120000, 180000),
+}
+CITY_RENT_DEFAULT = (50000, 100000)
+
+CITY_STATE_MAP = {
+    "Mumbai": "Maharashtra", "Delhi": "Delhi", "New Delhi": "Delhi",
+    "Bengaluru": "Karnataka", "Chennai": "Tamil Nadu", "Hyderabad": "Telangana",
+    "Pune": "Maharashtra", "Kolkata": "West Bengal", "Gurugram": "Haryana",
+    "Jaipur": "Rajasthan", "Lucknow": "Uttar Pradesh", "Chandigarh": "Chandigarh",
+    "Indore": "Madhya Pradesh", "Ahmedabad": "Gujarat", "Kochi": "Kerala",
+}
+
+
+@router.post("/admin/create-pilot")
+def create_pilot(req: CreatePilotRequest):
+    """
+    Create a pilot/demo account for a client: org, auth users, outlets,
+    agreements, obligations, payment records, and alerts.
+    """
+    import random
+    import math
+
+    try:
+        # -------------------------------------------------------
+        # 1. Create organization
+        # -------------------------------------------------------
+        org_result = supabase.table("organizations").insert({"name": req.client_name}).execute()
+        org = org_result.data[0]
+        org_id = org["id"]
+
+        # -------------------------------------------------------
+        # 2. Create auth users via Supabase Admin API
+        # -------------------------------------------------------
+        admin_user = supabase.auth.admin.create_user({
+            "email": req.admin_email,
+            "password": req.admin_password,
+            "email_confirm": True,
+        })
+        admin_user_id = admin_user.user.id
+
+        # Set profile for admin
+        supabase.table("profiles").update({
+            "org_id": org_id,
+            "role": "org_admin",
+            "full_name": req.admin_email.split("@")[0].replace(".", " ").title(),
+        }).eq("id", admin_user_id).execute()
+
+        ceo_user_id = None
+        if req.ceo_email and req.ceo_password:
+            ceo_user = supabase.auth.admin.create_user({
+                "email": req.ceo_email,
+                "password": req.ceo_password,
+                "email_confirm": True,
+            })
+            ceo_user_id = ceo_user.user.id
+
+            supabase.table("profiles").update({
+                "org_id": org_id,
+                "role": "org_admin",
+                "full_name": req.ceo_email.split("@")[0].replace(".", " ").title(),
+            }).eq("id", ceo_user_id).execute()
+
+        # -------------------------------------------------------
+        # 3. Create sample outlets distributed across cities
+        # -------------------------------------------------------
+        brand_abbr = "".join(w[0].upper() for w in req.brand_name.split()[:3]) or "XX"
+        today = date.today()
+
+        # Distribute outlets across cities
+        cities = req.cities
+        num_outlets = req.num_outlets
+        per_city = num_outlets // len(cities)
+        remainder = num_outlets % len(cities)
+
+        city_counts = []
+        for i, city in enumerate(cities):
+            count = per_city + (1 if i < remainder else 0)
+            city_counts.append((city, count))
+
+        created_outlets = []
+        outlet_idx = 0
+        property_types = ["mall", "high_street", "mall", "cyber_park", "mall", "high_street"]
+
+        for city, count in city_counts:
+            city_abbr = CITY_ABBREVIATIONS.get(city.lower(), city[:3].upper())
+            localities = CITY_LOCALITIES.get(city, ["Sector 1", "Main Road", "Central Market", "Ring Road"])
+            state = CITY_STATE_MAP.get(city, "")
+            rent_low, rent_high = CITY_RENT_RANGES.get(city, CITY_RENT_DEFAULT)
+
+            for j in range(count):
+                outlet_idx += 1
+                site_code = f"{brand_abbr}-{city_abbr}-{outlet_idx:03d}"
+                locality = localities[j % len(localities)]
+                prop_type = property_types[outlet_idx % len(property_types)]
+
+                # First 2 outlets operational, rest fit_out
+                if outlet_idx <= 2:
+                    status = "operational"
+                    deal_stage = "operational"
+                else:
+                    status = "fit_out"
+                    deal_stage = "fitout"
+
+                monthly_rent = random.randint(rent_low // 1000, rent_high // 1000) * 1000
+                area = random.randint(800, 2000)
+
+                outlet_data = {
+                    "org_id": org_id,
+                    "name": f"{locality} Outlet",
+                    "brand_name": req.brand_name,
+                    "site_code": site_code,
+                    "address": f"{locality}, {city}",
+                    "city": city,
+                    "state": state,
+                    "property_type": prop_type,
+                    "carpet_area_sqft": area,
+                    "franchise_model": "FOFO",
+                    "status": status,
+                    "deal_stage": deal_stage,
+                    "deal_priority": "medium",
+                }
+
+                result = supabase.table("outlets").insert(outlet_data).execute()
+                created_outlets.append({**result.data[0], "_monthly_rent": monthly_rent})
+
+        # -------------------------------------------------------
+        # 4. Create agreements (lease + license_certificate) per outlet
+        # -------------------------------------------------------
+        commencement = (today - relativedelta(months=6)).isoformat()
+        expiry = (today + relativedelta(months=30)).isoformat()
+
+        created_agreements = []
+        for out in created_outlets:
+            monthly_rent = out["_monthly_rent"]
+            cam = int(monthly_rent * 0.15)
+
+            # Lease agreement
+            lease_data = {
+                "org_id": org_id,
+                "outlet_id": out["id"],
+                "type": "lease_agreement",
+                "status": "active",
+                "lessor_name": f"Landlord - {out['city']}",
+                "lessee_name": req.client_name,
+                "brand_name": req.brand_name,
+                "rent_model": "fixed",
+                "lease_commencement_date": commencement,
+                "rent_commencement_date": commencement,
+                "lease_expiry_date": expiry,
+                "lock_in_end_date": (today + relativedelta(months=12)).isoformat(),
+                "monthly_rent": monthly_rent,
+                "cam_monthly": cam,
+                "total_monthly_outflow": monthly_rent + cam,
+                "security_deposit": monthly_rent * 3,
+                "extraction_status": "confirmed",
+                "confirmed_at": datetime.utcnow().isoformat(),
+                "risk_flags": [],
+            }
+            lease_result = supabase.table("agreements").insert(lease_data).execute()
+            created_agreements.append(lease_result.data[0])
+
+            # License certificate
+            license_data = {
+                "org_id": org_id,
+                "outlet_id": out["id"],
+                "type": "license_certificate",
+                "status": "active",
+                "lessor_name": f"Licensing Authority - {out['city']}",
+                "lessee_name": req.client_name,
+                "brand_name": req.brand_name,
+                "extraction_status": "confirmed",
+                "confirmed_at": datetime.utcnow().isoformat(),
+            }
+            license_result = supabase.table("agreements").insert(license_data).execute()
+            created_agreements.append(license_result.data[0])
+
+        # -------------------------------------------------------
+        # 5. Create obligations for each lease agreement
+        # -------------------------------------------------------
+        all_obligations = []
+        for i, out in enumerate(created_outlets):
+            lease_agr = created_agreements[i * 2]  # Even indices are leases
+            monthly_rent = out["_monthly_rent"]
+            cam = int(monthly_rent * 0.15)
+            security = monthly_rent * 3
+
+            obligation_configs = [
+                {
+                    "type": "rent", "frequency": "monthly", "amount": monthly_rent,
+                    "due_day_of_month": 1, "start_date": commencement,
+                    "end_date": expiry, "escalation_pct": 10,
+                    "escalation_frequency_years": 3,
+                },
+                {
+                    "type": "cam", "frequency": "monthly", "amount": cam,
+                    "due_day_of_month": 1, "start_date": commencement,
+                    "end_date": expiry,
+                },
+                {
+                    "type": "security_deposit", "frequency": "one_time",
+                    "amount": security, "start_date": commencement,
+                },
+            ]
+
+            for obl in obligation_configs:
+                obl_data = {
+                    "org_id": org_id,
+                    "agreement_id": lease_agr["id"],
+                    "outlet_id": out["id"],
+                    "is_active": True,
+                    **obl,
+                }
+                result = supabase.table("obligations").insert(obl_data).execute()
+                all_obligations.append(result.data[0])
+
+        # -------------------------------------------------------
+        # 6. Create 3 months of payment records per outlet
+        # -------------------------------------------------------
+        all_payments = []
+        last_month = today - relativedelta(months=1)
+        this_month = today.replace(day=1)
+        next_month = today + relativedelta(months=1)
+
+        for i, out in enumerate(created_outlets):
+            lease_agr = created_agreements[i * 2]
+            monthly_rent = out["_monthly_rent"]
+            cam = int(monthly_rent * 0.15)
+            total_due = monthly_rent + cam
+
+            payment_months = [
+                (last_month.year, last_month.month, "paid", last_month.replace(day=5)),
+                (this_month.year, this_month.month, "upcoming", None),
+                (next_month.year, next_month.month, "upcoming", None),
+            ]
+
+            for year, month, status, paid_at in payment_months:
+                due_date = date(year, month, 1)
+                pay_data = {
+                    "org_id": org_id,
+                    "outlet_id": out["id"],
+                    "agreement_id": lease_agr["id"],
+                    "period_year": year,
+                    "period_month": month,
+                    "due_amount": total_due,
+                    "due_date": due_date.isoformat(),
+                    "status": status,
+                }
+                if status == "paid":
+                    pay_data["paid_amount"] = total_due
+                    pay_data["paid_at"] = paid_at.isoformat() if paid_at else None
+
+                result = supabase.table("payment_records").insert(pay_data).execute()
+                all_payments.append(result.data[0])
+
+        # -------------------------------------------------------
+        # 7. Create lease_expiry alerts (60-day and 30-day)
+        # -------------------------------------------------------
+        all_alerts = []
+        expiry_date = today + relativedelta(months=30)
+
+        for i, out in enumerate(created_outlets):
+            lease_agr = created_agreements[i * 2]
+
+            # 60-day alert
+            trigger_60 = expiry_date - timedelta(days=60)
+            alert_60 = {
+                "org_id": org_id,
+                "outlet_id": out["id"],
+                "agreement_id": lease_agr["id"],
+                "type": "lease_expiry",
+                "severity": "medium",
+                "title": f"Lease expiry in 60 days - {out.get('name', out['city'])}",
+                "message": f"Lease expires on {expiry_date.isoformat()}. Begin renewal discussions.",
+                "trigger_date": trigger_60.isoformat(),
+                "lead_days": 60,
+                "reference_date": expiry_date.isoformat(),
+                "status": "pending",
+            }
+            result = supabase.table("alerts").insert(alert_60).execute()
+            all_alerts.append(result.data[0])
+
+            # 30-day alert
+            trigger_30 = expiry_date - timedelta(days=30)
+            alert_30 = {
+                "org_id": org_id,
+                "outlet_id": out["id"],
+                "agreement_id": lease_agr["id"],
+                "type": "lease_expiry",
+                "severity": "high",
+                "title": f"Lease expiry in 30 days - {out.get('name', out['city'])}",
+                "message": f"Lease expires on {expiry_date.isoformat()}. URGENT: Only 30 days remaining.",
+                "trigger_date": trigger_30.isoformat(),
+                "lead_days": 30,
+                "reference_date": expiry_date.isoformat(),
+                "status": "pending",
+            }
+            result = supabase.table("alerts").insert(alert_30).execute()
+            all_alerts.append(result.data[0])
+
+        # Log the pilot creation for traceability
+        supabase.table("activity_log").insert({
+            "org_id": org_id,
+            "entity_type": "system",
+            "action": "create_pilot",
+            "details": {
+                "client_name": req.client_name,
+                "brand_name": req.brand_name,
+                "cities": req.cities,
+                "admin_email": req.admin_email,
+                "ceo_email": req.ceo_email,
+                "outlet_ids": [o["id"] for o in created_outlets],
+                "agreement_ids": [a["id"] for a in created_agreements],
+                "obligation_ids": [o["id"] for o in all_obligations],
+                "payment_ids": [p["id"] for p in all_payments],
+                "alert_ids": [a["id"] for a in all_alerts],
+            }
+        }).execute()
+
+        return {
+            "org_id": org_id,
+            "admin_user_id": admin_user_id,
+            "ceo_user_id": ceo_user_id,
+            "outlets_created": len(created_outlets),
+            "agreements_created": len(created_agreements),
+        }
+
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

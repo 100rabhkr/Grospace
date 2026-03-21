@@ -172,3 +172,46 @@ class FeedbackRequest(BaseModel):
     original_value: Optional[str] = None
     corrected_value: Optional[str] = None
     comment: Optional[str] = None
+
+
+class CreatePilotRequest(BaseModel):
+    client_name: str
+    brand_name: str
+    cities: List[str]
+    num_outlets: int
+    admin_email: str
+    admin_password: str
+    ceo_email: Optional[str] = None
+    ceo_password: Optional[str] = None
+
+
+class UpsertRevenueRequest(BaseModel):
+    month: int
+    year: int
+    dine_in_revenue: Optional[float] = None
+    delivery_revenue: Optional[float] = None
+    total_revenue: Optional[float] = None
+    source: Optional[str] = "manual"
+    notes: Optional[str] = None
+
+
+class CreateObligationRequest(BaseModel):
+    type: str  # rent, cam, electricity, water, hvac, insurance, property_tax, custom
+    custom_label: Optional[str] = None
+    amount: float
+    frequency: str = "monthly"  # monthly, quarterly, yearly, one_time
+    due_day: Optional[int] = None  # day of month
+    start_date: Optional[str] = None  # ISO date
+    end_date: Optional[str] = None  # ISO date
+    notes: Optional[str] = None
+
+
+class UpdateObligationRequest(BaseModel):
+    type: Optional[str] = None
+    custom_label: Optional[str] = None
+    amount: Optional[float] = None
+    frequency: Optional[str] = None
+    due_day: Optional[int] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    notes: Optional[str] = None
