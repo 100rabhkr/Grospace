@@ -22,7 +22,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Allow auth pages, auth API routes, and leasebot pages through
+  // Allow auth pages, auth API routes, and leasebot pages through (public access)
   if (isAuthPage || isAuthApi || isLeasebotPage) {
     return NextResponse.next();
   }
