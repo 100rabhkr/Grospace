@@ -10,7 +10,7 @@ import { initGlobalErrorHandlers } from "@/lib/sentry";
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isAuthPage = pathname?.startsWith("/auth");
-  const isPublicPage = pathname?.startsWith("/showcase");
+  const isPublicPage = pathname?.startsWith("/showcase") || pathname?.startsWith("/leasebot");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   // Attach global error handlers for Sentry (once)

@@ -42,6 +42,7 @@ import { PdfViewer } from "@/components/pdf-viewer";
 import { EditableField } from "@/components/editable-field";
 import { FeedbackButton } from "@/components/feedback-button";
 import AgreementTimeline from "@/components/agreement-timeline";
+import { HealthScoreGauge } from "@/components/health-score-gauge";
 
 // --- Types ---
 
@@ -509,6 +510,19 @@ export default function AgreementDetailPage() {
   const riskFlags = agreement.risk_flags || [];
   const extractedData = agreement.extracted_data;
 
+  // Extract health_score from extracted_data if present
+  let healthScore: number | null = null;
+  if (extractedData && typeof extractedData === "object") {
+    const hs =
+      (extractedData as Record<string, unknown>).health_score ||
+      ((extractedData as Record<string, Record<string, unknown>>).lease_term || {}).health_score;
+    if (typeof hs === "number") healthScore = hs;
+    else if (typeof hs === "object" && hs && "value" in (hs as Record<string, unknown>)) {
+      const val = (hs as Record<string, unknown>).value;
+      if (typeof val === "number") healthScore = val;
+    }
+  }
+
   // Build timeline dates from extracted data
   const timelineDates: { label: string; date: string; type: "past" | "current" | "future" | "warning" }[] = [];
   const now = new Date();
@@ -598,9 +612,14 @@ export default function AgreementDetailPage() {
                 </Badge>
               )}
             </div>
-            <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">
-              {outletName}
-            </h1>
+            <div className="flex items-center gap-4">
+              <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">
+                {outletName}
+              </h1>
+              {healthScore !== null && (
+                <HealthScoreGauge score={healthScore} size="sm" showLabel={false} />
+              )}
+            </div>
             <p className="text-sm text-muted-foreground mt-0.5">
               {agreement.lessor_name && (
                 <>
