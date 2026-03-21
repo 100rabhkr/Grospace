@@ -31,7 +31,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { uploadAndExtract, confirmAndActivate, getProcessingEstimate } from "@/lib/api";
+import { uploadAndExtract, confirmAndActivate, getProcessingEstimate, uploadAndExtractAsync, getExtractionJob } from "@/lib/api";
 import { EditableField } from "@/components/editable-field";
 import { FeedbackButton } from "@/components/feedback-button";
 import { PageHeader } from "@/components/page-header";
@@ -422,6 +422,69 @@ export default function UploadAgreementPage() {
     }
   }
 
+  // Bulk upload state
+  const MAX_BULK_FILES = 10;
+  const [bulkMode, setBulkMode] = useState(false);
+  const [bulkJobs, setBulkJobs] = useState<{
+    id: string;
+    filename: string;
+    status: string;
+    result?: ExtractionResult;
+    error?: string;
+  }[]>([]);
+
+  // Poll bulk jobs
+  useEffect(() => {
+    const processing = bulkJobs.filter((j) => j.status === "processing");
+    if (processing.length === 0) return;
+
+    const interval = setInterval(async () => {
+      for (const job of processing) {
+        try {
+          const data = await getExtractionJob(job.id);
+          if (data.status !== "processing") {
+            setBulkJobs((prev) =>
+              prev.map((j) =>
+                j.id === job.id
+                  ? {
+                      ...j,
+                      status: data.status,
+                      result: data.result,
+                      error: data.error,
+                    }
+                  : j
+              )
+            );
+          }
+        } catch {
+          // keep polling
+        }
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [bulkJobs]);
+
+  async function handleBulkUpload(files: FileList) {
+    const newFiles = Array.from(files).slice(0, MAX_BULK_FILES - bulkJobs.length);
+    for (const file of newFiles) {
+      if (!isValidFile(file)) continue;
+      try {
+        const data = await uploadAndExtractAsync(file);
+        setBulkJobs((prev) => [
+          ...prev,
+          {
+            id: data.job_id,
+            filename: data.filename || file.name,
+            status: "processing",
+          },
+        ]);
+      } catch {
+        // skip invalid files
+      }
+    }
+  }
+
   const validExtRegex = /\.(pdf|png|jpe?g|webp|gif|bmp|tiff?)$/i;
   const validMimeTypes = [
     "application/pdf",
@@ -575,8 +638,135 @@ export default function UploadAgreementPage() {
         </div>
       )}
 
-      {/* Step 1: Upload */}
+      {/* Bulk Upload Toggle */}
       {step === 1 && (
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setBulkMode(false)}
+            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${!bulkMode ? "bg-[#132337] text-white" : "bg-[#f4f6f9] text-[#4a5568] hover:bg-[#e4e8ef]"}`}
+          >
+            Single Upload
+          </button>
+          <button
+            onClick={() => setBulkMode(true)}
+            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${bulkMode ? "bg-[#132337] text-white" : "bg-[#f4f6f9] text-[#4a5568] hover:bg-[#e4e8ef]"}`}
+          >
+            Bulk Upload (up to {MAX_BULK_FILES})
+          </button>
+        </div>
+      )}
+
+      {/* Bulk Upload Mode */}
+      {step === 1 && bulkMode && (
+        <div className="max-w-2xl mx-auto space-y-4">
+          <Card>
+            <CardContent className="pt-6">
+              <h2 className="text-base font-semibold mb-4">Bulk Document Upload</h2>
+              <p className="text-sm text-[#6b7280] mb-4">
+                Upload up to {MAX_BULK_FILES} documents at once. Each will be processed independently in the background.
+              </p>
+              <div
+                className="flex flex-col items-center justify-center border-2 border-dashed rounded-xl p-10 cursor-pointer transition-all border-neutral-300 hover:border-neutral-400 hover:bg-[#f4f6f9]/50"
+                onClick={() => {
+                  const input = document.createElement("input");
+                  input.type = "file";
+                  input.multiple = true;
+                  input.accept = ".pdf,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tiff,.tif";
+                  input.onchange = (e) => {
+                    const files = (e.target as HTMLInputElement).files;
+                    if (files) handleBulkUpload(files);
+                  };
+                  input.click();
+                }}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  handleBulkUpload(e.dataTransfer.files);
+                }}
+              >
+                <CloudUpload className="h-10 w-10 text-[#9ca3af] mb-3" />
+                <p className="text-sm font-medium">Drop files here or click to browse</p>
+                <p className="text-xs text-[#9ca3af] mt-1">
+                  {bulkJobs.length}/{MAX_BULK_FILES} files queued
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Bulk job status cards */}
+          {bulkJobs.length > 0 && (
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold text-[#132337]">Processing Queue</h3>
+              {bulkJobs.map((job) => (
+                <Card key={job.id} className={`overflow-hidden ${job.status === "completed" ? "border-emerald-200" : job.status === "failed" ? "border-red-200" : "border-[#e4e8ef]"}`}>
+                  <CardContent className="py-3 px-4">
+                    <div className="flex items-center gap-3">
+                      {job.status === "processing" && (
+                        <Loader2 className="h-5 w-5 animate-spin text-[#132337] flex-shrink-0" />
+                      )}
+                      {job.status === "completed" && (
+                        <Check className="h-5 w-5 text-emerald-600 flex-shrink-0" />
+                      )}
+                      {job.status === "failed" && (
+                        <AlertTriangle className="h-5 w-5 text-red-500 flex-shrink-0" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{job.filename}</p>
+                        <p className="text-xs text-[#9ca3af]">
+                          {job.status === "processing" && "Processing..."}
+                          {job.status === "completed" && (
+                            <>
+                              Completed
+                              {job.result && ` - ${job.result.document_type?.replace(/_/g, " ")}`}
+                              {job.result?.risk_flags && ` - ${job.result.risk_flags.length} risk flags`}
+                            </>
+                          )}
+                          {job.status === "failed" && (job.error || "Extraction failed")}
+                        </p>
+                      </div>
+                      {job.status === "completed" && job.result && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-xs flex-shrink-0"
+                          onClick={async () => {
+                            try {
+                              const res = await confirmAndActivate({
+                                extraction: job.result!.extraction,
+                                document_type: job.result!.document_type,
+                                risk_flags: job.result!.risk_flags,
+                                confidence: job.result!.confidence,
+                                filename: job.result!.filename || job.filename,
+                                document_text: job.result!.document_text,
+                                document_url: job.result!.document_url,
+                              });
+                              setBulkJobs((prev) =>
+                                prev.map((j) =>
+                                  j.id === job.id
+                                    ? { ...j, status: "activated" as string }
+                                    : j
+                                )
+                              );
+                              router.push(`/agreements/${res.agreement_id}`);
+                            } catch {
+                              // handle error
+                            }
+                          }}
+                        >
+                          Review & Activate
+                        </Button>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Step 1: Upload */}
+      {step === 1 && !bulkMode && (
         <div className="max-w-xl mx-auto space-y-6">
           <Card>
             <CardContent className="pt-6">
