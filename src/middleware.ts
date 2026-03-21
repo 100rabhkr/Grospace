@@ -4,23 +4,26 @@ import { NextRequest, NextResponse } from "next/server";
 export async function middleware(request: NextRequest) {
   const isAuthPage = request.nextUrl.pathname.startsWith("/auth");
   const isAuthApi = request.nextUrl.pathname.startsWith("/api/auth");
+  const isLeasebotPage = request.nextUrl.pathname.startsWith("/leasebot");
 
   // Always check demo session cookie first — works regardless of Supabase config
   const demoSession = request.cookies.get("grospace-demo-session")?.value;
 
   if (demoSession === "authenticated") {
-    // Demo user trying to visit auth pages — redirect to home
+    // Demo user trying to visit auth pages — honor redirect param or go home
     if (isAuthPage) {
+      const redirect = request.nextUrl.searchParams.get("redirect");
       const url = request.nextUrl.clone();
-      url.pathname = "/";
+      url.pathname = redirect || "/";
+      url.search = "";
       return NextResponse.redirect(url);
     }
     // Demo user on any other page — allow through
     return NextResponse.next();
   }
 
-  // Allow auth pages and auth API routes through (login page, demo endpoint, etc.)
-  if (isAuthPage || isAuthApi) {
+  // Allow auth pages, auth API routes, and leasebot pages through
+  if (isAuthPage || isAuthApi || isLeasebotPage) {
     return NextResponse.next();
   }
 

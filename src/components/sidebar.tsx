@@ -17,6 +17,7 @@ import {
   Kanban,
   Bot,
   Map,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -74,6 +75,7 @@ const navItems: NavItem[] = [
   { label: "Alerts", href: "/alerts", icon: Bell },
   { label: "Pipeline", href: "/pipeline", icon: Kanban, minRole: "org_admin" },
   { label: "Payments", href: "/payments", icon: Wallet },
+  { label: "Leasebot", href: "/leasebot", icon: Sparkles },
   { label: "Reports", href: "/reports", icon: BarChart3 },
   { label: "Settings", href: "/settings", icon: Settings, minRole: "org_admin" },
 ];
