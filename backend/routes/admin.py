@@ -252,7 +252,7 @@ async def dashboard_stats():
     # Run all sync Supabase queries in threads to avoid blocking the event loop
     outlets, agreements, _, alerts, payments = await asyncio.gather(
         asyncio.to_thread(lambda: supabase.table("outlets").select("id, name, status, city, property_type, franchise_model, monthly_net_revenue, deal_stage").execute()),
-        asyncio.to_thread(lambda: supabase.table("agreements").select("id, outlet_id, status, monthly_rent, cam_monthly, total_monthly_outflow, lease_expiry_date, risk_flags").execute()),
+        asyncio.to_thread(lambda: supabase.table("agreements").select("id, outlet_id, type, status, monthly_rent, cam_monthly, total_monthly_outflow, lease_expiry_date, extracted_data, risk_flags").execute()),
         asyncio.to_thread(lambda: supabase.table("obligations").select("id, type, amount, is_active").execute()),
         asyncio.to_thread(lambda: supabase.table("alerts").select("id, type, severity, status, trigger_date").execute()),
         asyncio.to_thread(lambda: supabase.table("payment_records").select("id, status, due_amount").execute()),
@@ -282,6 +282,28 @@ async def dashboard_stats():
                 days_left = (date.fromisoformat(a["lease_expiry_date"]) - today).days
                 if 0 <= days_left <= 90:
                     expiring.append(a)
+        except (ValueError, TypeError):
+            pass
+
+    # Expiring licenses: license_certificate agreements with valid_to in extracted_data
+    expiring_licenses_30d = 0
+    expiring_licenses_60d = 0
+    expiring_licenses_90d = 0
+    for a in agreements.data:
+        if a.get("type") != "license_certificate":
+            continue
+        extracted = a.get("extracted_data") or {}
+        valid_to = extracted.get("valid_to")
+        if not valid_to:
+            continue
+        try:
+            days_left = (date.fromisoformat(valid_to) - today).days
+            if 0 <= days_left < 30:
+                expiring_licenses_30d += 1
+            elif 30 <= days_left < 60:
+                expiring_licenses_60d += 1
+            elif 60 <= days_left <= 90:
+                expiring_licenses_90d += 1
         except (ValueError, TypeError):
             pass
 
@@ -322,6 +344,9 @@ async def dashboard_stats():
         "total_risk_flags": total_risk_flags,
         "pending_alerts": pending_alerts,
         "expiring_leases_90d": len(expiring),
+        "expiring_licenses_30d": expiring_licenses_30d,
+        "expiring_licenses_60d": expiring_licenses_60d,
+        "expiring_licenses_90d": expiring_licenses_90d,
         "outlets_by_city": cities,
         "outlets_by_status": statuses,
         "outlet_details_by_city": outlet_details_by_city,
