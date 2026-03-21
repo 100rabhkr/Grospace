@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { getOutlet, updateOutlet, getActivityLog, listShowcases, createShowcase, updateShowcase, uploadOutletDocument, deleteDocument, listOutletContacts, addOutletContact, updateContact, deleteContact } from "@/lib/api";
+import { getOutlet, updateOutlet, getActivityLog, listShowcases, createShowcase, updateShowcase, uploadOutletDocument, deleteDocument, listOutletContacts, addOutletContact, updateContact, deleteContact, calculateMGLR } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -42,6 +42,9 @@ import {
   Pencil,
   Phone,
   Mail,
+  Calculator,
+  TrendingUp,
+  ArrowUpDown,
 } from "lucide-react";
 import {
   Dialog,
@@ -307,6 +310,22 @@ export default function OutletDetailPage() {
   const [contactForm, setContactForm] = useState({ name: "", designation: "", phone: "", email: "", notes: "" });
   const [contactSaving, setContactSaving] = useState(false);
 
+  // MGLR calculator state
+  const [mglrDineIn, setMglrDineIn] = useState<string>("");
+  const [mglrDelivery, setMglrDelivery] = useState<string>("");
+  const [mglrCalculating, setMglrCalculating] = useState(false);
+  const [mglrResult, setMglrResult] = useState<{
+    rent_model: string;
+    mglr?: number;
+    revenue_share_pct?: number;
+    total_revenue?: number;
+    revenue_share_amount?: number;
+    payable_rent: number;
+    higher_of?: string;
+    message?: string;
+  } | null>(null);
+  const [mglrError, setMglrError] = useState<string | null>(null);
+
   const fetchContacts = useCallback(async () => {
     if (!outletId) return;
     try {
@@ -421,6 +440,29 @@ export default function OutletDetailPage() {
       setError(err instanceof Error ? err.message : "Failed to save revenue");
     } finally {
       setRevenueSaving(false);
+    }
+  }
+
+  // MGLR handler
+  async function handleCalculateMGLR() {
+    const dineIn = parseFloat(mglrDineIn) || 0;
+    const delivery = parseFloat(mglrDelivery) || 0;
+    if (dineIn + delivery <= 0) return;
+
+    setMglrCalculating(true);
+    setMglrError(null);
+    try {
+      const result = await calculateMGLR({
+        outlet_id: outletId,
+        dine_in_revenue: dineIn,
+        delivery_revenue: delivery,
+      });
+      setMglrResult(result);
+    } catch (err) {
+      setMglrError(err instanceof Error ? err.message : "Failed to calculate MGLR");
+      setMglrResult(null);
+    } finally {
+      setMglrCalculating(false);
     }
   }
 
@@ -887,6 +929,123 @@ export default function OutletDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* ----------------------------------------------------------------- */}
+      {/* MGLR CALCULATOR                                                  */}
+      {/* ----------------------------------------------------------------- */}
+      {agreements.length > 0 && (
+        <Card className="border-[#e4e8ef]">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Calculator className="h-4 w-4" />
+              MGLR Calculator
+              <Badge variant="outline" className="text-[10px] border-[#e4e8ef] text-[#6b7280] font-normal">
+                Hybrid Rent
+              </Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-[#6b7280] mb-4">
+              Minimum Guaranteed Lease Rental — compares fixed rent vs revenue share percentage and calculates whichever is higher as the effective payable rent.
+            </p>
+            <div className="flex flex-col sm:flex-row items-start sm:items-end gap-3">
+              <div className="flex-1 max-w-xs">
+                <label className="text-xs text-[#6b7280] mb-1 block">Dine-in Revenue (INR)</label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="1000"
+                  placeholder="e.g. 300000"
+                  value={mglrDineIn}
+                  onChange={(e) => setMglrDineIn(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleCalculateMGLR(); }}
+                />
+              </div>
+              <div className="flex-1 max-w-xs">
+                <label className="text-xs text-[#6b7280] mb-1 block">Delivery Revenue (INR)</label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="1000"
+                  placeholder="e.g. 200000"
+                  value={mglrDelivery}
+                  onChange={(e) => setMglrDelivery(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleCalculateMGLR(); }}
+                />
+              </div>
+              <Button
+                onClick={handleCalculateMGLR}
+                disabled={mglrCalculating || ((parseFloat(mglrDineIn) || 0) + (parseFloat(mglrDelivery) || 0) <= 0)}
+                size="sm"
+                className="gap-1.5"
+              >
+                {mglrCalculating ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <TrendingUp className="h-3.5 w-3.5" />
+                )}
+                Calculate
+              </Button>
+            </div>
+
+            {mglrError && (
+              <div className="mt-4 p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
+                {mglrError}
+              </div>
+            )}
+
+            {mglrResult && (
+              <div className="mt-4 space-y-3">
+                {mglrResult.rent_model !== "hybrid_mglr" ? (
+                  <div className="p-4 rounded-lg bg-[#f4f6f9] border border-[#e4e8ef]">
+                    <p className="text-sm text-[#4a5568]">
+                      {mglrResult.message || "This agreement does not use a hybrid MGLR rent model."}
+                    </p>
+                    {mglrResult.payable_rent > 0 && (
+                      <p className="text-sm mt-2">
+                        Payable Rent: <span className="font-semibold">{formatCurrency(mglrResult.payable_rent)}</span>
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="p-4 rounded-lg bg-[#f4f6f9] border border-[#e4e8ef] space-y-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+                      <div>
+                        <span className="text-[#6b7280] text-xs block">MGLR (Fixed)</span>
+                        <span className="font-semibold">{formatCurrency(mglrResult.mglr || 0)}</span>
+                      </div>
+                      <div>
+                        <span className="text-[#6b7280] text-xs block">Revenue Share %</span>
+                        <span className="font-semibold">{mglrResult.revenue_share_pct || 0}%</span>
+                      </div>
+                      <div>
+                        <span className="text-[#6b7280] text-xs block">Total Revenue</span>
+                        <span className="font-semibold">{formatCurrency(mglrResult.total_revenue || 0)}</span>
+                      </div>
+                      <div>
+                        <span className="text-[#6b7280] text-xs block">Revenue Share Amount</span>
+                        <span className="font-semibold">{formatCurrency(mglrResult.revenue_share_amount || 0)}</span>
+                      </div>
+                    </div>
+                    <div className="border-t border-[#e4e8ef] pt-3 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <ArrowUpDown className="h-4 w-4 text-[#6b7280]" />
+                        <span className="text-sm text-[#4a5568]">
+                          Higher of: <span className="font-medium">{mglrResult.higher_of === "revenue_share" ? "Revenue Share" : "MGLR (Fixed)"}</span>
+                        </span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-xs text-[#6b7280] block">Effective Payable Rent</span>
+                        <span className="text-lg font-bold text-[#132337]">{formatCurrency(mglrResult.payable_rent)}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* ----------------------------------------------------------------- */}
       {/* AGREEMENTS TABLE                                                  */}

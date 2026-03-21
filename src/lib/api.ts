@@ -104,27 +104,13 @@ export async function analyzeRiskFlags(agreementId: string, extractedData: Recor
 
 /** Upload a PDF file directly and get AI extraction results */
 export async function uploadAndExtract(file: File) {
-  const token = await getAuthToken();
   const formData = new FormData();
   formData.append("file", file);
 
-  const headers: Record<string, string> = {};
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-
-  const response = await fetch(`${API_URL}/api/upload-and-extract`, {
+  return apiFetch("/api/upload-and-extract", {
     method: "POST",
-    headers,
     body: formData,
   });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: "Upload failed" }));
-    throw new Error(error.detail || `API error: ${response.status}`);
-  }
-
-  return response.json();
 }
 
 /** Get processing time estimate from backend */
@@ -224,27 +210,13 @@ export async function getOrganization(id: string) {
 
 /** Create organization */
 export async function createOrganization(name: string) {
-  const token = await getAuthToken();
   const formData = new FormData();
   formData.append("name", name);
 
-  const headers: Record<string, string> = {};
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-
-  const response = await fetch(`${API_URL}/api/organizations`, {
+  return apiFetch("/api/organizations", {
     method: "POST",
-    headers,
     body: formData,
   });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: "Failed to create organization" }));
-    throw new Error(error.detail || `API error: ${response.status}`);
-  }
-
-  return response.json();
 }
 
 // ============================================
@@ -592,28 +564,14 @@ export async function listOutletDocuments(outletId: string) {
 
 /** Upload a document to an outlet */
 export async function uploadOutletDocument(outletId: string, file: File, category: string = "other") {
-  const token = await getAuthToken();
   const formData = new FormData();
   formData.append("file", file);
   formData.append("category", category);
 
-  const headers: Record<string, string> = {};
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-
-  const response = await fetch(`${API_URL}/api/outlets/${outletId}/documents`, {
+  return apiFetch(`/api/outlets/${outletId}/documents`, {
     method: "POST",
-    headers,
     body: formData,
   });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: "Upload failed" }));
-    throw new Error(error.detail || `API error: ${response.status}`);
-  }
-
-  return response.json();
 }
 
 /** Delete a document */
