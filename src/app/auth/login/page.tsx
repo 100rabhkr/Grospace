@@ -34,7 +34,10 @@ function LoginContent() {
   const redirectTo = searchParams.get("redirect") || "/";
 
   const goToApp = useCallback(() => {
-    window.location.href = redirectTo;
+    // Small delay to ensure cookies are set before redirect
+    setTimeout(() => {
+      window.location.href = redirectTo;
+    }, 100);
   }, [redirectTo]);
 
   useEffect(() => {
