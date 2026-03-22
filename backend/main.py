@@ -6,8 +6,12 @@ Deployed on Railway.
 
 import os
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 
+try:
+    import sentry_sdk
+except ImportError:
+    sentry_sdk = None  # type: ignore[assignment]
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -16,6 +20,20 @@ from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from core.config import limiter
+
+# ============================================
+# SENTRY MONITORING
+# ============================================
+
+_sentry_dsn = os.getenv("SENTRY_DSN", "")
+if _sentry_dsn and sentry_sdk:
+    sentry_sdk.init(
+        dsn=_sentry_dsn,
+        environment=os.getenv("RAILWAY_ENVIRONMENT", "development"),
+        traces_sample_rate=0.1,
+        send_default_pii=False,
+        integrations=[],           # FastAPI integration is auto-discovered
+    )
 
 # Import all route modules
 from routes import auth, documents, outlets, agreements, payments, alerts, pipeline, admin, reports, contacts, leasebot, revenue
@@ -88,7 +106,24 @@ app.add_middleware(
 
 @app.get("/api/health")
 async def health_check():
-    return {"status": "healthy", "service": "grospace-ai", "timestamp": datetime.utcnow().isoformat()}
+    env = os.getenv("RAILWAY_ENVIRONMENT", "development")
+
+    # Optional Supabase connectivity check
+    db_status = "ok"
+    try:
+        from core.config import supabase as sb
+        sb.table("outlets").select("id", count="exact").limit(1).execute()
+    except Exception:
+        db_status = "unreachable"
+
+    return {
+        "status": "healthy",
+        "service": "grospace-ai",
+        "version": "1.0.0",
+        "environment": env,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "checks": {"database": db_status},
+    }
 
 # ============================================
 # REGISTER ROUTERS

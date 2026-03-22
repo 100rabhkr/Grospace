@@ -192,31 +192,33 @@ def bulk_mark_paid(body: BulkMarkPaidRequest):
     """Bulk mark payments as paid -- by IDs or by month/year."""
     updated = 0
 
+    now_iso = datetime.utcnow().isoformat()
+
     if body.payment_ids:
         for pid in body.payment_ids:
+            rec = supabase.table("payment_records").select("due_amount").eq("id", pid).single().execute()
             supabase.table("payment_records").update({
                 "status": "paid",
-                "paid_amount": supabase.table("payment_records").select("due_amount").eq("id", pid).single().execute().data.get("due_amount", 0),
+                "paid_amount": rec.data.get("due_amount", 0),
+                "paid_at": now_iso,
             }).eq("id", pid).execute()
             updated += 1
     elif body.month and body.year:
-        query = supabase.table("payment_records").select("id, due_amount").in_("status", ["pending", "due", "overdue", "upcoming"])
+        query = supabase.table("payment_records").select("id, due_amount").eq(
+            "period_month", body.month
+        ).eq("period_year", body.year).in_(
+            "status", ["pending", "due", "overdue", "upcoming"]
+        )
         if body.org_id:
             query = query.eq("org_id", body.org_id)
         payments = query.execute().data or []
         for p in payments:
-            due_date_str = p.get("due_date", "")
-            if due_date_str:
-                try:
-                    dd = date.fromisoformat(due_date_str)
-                    if dd.month == body.month and dd.year == body.year:
-                        supabase.table("payment_records").update({
-                            "status": "paid",
-                            "paid_amount": p.get("due_amount", 0),
-                        }).eq("id", p["id"]).execute()
-                        updated += 1
-                except (ValueError, TypeError):
-                    pass
+            supabase.table("payment_records").update({
+                "status": "paid",
+                "paid_amount": p.get("due_amount", 0),
+                "paid_at": now_iso,
+            }).eq("id", p["id"]).execute()
+            updated += 1
 
     return {"status": "ok", "updated_count": updated}
 
@@ -233,28 +235,28 @@ async def mark_all_paid(request: Request):
 
     try:
         year, month = month_str.split("-")
-        start = f"{year}-{month}-01"
         m = int(month)
         y = int(year)
-        if m == 12:
-            end = f"{y+1}-01-01"
-        else:
-            end = f"{y}-{m+1:02d}-01"
     except (ValueError, IndexError):
         raise HTTPException(status_code=400, detail="Invalid month format. Use YYYY-MM")
 
-    query = supabase.table("obligations").select("id, type, amount, due_date").gte("due_date", start).lt("due_date", end).in_("status", ["upcoming", "pending", "due", "overdue"])
+    query = supabase.table("payment_records").select("id, due_amount").eq(
+        "period_month", m
+    ).eq("period_year", y).in_(
+        "status", ["upcoming", "pending", "due", "overdue"]
+    )
     if org_id:
         query = query.eq("org_id", org_id)
     result = query.execute()
 
+    now_iso = datetime.utcnow().isoformat()
     marked = 0
-    for ob in (result.data or []):
-        supabase.table("obligations").update({
+    for rec in (result.data or []):
+        supabase.table("payment_records").update({
             "status": "paid",
-            "paid_amount": ob.get("amount"),
-            "paid_date": date.today().isoformat(),
-        }).eq("id", ob["id"]).execute()
+            "paid_amount": rec.get("due_amount", 0),
+            "paid_at": now_iso,
+        }).eq("id", rec["id"]).execute()
         marked += 1
 
     return {"status": "ok", "marked_paid": marked, "month": month_str}

@@ -25,19 +25,32 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 
-const navItems = [
+type UserRole = "platform_admin" | "org_admin" | "org_member";
+
+const ROLE_RANK: Record<UserRole, number> = {
+  platform_admin: 3,
+  org_admin: 2,
+  org_member: 1,
+};
+
+function hasAccess(userRole: UserRole, minRole?: UserRole): boolean {
+  if (!minRole) return true;
+  return ROLE_RANK[userRole] >= ROLE_RANK[minRole];
+}
+
+const navItems: { label: string; href: string; icon: typeof LayoutDashboard; minRole?: UserRole }[] = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
   { label: "Map View", href: "/map", icon: Map },
   { label: "GroBot", href: "/ai-assistant", icon: Bot },
   { label: "Outlets", href: "/outlets", icon: Store },
   { label: "Agreements", href: "/agreements", icon: FileText },
-  { label: "Upload Documents", href: "/agreements/upload", icon: FileText },
+  { label: "Upload Documents", href: "/agreements/upload", icon: FileText, minRole: "org_admin" },
   { label: "Alerts", href: "/alerts", icon: Bell },
-  { label: "Pipeline", href: "/pipeline", icon: Kanban },
+  { label: "Pipeline", href: "/pipeline", icon: Kanban, minRole: "org_admin" },
   { label: "Payments", href: "/payments", icon: Wallet },
   { label: "Reports", href: "/reports", icon: BarChart3 },
-  { label: "Settings", href: "/settings", icon: Settings },
-  { label: "Organizations", href: "/organizations", icon: Building2 },
+  { label: "Settings", href: "/settings", icon: Settings, minRole: "org_admin" },
+  { label: "Organizations", href: "/organizations", icon: Building2, minRole: "platform_admin" },
 ];
 
 interface MobileNavProps {
@@ -73,7 +86,7 @@ export function MobileNav({ open, onOpenChange }: MobileNavProps) {
 
         <nav className="flex-1 overflow-y-auto py-3 px-3">
           <div className="space-y-1">
-            {navItems.map((item) => {
+            {navItems.filter((item) => hasAccess((user?.role || "org_member") as UserRole, item.minRole)).map((item) => {
               const isActive =
                 pathname === item.href ||
                 (item.href !== "/" && pathname.startsWith(item.href));

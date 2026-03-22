@@ -38,6 +38,10 @@ import {
   ChevronDown,
   ChevronUp,
   Map,
+  TrendingUp,
+  FileText,
+  Lightbulb,
+  ExternalLink,
   CheckCircle2,
   Calendar,
   Heart,
@@ -56,6 +60,9 @@ interface DashboardStats {
   total_risk_flags: number;
   pending_alerts: number;
   expiring_leases_90d: number;
+  expiring_licenses_30d: number;
+  expiring_licenses_60d: number;
+  expiring_licenses_90d: number;
   outlets_by_city: Record<string, number>;
   outlets_by_status: Record<string, number>;
   outlet_details_by_city?: Record<string, { id?: string; name: string; status: string; rent?: number }[]>;
@@ -253,22 +260,28 @@ function SmartAIChat() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
+  const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  async function handleSend() {
-    const question = input.trim();
-    if (!question || loading) return;
+  useEffect(() => {
+    if (isOpen) inputRef.current?.focus();
+  }, [isOpen]);
+
+  async function handleSend(question?: string) {
+    const q = (question || input).trim();
+    if (!q || loading) return;
 
     setInput("");
-    setMessages((prev) => [...prev, { role: "user", content: question }]);
+    setMessages((prev) => [...prev, { role: "user", content: q }]);
     setLoading(true);
 
     try {
-      const data = await smartChat(question);
+      const data = await smartChat(q);
       setMessages((prev) => [...prev, { role: "ai", content: data.answer }]);
     } catch (err) {
       setMessages((prev) => [
@@ -277,15 +290,79 @@ function SmartAIChat() {
       ]);
     } finally {
       setLoading(false);
+      inputRef.current?.focus();
     }
   }
 
-  const suggestions = [
-    "Where am I struggling with escalation?",
-    "Which outlets have the highest risk?",
-    "Show me overdue payments summary",
-    "What leases expire in the next 90 days?",
+  const suggestionCategories = [
+    {
+      icon: TrendingUp,
+      label: "Portfolio",
+      questions: [
+        "Give me a complete portfolio overview",
+        "What's my total monthly outflow?",
+      ],
+    },
+    {
+      icon: AlertTriangle,
+      label: "Risks",
+      questions: [
+        "Which leases expire in the next 90 days?",
+        "Show me all high-risk agreements",
+      ],
+    },
+    {
+      icon: FileText,
+      label: "Agreements",
+      questions: [
+        "Summarize my active lease agreements",
+        "Which outlets have revenue share models?",
+      ],
+    },
+    {
+      icon: Lightbulb,
+      label: "Insights",
+      questions: [
+        "Recommendations to reduce costs?",
+        "What's my portfolio health score?",
+      ],
+    },
   ];
+
+  const followUpSuggestions = [
+    "Show overdue payments",
+    "Portfolio health",
+    "Expiring leases",
+    "Cost breakdown",
+  ];
+
+  function formatAIContent(content: string) {
+    const lines = content.split("\n");
+    return lines.map((line, i) => {
+      if (line.startsWith("**") && line.endsWith("**")) {
+        return (
+          <p key={i} className="font-semibold text-sm mt-2 mb-1">
+            {line.replace(/\*\*/g, "")}
+          </p>
+        );
+      }
+      if (line.startsWith("- ") || line.startsWith("• ")) {
+        return (
+          <li key={i} className="text-sm text-neutral-600 ml-4 list-disc">
+            {line.replace(/^[-•]\s*/, "").replace(/\*\*(.*?)\*\*/g, "$1")}
+          </li>
+        );
+      }
+      if (line.trim() === "") {
+        return <br key={i} />;
+      }
+      return (
+        <p key={i} className="text-sm text-neutral-600">
+          {line.replace(/\*\*(.*?)\*\*/g, "$1")}
+        </p>
+      );
+    });
+  }
 
   return (
     <Card>
@@ -297,10 +374,20 @@ function SmartAIChat() {
           <div className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-neutral-600" />
             <CardTitle className="text-sm font-semibold">GroBot</CardTitle>
+            <Badge variant="outline" className="text-[10px]">AI</Badge>
           </div>
-          <Badge variant="outline" className="text-[10px]">
-            {isOpen ? "Collapse" : "Expand"}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/ai-assistant"
+              onClick={(e) => e.stopPropagation()}
+              className="text-[10px] text-neutral-400 hover:text-neutral-600 flex items-center gap-1 transition-colors"
+            >
+              Full view <ExternalLink className="w-3 h-3" />
+            </Link>
+            <Badge variant="outline" className="text-[10px]">
+              {isOpen ? "Collapse" : "Expand"}
+            </Badge>
+          </div>
         </div>
         <p className="text-xs text-neutral-400 mt-0.5">
           Ask anything about your portfolio — escalation, risk, payments, expiry
@@ -316,7 +403,7 @@ function SmartAIChat() {
                 <MessageSquare className="h-8 w-8 text-neutral-300" />
                 <div>
                   <p className="text-sm text-neutral-500 font-medium">Ask your portfolio a question</p>
-                  <p className="text-xs text-neutral-400 mt-1">Try one of the suggestions below</p>
+                  <p className="text-xs text-neutral-400 mt-1">Pick a category or type your own question</p>
                 </div>
               </div>
             )}
@@ -338,7 +425,11 @@ function SmartAIChat() {
                       : "bg-[#fafbfd] border border-[#e4e8ef] text-neutral-700"
                   }`}
                 >
-                  <div className="whitespace-pre-wrap">{msg.content}</div>
+                  {msg.role === "user" ? (
+                    <div className="whitespace-pre-wrap">{msg.content}</div>
+                  ) : (
+                    <div>{formatAIContent(msg.content)}</div>
+                  )}
                 </div>
                 {msg.role === "user" && (
                   <div className="w-6 h-6 rounded-full bg-[#e4e8ef] flex items-center justify-center flex-shrink-0 mt-0.5">
@@ -354,25 +445,86 @@ function SmartAIChat() {
                   <Sparkles className="w-3 h-3 text-white" />
                 </div>
                 <div className="bg-[#fafbfd] border border-[#e4e8ef] rounded-lg px-3 py-2">
-                  <Loader2 className="w-4 h-4 animate-spin text-neutral-400" />
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin text-neutral-400" />
+                    <span className="text-xs text-neutral-400">Analyzing...</span>
+                  </div>
                 </div>
               </div>
             )}
             <div ref={chatEndRef} />
           </div>
 
-          {/* Suggestions */}
+          {/* Categorized Suggestions (when no messages) */}
           {messages.length === 0 && (
-            <div className="flex flex-wrap gap-2 mb-3">
-              {suggestions.map((s) => (
+            <div className="mb-3">
+              {/* Category tabs */}
+              <div className="flex gap-1 mb-2">
+                {suggestionCategories.map((cat) => {
+                  const Icon = cat.icon;
+                  const isActive = activeCategory === cat.label;
+                  return (
+                    <button
+                      key={cat.label}
+                      onClick={() => setActiveCategory(isActive ? null : cat.label)}
+                      className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded-full border transition-colors ${
+                        isActive
+                          ? "bg-[#132337] text-white border-[#132337]"
+                          : "bg-[#fafbfd] border-[#e4e8ef] text-neutral-500 hover:bg-[#f4f6f9]"
+                      }`}
+                    >
+                      <Icon className="w-3 h-3" />
+                      {cat.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {/* Questions for active category */}
+              {activeCategory && (
+                <div className="flex flex-wrap gap-1.5">
+                  {suggestionCategories
+                    .find((c) => c.label === activeCategory)
+                    ?.questions.map((q) => (
+                      <button
+                        key={q}
+                        onClick={() => handleSend(q)}
+                        disabled={loading}
+                        className="text-xs bg-[#fafbfd] border border-[#e4e8ef] rounded-full px-3 py-1.5 text-neutral-600 hover:bg-[#f4f6f9] transition-colors disabled:opacity-50"
+                      >
+                        {q}
+                      </button>
+                    ))}
+                </div>
+              )}
+              {/* Show all when no category selected */}
+              {!activeCategory && (
+                <div className="flex flex-wrap gap-1.5">
+                  {suggestionCategories.flatMap((c) => c.questions.slice(0, 1)).map((q) => (
+                    <button
+                      key={q}
+                      onClick={() => handleSend(q)}
+                      disabled={loading}
+                      className="text-xs bg-[#fafbfd] border border-[#e4e8ef] rounded-full px-3 py-1.5 text-neutral-600 hover:bg-[#f4f6f9] transition-colors disabled:opacity-50"
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Follow-up suggestions (when conversation active) */}
+          {messages.length > 0 && !loading && (
+            <div className="flex gap-1.5 mb-3 overflow-x-auto">
+              {followUpSuggestions.map((q) => (
                 <button
-                  key={s}
-                  onClick={() => {
-                    setInput(s);
-                  }}
-                  className="text-xs bg-[#fafbfd] border border-[#e4e8ef] rounded-full px-3 py-1.5 text-neutral-600 hover:bg-[#f4f6f9] hover:border-[#e4e8ef] transition-colors"
+                  key={q}
+                  onClick={() => handleSend(q)}
+                  disabled={loading}
+                  className="text-[10px] text-neutral-400 hover:text-neutral-600 border border-[#e4e8ef] rounded-full px-2.5 py-1 whitespace-nowrap transition-colors disabled:opacity-50"
                 >
-                  {s}
+                  {q}
                 </button>
               ))}
             </div>
@@ -381,6 +533,7 @@ function SmartAIChat() {
           {/* Input */}
           <div className="flex gap-2">
             <Input
+              ref={inputRef}
               placeholder="Ask about your portfolio..."
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -395,7 +548,7 @@ function SmartAIChat() {
             />
             <Button
               size="sm"
-              onClick={handleSend}
+              onClick={() => handleSend()}
               disabled={!input.trim() || loading}
               className="px-3"
             >
@@ -1138,6 +1291,23 @@ export default function Dashboard() {
           </Link>
         )}
 
+        {/* Expiring Licenses mini-widget */}
+        {((stats?.expiring_licenses_30d ?? 0) + (stats?.expiring_licenses_60d ?? 0) + (stats?.expiring_licenses_90d ?? 0)) > 0 && (
+          <Link href="/agreements">
+            <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-amber-200 bg-amber-50/80 hover:bg-amber-50 transition-colors cursor-pointer">
+              <FileCheck className="h-4 w-4 text-amber-600 flex-shrink-0" />
+              <div className="flex items-center gap-1.5">
+                {(stats?.expiring_licenses_30d ?? 0) > 0 && (
+                  <span className="text-sm font-semibold text-red-700">{stats?.expiring_licenses_30d}</span>
+                )}
+                <span className="text-xs text-amber-600">
+                  {(stats?.expiring_licenses_30d ?? 0) + (stats?.expiring_licenses_60d ?? 0) + (stats?.expiring_licenses_90d ?? 0)} license{((stats?.expiring_licenses_30d ?? 0) + (stats?.expiring_licenses_60d ?? 0) + (stats?.expiring_licenses_90d ?? 0)) !== 1 ? "s" : ""} expiring in 90 days
+                </span>
+              </div>
+            </div>
+          </Link>
+        )}
+
         {/* Risk Flags summary badge */}
         {(stats?.total_risk_flags ?? 0) > 0 && (
           <Link href="/agreements">
@@ -1209,7 +1379,7 @@ export default function Dashboard() {
       {/* Row 2.8 -- Expiring Leases + Risk Flags + Property Type cards    */}
       {/* -------------------------------------------------------------- */}
       {isPlatformAdmin && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5">
           {/* Expiring Leases Card */}
           <Card className="border-amber-200 bg-amber-50/30">
             <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 p-4">
@@ -1229,6 +1399,42 @@ export default function Dashboard() {
                 <Link href="/alerts" className="inline-block mt-2">
                   <Button variant="outline" size="sm" className="text-[11px] h-7 border-amber-300 text-amber-700 hover:bg-amber-100">
                     Review Expiring
+                  </Button>
+                </Link>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Expiring Licenses Card */}
+          <Card className="border-amber-200 bg-amber-50/30">
+            <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 p-4">
+              <CardTitle className="text-xs font-medium text-amber-700">
+                Expiring Licenses
+              </CardTitle>
+              <FileCheck className="h-4 w-4 text-amber-500" />
+            </CardHeader>
+            <CardContent className="p-4 pt-0">
+              <div className="text-3xl font-bold text-amber-700">
+                {(stats?.expiring_licenses_30d ?? 0) + (stats?.expiring_licenses_60d ?? 0) + (stats?.expiring_licenses_90d ?? 0)}
+              </div>
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${(stats?.expiring_licenses_30d ?? 0) > 0 ? "bg-red-100 text-red-700" : "bg-neutral-100 text-neutral-400"}`}>
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                  {stats?.expiring_licenses_30d ?? 0} &lt;30d
+                </span>
+                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${(stats?.expiring_licenses_60d ?? 0) > 0 ? "bg-amber-100 text-amber-700" : "bg-neutral-100 text-neutral-400"}`}>
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                  {stats?.expiring_licenses_60d ?? 0} 30-60d
+                </span>
+                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${(stats?.expiring_licenses_90d ?? 0) > 0 ? "bg-emerald-100 text-emerald-700" : "bg-neutral-100 text-neutral-400"}`}>
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  {stats?.expiring_licenses_90d ?? 0} 60-90d
+                </span>
+              </div>
+              {((stats?.expiring_licenses_30d ?? 0) + (stats?.expiring_licenses_60d ?? 0) + (stats?.expiring_licenses_90d ?? 0)) > 0 && (
+                <Link href="/agreements" className="inline-block mt-2">
+                  <Button variant="outline" size="sm" className="text-[11px] h-7 border-amber-300 text-amber-700 hover:bg-amber-100">
+                    Review Licenses
                   </Button>
                 </Link>
               )}
@@ -1569,7 +1775,7 @@ export default function Dashboard() {
       {/* Org Member Simplified View                                       */}
       {/* -------------------------------------------------------------- */}
       {isOrgMember && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 lg:gap-5">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 lg:gap-5">
           {/* Expiring Leases Card (org_member view) */}
           <Card className="border-amber-200 bg-amber-50/30">
             <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 p-4">
@@ -1585,6 +1791,35 @@ export default function Dashboard() {
               <p className="text-xs text-amber-600/80 mt-1">
                 Agreements expiring within 90 days
               </p>
+            </CardContent>
+          </Card>
+
+          {/* Expiring Licenses Card (org_member view) */}
+          <Card className="border-amber-200 bg-amber-50/30">
+            <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 p-4">
+              <CardTitle className="text-xs font-medium text-amber-700">
+                Expiring Licenses
+              </CardTitle>
+              <FileCheck className="h-4 w-4 text-amber-500" />
+            </CardHeader>
+            <CardContent className="p-4 pt-0">
+              <div className="text-3xl font-bold text-amber-700">
+                {(stats?.expiring_licenses_30d ?? 0) + (stats?.expiring_licenses_60d ?? 0) + (stats?.expiring_licenses_90d ?? 0)}
+              </div>
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${(stats?.expiring_licenses_30d ?? 0) > 0 ? "bg-red-100 text-red-700" : "bg-neutral-100 text-neutral-400"}`}>
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                  {stats?.expiring_licenses_30d ?? 0} &lt;30d
+                </span>
+                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${(stats?.expiring_licenses_60d ?? 0) > 0 ? "bg-amber-100 text-amber-700" : "bg-neutral-100 text-neutral-400"}`}>
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                  {stats?.expiring_licenses_60d ?? 0} 30-60d
+                </span>
+                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${(stats?.expiring_licenses_90d ?? 0) > 0 ? "bg-emerald-100 text-emerald-700" : "bg-neutral-100 text-neutral-400"}`}>
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  {stats?.expiring_licenses_90d ?? 0} 60-90d
+                </span>
+              </div>
             </CardContent>
           </Card>
 
