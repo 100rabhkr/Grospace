@@ -11,7 +11,7 @@ from typing import Optional
 from datetime import datetime
 from collections import deque
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends, Query
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends
 from starlette.requests import Request
 import google.generativeai as genai
 

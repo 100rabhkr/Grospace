@@ -16,7 +16,7 @@ from services.extraction import (
     process_document,
     get_or_create_demo_org, create_outlet_from_extraction,
     create_agreement_record, generate_obligations, generate_alerts,
-    get_val, get_num, get_section,
+    get_val, get_num,
 )
 
 logger = logging.getLogger(__name__)

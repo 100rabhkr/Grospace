@@ -734,7 +734,6 @@ def create_pilot(req: CreatePilotRequest):
     agreements, obligations, payment records, and alerts.
     """
     import random
-    import math
 
     try:
         # -------------------------------------------------------
