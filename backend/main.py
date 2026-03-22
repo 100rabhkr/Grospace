@@ -20,6 +20,7 @@ from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from core.config import limiter
+from routes import auth, documents, outlets, agreements, payments, alerts, pipeline, admin, reports, contacts, leasebot, revenue
 
 # ============================================
 # SENTRY MONITORING
@@ -32,11 +33,8 @@ if _sentry_dsn and sentry_sdk:
         environment=os.getenv("RAILWAY_ENVIRONMENT", "development"),
         traces_sample_rate=0.1,
         send_default_pii=False,
-        integrations=[],           # FastAPI integration is auto-discovered
+        integrations=[],
     )
-
-# Import all route modules
-from routes import auth, documents, outlets, agreements, payments, alerts, pipeline, admin, reports, contacts, leasebot, revenue
 
 # ============================================
 # APP SETUP
