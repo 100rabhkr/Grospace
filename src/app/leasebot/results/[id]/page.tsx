@@ -179,17 +179,20 @@ export default function LeasebotResultsPage() {
   const [isConverting, setIsConverting] = useState(false);
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
 
-  const [isDemo, setIsDemo] = useState(false);
-  const isAuthenticated = isDemo || (result && result.authenticated === true && result.extraction);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const isAuthenticated = isLoggedIn || (result && result.authenticated === true);
 
   useEffect(() => {
-    // Check demo cookie on client side after mount
+    // Detect if user is logged in (demo cookie or convert param in URL)
     const demo = isDemoUser();
-    setIsDemo(demo);
+    const urlParams = new URLSearchParams(window.location.search);
+    const hasConvert = urlParams.get("convert") === "true";
+    const loggedIn = demo || hasConvert;
+    setIsLoggedIn(loggedIn);
 
     async function fetchResults() {
       try {
-        const data = await getLeasebotResults(token, demo);
+        const data = await getLeasebotResults(token, loggedIn);
         setResult(data);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load results.");

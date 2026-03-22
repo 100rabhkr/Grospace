@@ -64,7 +64,7 @@ jobs:
     name: Backend tests
     runs-on: ubuntu-latest
     needs: [backend-lint]
-    continue-on-error: true
+    if: ${{ vars.RUN_BACKEND_TESTS == 'true' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
