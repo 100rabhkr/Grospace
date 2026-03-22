@@ -261,11 +261,11 @@ export default function LeasebotResultsPage() {
             <Badge variant="outline" className="text-[10px] ml-1">Leasebot</Badge>
           </Link>
           {!isAuthenticated ? (
-            <Link href={`/auth/login?redirect=/leasebot/results/${token}&convert=true`}>
+            <a href={`/auth/login?redirect=/leasebot/results/${token}&convert=true`}>
               <Button size="sm" className="bg-[#132337] hover:bg-[#1a2f47]">
                 Sign in
               </Button>
-            </Link>
+            </a>
           ) : (
             <Link href="/">
               <Button variant="outline" size="sm">
@@ -574,12 +574,12 @@ export default function LeasebotResultsPage() {
                 <p className="text-sm text-[#6b7280] mb-6">
                   Get the complete extraction table, detailed risk flags, and AI-powered Q&A for your lease.
                 </p>
-                <Link href={`/auth/login?redirect=/leasebot/results/${token}&convert=true`}>
+                <a href={`/auth/login?redirect=/leasebot/results/${token}&convert=true`}>
                   <Button className="gap-2 bg-[#132337] hover:bg-[#1a2f47] px-8" size="lg">
                     <Sparkles className="h-4 w-4" />
                     Sign up free to unlock
                   </Button>
-                </Link>
+                </a>
               </div>
             </div>
           </div>

@@ -185,17 +185,17 @@ export default function LeasebotPage() {
             <span className="text-[17px] font-semibold tracking-tight text-[#132337]">GroSpace</span>
           </Link>
           {isLoggedIn ? (
-            <Link href="/">
+            <a href="/">
               <Button variant="outline" size="sm">
                 Dashboard
               </Button>
-            </Link>
+            </a>
           ) : (
-            <Link href="/auth/login?redirect=/leasebot">
+            <a href="/auth/login?redirect=/leasebot">
               <Button variant="outline" size="sm">
                 Sign in
               </Button>
-            </Link>
+            </a>
           )}
         </div>
       </header>
@@ -343,9 +343,9 @@ export default function LeasebotPage() {
           <p className="text-xs text-[#9ca3af]">
             Powered by GroSpace AI
           </p>
-          <Link href={isLoggedIn ? "/" : "/auth/login?redirect=/leasebot"} className="text-xs text-[#132337] font-medium hover:underline">
+          <a href={isLoggedIn ? "/" : "/auth/login?redirect=/leasebot"} className="text-xs text-[#132337] font-medium hover:underline">
             {isLoggedIn ? "Go to Dashboard" : "Sign in for full access"}
-          </Link>
+          </a>
         </div>
       </footer>
     </div>
