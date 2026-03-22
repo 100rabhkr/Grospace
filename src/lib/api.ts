@@ -892,8 +892,9 @@ export async function analyzeLeasebot(file: File) {
 }
 
 /** Get Leasebot results by token */
-export async function getLeasebotResults(token: string) {
-  return apiFetch(`/api/leasebot/results/${token}`);
+export async function getLeasebotResults(token: string, full?: boolean) {
+  const params = full ? "?full=true" : "";
+  return apiFetch(`/api/leasebot/results/${token}${params}`);
 }
 
 /** Convert Leasebot analysis to full agreement (auth required) */

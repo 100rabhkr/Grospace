@@ -185,7 +185,7 @@ export default function LeasebotResultsPage() {
   useEffect(() => {
     async function fetchResults() {
       try {
-        const data = await getLeasebotResults(token);
+        const data = await getLeasebotResults(token, isDemo);
         setResult(data);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load results.");
@@ -194,7 +194,7 @@ export default function LeasebotResultsPage() {
       }
     }
     fetchResults();
-  }, [token]);
+  }, [token, isDemo]);
 
   async function handleConvert() {
     setIsConverting(true);
