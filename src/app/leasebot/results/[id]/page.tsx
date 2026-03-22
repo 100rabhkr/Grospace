@@ -179,13 +179,17 @@ export default function LeasebotResultsPage() {
   const [isConverting, setIsConverting] = useState(false);
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
 
-  const isDemo = isDemoUser();
-  const isAuthenticated = isDemo || (result && result.authenticated !== false && result.extraction);
+  const [isDemo, setIsDemo] = useState(false);
+  const isAuthenticated = isDemo || (result && result.authenticated === true && result.extraction);
 
   useEffect(() => {
+    // Check demo cookie on client side after mount
+    const demo = isDemoUser();
+    setIsDemo(demo);
+
     async function fetchResults() {
       try {
-        const data = await getLeasebotResults(token, isDemo);
+        const data = await getLeasebotResults(token, demo);
         setResult(data);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load results.");
@@ -194,7 +198,7 @@ export default function LeasebotResultsPage() {
       }
     }
     fetchResults();
-  }, [token, isDemo]);
+  }, [token]);
 
   async function handleConvert() {
     setIsConverting(true);
