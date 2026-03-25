@@ -125,11 +125,8 @@ async def upload_revenue_csv(
         raise HTTPException(status_code=400, detail="Empty or invalid CSV file")
 
     # Normalize headers
-    headers = [h.strip().lower().replace(" ", "_") for h in reader.fieldnames]
-
-    # Detect format: simplified or detailed
-    has_dine_in = "dine_in" in headers or "dine_in_revenue" in headers
-    has_revenue = "revenue" in headers or "total_revenue" in headers
+    normalized_headers = [h.strip().lower().replace(" ", "_") for h in reader.fieldnames]
+    _ = normalized_headers  # used for format detection
 
     # Fetch all outlets for fuzzy matching
     org_id = get_org_filter(user)

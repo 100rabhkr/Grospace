@@ -888,8 +888,7 @@ export async function analyzeLeasebot(file: File) {
   return apiFetch("/api/leasebot/analyze", {
     method: "POST",
     body: formData,
-    isAIEndpoint: true,
-  });
+  } as RequestInit);
 }
 
 /** Get Leasebot results by token */

@@ -1163,25 +1163,130 @@ export default function UploadAgreementPage() {
                                   />
                                 </div>
                                 {isNotFound ? (
-                                  <p className="text-xs text-[#d1d5db] italic pl-4">Not found in document</p>
+                                  <EditableField
+                                    value=""
+                                    displayValue="Not found in document"
+                                    isNotFound={true}
+                                    onChange={(newVal) => {
+                                      setResult((prev) => {
+                                        if (!prev) return prev;
+                                        const updated = { ...prev, extraction: { ...prev.extraction } };
+                                        const section = { ...(updated.extraction[sectionKey] as Record<string, unknown>) };
+                                        const existing = section[fieldKey];
+                                        if (typeof existing === "object" && existing !== null && "value" in (existing as Record<string, unknown>)) {
+                                          section[fieldKey] = { ...(existing as Record<string, unknown>), value: newVal };
+                                        } else {
+                                          section[fieldKey] = newVal;
+                                        }
+                                        updated.extraction[sectionKey] = section;
+                                        return updated;
+                                      });
+                                    }}
+                                  />
                                 ) : isBool ? (
                                   <div className="pl-4">
-                                    <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${displayVal === "Yes" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600"}`}>
-                                      {displayVal === "Yes" ? "✓" : "✗"} {displayVal}
-                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const newVal = displayVal === "Yes" ? "No" : "Yes";
+                                        setResult((prev) => {
+                                          if (!prev) return prev;
+                                          const updated = { ...prev, extraction: { ...prev.extraction } };
+                                          const section = { ...(updated.extraction[sectionKey] as Record<string, unknown>) };
+                                          const existing = section[fieldKey];
+                                          if (typeof existing === "object" && existing !== null && "value" in (existing as Record<string, unknown>)) {
+                                            section[fieldKey] = { ...(existing as Record<string, unknown>), value: newVal === "Yes" };
+                                          } else {
+                                            section[fieldKey] = newVal === "Yes";
+                                          }
+                                          updated.extraction[sectionKey] = section;
+                                          return updated;
+                                        });
+                                      }}
+                                      className="cursor-pointer hover:opacity-80 transition-opacity"
+                                      title="Click to toggle"
+                                    >
+                                      <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${displayVal === "Yes" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600"}`}>
+                                        {displayVal === "Yes" ? "✓" : "✗"} {displayVal}
+                                      </span>
+                                    </button>
+                                  </div>
+                                ) : isMultiLine && Array.isArray(
+                                  (() => {
+                                    const sec = result.extraction[sectionKey] as Record<string, unknown>;
+                                    const raw = sec[fieldKey];
+                                    if (typeof raw === "object" && raw !== null && "value" in (raw as Record<string, unknown>)) {
+                                      return (raw as Record<string, unknown>).value;
+                                    }
+                                    return raw;
+                                  })()
+                                ) ? (
+                                  <div className="pl-4 space-y-1 mt-1">
+                                    {(() => {
+                                      const sec = result.extraction[sectionKey] as Record<string, unknown>;
+                                      const raw = sec[fieldKey];
+                                      const arrVal = (typeof raw === "object" && raw !== null && "value" in (raw as Record<string, unknown>))
+                                        ? (raw as Record<string, unknown>).value as unknown[]
+                                        : raw as unknown[];
+                                      return arrVal.map((item, idx) => {
+                                        const { displayVal: itemDisplay } = parseField(item);
+                                        return (
+                                          <div key={idx} className="flex items-start gap-2">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-[#132337] mt-1.5 flex-shrink-0" />
+                                            <EditableField
+                                              value={itemDisplay}
+                                              isNotFound={false}
+                                              onChange={(newVal) => {
+                                                setResult((prev) => {
+                                                  if (!prev) return prev;
+                                                  const updated = { ...prev, extraction: { ...prev.extraction } };
+                                                  const section = { ...(updated.extraction[sectionKey] as Record<string, unknown>) };
+                                                  const existing = section[fieldKey];
+                                                  let arr: unknown[];
+                                                  if (typeof existing === "object" && existing !== null && "value" in (existing as Record<string, unknown>)) {
+                                                    arr = [...((existing as Record<string, unknown>).value as unknown[])];
+                                                    arr[idx] = newVal;
+                                                    section[fieldKey] = { ...(existing as Record<string, unknown>), value: arr };
+                                                  } else {
+                                                    arr = [...(existing as unknown[])];
+                                                    arr[idx] = newVal;
+                                                    section[fieldKey] = arr;
+                                                  }
+                                                  updated.extraction[sectionKey] = section;
+                                                  return updated;
+                                                });
+                                              }}
+                                            />
+                                          </div>
+                                        );
+                                      });
+                                    })()}
                                   </div>
                                 ) : isMultiLine ? (
-                                  <div className="pl-4 space-y-1 mt-1">
-                                    {formattedVal.split("\n").filter(Boolean).map((line, idx) => (
-                                      <div key={idx} className="flex items-start gap-2">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-[#132337] mt-1.5 flex-shrink-0" />
-                                        <span className="text-sm text-[#132337] font-medium">{line}</span>
-                                      </div>
-                                    ))}
-                                  </div>
+                                  <EditableField
+                                    value={displayVal}
+                                    isNotFound={false}
+                                    multiline
+                                    onChange={(newVal) => {
+                                      setResult((prev) => {
+                                        if (!prev) return prev;
+                                        const updated = { ...prev, extraction: { ...prev.extraction } };
+                                        const section = { ...(updated.extraction[sectionKey] as Record<string, unknown>) };
+                                        const existing = section[fieldKey];
+                                        if (typeof existing === "object" && existing !== null && "value" in (existing as Record<string, unknown>)) {
+                                          section[fieldKey] = { ...(existing as Record<string, unknown>), value: newVal };
+                                        } else {
+                                          section[fieldKey] = newVal;
+                                        }
+                                        updated.extraction[sectionKey] = section;
+                                        return updated;
+                                      });
+                                    }}
+                                  />
                                 ) : (
                                   <EditableField
-                                    value={formattedVal}
+                                    value={displayVal}
+                                    displayValue={formattedVal !== displayVal ? formattedVal : undefined}
                                     isNotFound={false}
                                     onChange={(newVal) => {
                                       setResult((prev) => {

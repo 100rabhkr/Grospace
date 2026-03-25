@@ -363,27 +363,158 @@ def _strip_currency(value):
         return value  # Return original if not parseable
 
 
+def _normalize_date(value) -> Optional[str]:
+    """Convert various date formats to ISO YYYY-MM-DD. Returns None if unparseable."""
+    if value is None or value in ("", "not_found", "N/A"):
+        return None
+    if not isinstance(value, str):
+        return None
+
+    v = value.strip()
+
+    # Already ISO
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", v):
+        return v
+
+    # Try common Indian and international formats
+    formats = [
+        "%d-%m-%Y", "%d/%m/%Y", "%d.%m.%Y",    # DD-MM-YYYY, DD/MM/YYYY, DD.MM.YYYY
+        "%Y/%m/%d", "%m/%d/%Y",                  # YYYY/MM/DD, MM/DD/YYYY
+        "%d %b %Y", "%d %B %Y",                  # 01 Jan 2024, 01 January 2024
+        "%d-%b-%Y", "%d-%B-%Y",                  # 01-Jan-2024, 01-January-2024
+        "%B %d, %Y", "%b %d, %Y",                # January 01, 2024, Jan 01, 2024
+        "%d %b, %Y", "%d %B, %Y",                # 01 Jan, 2024
+        "%d/%m/%y", "%d-%m-%y",                   # DD/MM/YY, DD-MM-YY
+    ]
+    for fmt in formats:
+        try:
+            return datetime.strptime(v, fmt).date().isoformat()
+        except (ValueError, AttributeError):
+            continue
+
+    return None  # Return None if no format matched; keep original in caller
+
+
+def _normalize_indian_amount(value) -> Optional[float]:
+    """Convert Indian monetary notation (lakhs/crores) to numeric value.
+
+    Handles:
+    - "2.85 lakhs" -> 285000
+    - "1.5 crores" -> 15000000
+    - "Rs. 2,85,000/-" -> 285000
+    - "INR 50L" -> 5000000
+    - "3Cr" -> 30000000
+    """
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if not isinstance(value, str):
+        return None
+
+    s = str(value).strip()
+    if not s:
+        return None
+
+    # Strip currency prefixes
+    s = _CURRENCY_RE.sub("", s).replace("₹", "").strip()
+    # Remove trailing /-
+    s = re.sub(r"/-\s*$", "", s).strip()
+
+    # Check for lakhs/crores notation
+    lakh_match = re.match(r"^([\d,]+(?:\.\d+)?)\s*(?:lakhs?|lacs?|L)\b", s, re.IGNORECASE)
+    crore_match = re.match(r"^([\d,]+(?:\.\d+)?)\s*(?:crores?|Cr)\b", s, re.IGNORECASE)
+
+    if crore_match:
+        num_str = crore_match.group(1).replace(",", "")
+        try:
+            return float(num_str) * 10000000
+        except ValueError:
+            pass
+
+    if lakh_match:
+        num_str = lakh_match.group(1).replace(",", "")
+        try:
+            return float(num_str) * 100000
+        except ValueError:
+            pass
+
+    # Standard number with commas (Indian style: 2,85,000 or Western: 285,000)
+    cleaned = s.replace(",", "").strip()
+    try:
+        return float(cleaned) if "." in cleaned else float(int(cleaned))
+    except (ValueError, TypeError):
+        return None
+
+
 def _validate_and_clean_fields(result: dict, text: str) -> dict:
-    """Validate and fix common extraction mistakes in-place."""
+    """Validate and fix common extraction mistakes in-place.
+
+    Includes:
+    - Currency stripping and lakhs/crores normalization
+    - Date format normalization to ISO
+    - Percentage field validation (0-100 range)
+    - Monthly vs annual rent detection
+    - Cross-validation: rent_schedule vs monthly_rent consistency
+    """
     if not result or not isinstance(result, dict):
         return result
 
-    # --- Strip currency symbols from monetary fields ---
+    # --- Recursively process nested dicts ---
+    for key, val in result.items():
+        if isinstance(val, dict):
+            result[key] = _validate_and_clean_fields(val, text)
+
+    # --- Strip currency symbols and normalize monetary fields ---
     monetary_fields = [
-        "monthly_rent", "security_deposit", "cam_charges",
+        "monthly_rent", "security_deposit", "cam_charges", "cam_monthly",
         "stamp_duty", "registration_charges", "total_monthly_outflow",
         "monthly_rent_per_sqft", "fit_out_cost", "maintenance_charges",
+        "security_deposit_amount", "cam_deposit_amount", "total_amount",
+        "current_charges", "previous_balance", "taxes_and_surcharges",
+        "late_fee", "revised_rent", "revised_cam", "revised_security_deposit",
+        "mglr_monthly", "rent_per_sqft", "mglr_per_sqft",
     ]
     for field in monetary_fields:
         if field in result and result[field] is not None:
-            result[field] = _strip_currency(result[field])
+            normalized = _normalize_indian_amount(result[field])
+            if normalized is not None:
+                result[field] = normalized
+            else:
+                result[field] = _strip_currency(result[field])
+
+    # --- Normalize date fields to ISO YYYY-MM-DD ---
+    date_fields = [
+        "lease_commencement_date", "rent_commencement_date", "lease_expiry_date",
+        "loi_date", "date_of_issue", "valid_from", "valid_to",
+        "bill_date", "due_date", "billing_period_from", "billing_period_to",
+        "effective_date", "execution_date", "reference_agreement_date",
+        "revised_lease_expiry",
+    ]
+    for field in date_fields:
+        if field in result and isinstance(result[field], str):
+            normalized = _normalize_date(result[field])
+            if normalized:
+                result[field] = normalized
+
+    # --- Validate percentage fields (0-100 range) ---
+    percentage_fields = [
+        "escalation_percentage", "cam_escalation_pct", "late_payment_interest_pct",
+        "revised_escalation_pct",
+    ]
+    for field in percentage_fields:
+        val = result.get(field)
+        if isinstance(val, (int, float)):
+            if val > 100:
+                result[field] = None
+            elif val < 0:
+                result[field] = abs(val) if abs(val) <= 100 else None
 
     # --- Monthly rent: detect likely annual values ---
     rent = result.get("monthly_rent")
     if isinstance(rent, (int, float)) and rent > 1000000:
         text_lower = text.lower()
         if "per month" not in text_lower and "p.m." not in text_lower and "/month" not in text_lower:
-            # Likely annual — divide by 12
             result["monthly_rent"] = round(rent / 12, 2)
 
     # --- Lease dates: swap if expiry < commencement ---
@@ -405,10 +536,25 @@ def _validate_and_clean_fields(result: dict, text: str) -> dict:
         match = re.search(r"(\d+)", sd_months)
         result["security_deposit_months"] = int(match.group(1)) if match else None
 
-    # --- Escalation percentage sanity check ---
-    esc = result.get("escalation_percentage")
-    if isinstance(esc, (int, float)) and esc > 100:
-        result["escalation_percentage"] = None
+    # --- Cross-validation: derive monthly_rent from rent_schedule if missing ---
+    rent_section = result.get("rent", result)  # Handle both flat and nested structures
+    if isinstance(rent_section, dict):
+        rent_schedule = rent_section.get("rent_schedule")
+        monthly_rent_val = rent_section.get("monthly_rent") if rent_section is result else result.get("monthly_rent")
+
+        if isinstance(rent_schedule, list) and len(rent_schedule) > 0:
+            first_entry = rent_schedule[0]
+            if isinstance(first_entry, dict):
+                schedule_rent = (
+                    _normalize_indian_amount(first_entry.get("mglr_monthly"))
+                    or _normalize_indian_amount(first_entry.get("monthly_rent"))
+                    or _normalize_indian_amount(first_entry.get("rent"))
+                )
+                # If monthly_rent is missing but rent_schedule has data, derive it
+                if schedule_rent and (monthly_rent_val is None or monthly_rent_val in ("", "not_found")):
+                    if rent_section is result:
+                        result["monthly_rent"] = schedule_rent
+                    print(f"[VALIDATION] Derived monthly_rent={schedule_rent} from rent_schedule")
 
     return result
 
@@ -442,8 +588,10 @@ async def extract_structured_data(text: str, doc_type: str) -> dict:
         "ACCURACY IS CRITICAL — every number, date, and name must be exact.\n\n"
         "INSTRUCTIONS:\n"
         "1. Read the ENTIRE document thoroughly before extracting ANY field.\n"
-        "2. For monetary amounts: Look for Rs., INR, ₹ symbols. Convert words like 'lakh' and 'crore' to numbers.\n"
-        "3. For dates: Use YYYY-MM-DD format. If only month/year given, use first of month.\n"
+        "2. For monetary amounts: Look for Rs., INR, ₹ symbols. Convert words like 'lakh' and 'crore' to numbers "
+        "(1 lakh = 100000, 1 crore = 10000000). Handle Indian numbering: 2,85,000 = 285000.\n"
+        "3. For dates: Use YYYY-MM-DD format. If only month/year given, use first of month. "
+        "Handle Indian date formats: DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY.\n"
         "4. For areas: Distinguish between super area, carpet area, and covered area carefully.\n"
         "5. For rent: Check if the stated rent is monthly or annual — always return MONTHLY values.\n"
         "6. For escalation: Look for phrases like 'escalation of X% every Y years' or 'annual increment'.\n"
@@ -451,7 +599,34 @@ async def extract_structured_data(text: str, doc_type: str) -> dict:
         "return the formula as a string rather than guessing a date.\n"
         "8. For each field, also return a confidence score: 'high', 'medium', 'low', or 'not_found'.\n"
         "9. Cross-verify extracted values — if rent is 2,85,000/month, total outflow should be >= that.\n"
-        "10. Pay special attention to: party names (lessor vs lessee), lock-in periods, notice periods.\n\n"
+        "10. Pay special attention to: party names (lessor vs lessee), lock-in periods, notice periods.\n"
+        "11. EXTRACT ALL FIELDS even if confidence is low — mark as 'low' confidence rather than skipping. "
+        "Only use 'not_found' if the field is truly absent from the document.\n"
+        "12. If the document is bilingual (Hindi/English), extract data from BOTH languages. "
+        "Hindi terms to recognize: किरायेदार (tenant/lessee), मकान मालिक (lessor/landlord), "
+        "किराया (rent), जमा राशि (deposit), अवधि (term/period), नवीनीकरण (renewal).\n\n"
+        "INDIAN LEASE TERMINOLOGY TO WATCH FOR:\n"
+        "- MGLR = Minimum Guaranteed License/Lease Revenue (the fixed rent floor in hybrid deals)\n"
+        "- CAM = Common Area Maintenance charges\n"
+        "- Fit-out period = rent-free period for tenant to build out the space\n"
+        "- Lock-in period = period during which tenant cannot exit (typically 3-5 years)\n"
+        "- Notice period = advance notice required before exit (typically 3-6 months)\n"
+        "- Revenue share / percentage rent = tenant pays % of revenue in addition to or instead of fixed rent\n"
+        "- Hybrid model = MGLR (fixed minimum) + revenue share above threshold\n"
+        "- Escalation = annual/periodic rent increase (typically 5-15% every 1-3 years)\n"
+        "- Security deposit = refundable deposit (often expressed as N months of rent)\n"
+        "- Leave and License = type of commercial lease common in Maharashtra\n"
+        "- Licensee/Licensor = same as Lessee/Lessor in L&L agreements\n"
+        "- TDS = Tax Deducted at Source (tenant obligation to deduct tax on rent)\n"
+        "- Stamp duty, registration charges\n"
+        "- CTO/CTE = Consent to Operate / Consent to Establish\n\n"
+        "COMMON INDIAN LEASE FORMAT EXAMPLES:\n"
+        "- Rent schedule often appears as a table: Year 1: Rs X/sqft, Year 2: Rs Y/sqft, etc.\n"
+        "- 'Rs. 2,85,000/- per month' or 'INR 2.85 Lakhs per month' = 285000 monthly\n"
+        "- 'Escalation @ 5% p.a.' or '5% increase after every 12 months'\n"
+        "- 'Security Deposit equivalent to 6 months rent' = 6 * monthly_rent\n"
+        "- 'Lock-in period of 3 years from rent commencement date'\n"
+        "- 'Fit-out period of 60 days from handover, rent-free'\n\n"
         "Return valid JSON matching this schema:\n"
         f"{json.dumps(schema, indent=2)}\n\n"
         f"DOCUMENT TEXT:\n{text}"
@@ -559,13 +734,24 @@ async def extract_structured_data_vision(images: list, doc_type: str) -> dict:
         "ACCURACY IS CRITICAL — every number, date, and name must be exact.\n\n"
         "INSTRUCTIONS:\n"
         "1. Examine EVERY page thoroughly before extracting.\n"
-        "2. For monetary amounts: Look for Rs., INR, ₹. Convert 'lakh'/'crore' to numbers.\n"
-        "3. For dates: Use YYYY-MM-DD format.\n"
+        "2. For monetary amounts: Look for Rs., INR, ₹. Convert 'lakh'/'crore' to numbers "
+        "(1 lakh = 100000, 1 crore = 10000000). Handle Indian numbering: 2,85,000 = 285000.\n"
+        "3. For dates: Use YYYY-MM-DD format. Handle Indian formats: DD/MM/YYYY, DD-MM-YYYY.\n"
         "4. For rent: Always return MONTHLY values.\n"
-        "5. Distinguish lessor (owner) from lessee (tenant) carefully.\n"
+        "5. Distinguish lessor (owner/licensor) from lessee (tenant/licensee) carefully.\n"
         "6. For each field, return a confidence score: 'high', 'medium', 'low', or 'not_found'.\n"
         "7. If handwritten, do your best to read accurately.\n"
-        "8. If a value is a formula (e.g., '60 days from handover'), return as string.\n\n"
+        "8. If a value is a formula (e.g., '60 days from handover'), return as string.\n"
+        "9. EXTRACT ALL FIELDS even if confidence is low — mark as 'low' confidence rather than skipping.\n"
+        "10. If the document is bilingual (Hindi/English), extract data from BOTH languages.\n\n"
+        "INDIAN LEASE TERMINOLOGY:\n"
+        "- MGLR = Minimum Guaranteed License/Lease Revenue (fixed rent floor in hybrid deals)\n"
+        "- CAM = Common Area Maintenance charges\n"
+        "- Fit-out period = rent-free period for tenant buildout\n"
+        "- Lock-in = period during which tenant cannot exit\n"
+        "- Revenue share / hybrid model = MGLR + % of revenue above threshold\n"
+        "- Leave and License = type of commercial lease (common in Maharashtra)\n"
+        "- Licensee/Licensor = same as Lessee/Lessor in L&L agreements\n\n"
         f"Extract fields for this {doc_type_label}.\n"
         f"Schema:\n{json.dumps(schema, indent=2)}"
     )
@@ -659,19 +845,95 @@ async def extract_structured_data_vision(images: list, doc_type: str) -> dict:
 # ============================================
 
 def calculate_confidence(extraction: dict) -> dict:
-    """Calculate confidence scores for each field in the extraction."""
+    """Calculate granular confidence scores for each field in the extraction.
+
+    Confidence levels (from best to worst):
+    - "high": Value present and looks well-formed (proper format, reasonable range)
+    - "medium": Value present but may have quality issues (unusual format, edge-case values)
+    - "low": Value present but likely unreliable (very short, placeholder-like, out of range)
+    - "not_found": Field is missing, empty, or explicitly marked as not found
+    """
     if not isinstance(extraction, dict):
         return {}
     confidence = {}
+
+    def _assess_field_confidence(field_key: str, field_val) -> str:
+        """Assess confidence for a single field based on value quality signals."""
+        # Explicit not_found
+        if field_val is None or field_val == "" or field_val == "not_found" or field_val == "N/A":
+            return "not_found"
+
+        # If it's a dict with explicit confidence from the model
+        if isinstance(field_val, dict) and "confidence" in field_val:
+            model_conf = str(field_val["confidence"]).lower()
+            if model_conf in ("high", "medium", "low", "not_found"):
+                return model_conf
+
+        # If it's a dict with value + confidence structure
+        if isinstance(field_val, dict) and "value" in field_val:
+            inner_val = field_val.get("value")
+            inner_conf = field_val.get("confidence", "").lower() if isinstance(field_val.get("confidence"), str) else ""
+            if inner_conf in ("high", "medium", "low", "not_found"):
+                return inner_conf
+            field_val = inner_val  # Assess the inner value below
+
+        # Check quality signals based on field type
+        if field_val is None or field_val == "" or field_val == "not_found":
+            return "not_found"
+
+        # Date fields
+        if field_key.endswith("_date") or field_key in ("valid_from", "valid_to", "loi_date"):
+            if isinstance(field_val, str):
+                if re.match(r"^\d{4}-\d{2}-\d{2}$", field_val):
+                    return "high"
+                elif re.search(r"\d", field_val):
+                    return "medium"  # Has numbers but not ISO format
+                else:
+                    return "low"  # Formula or text description
+
+        # Numeric fields
+        if isinstance(field_val, (int, float)):
+            if field_val == 0:
+                return "medium"  # Zero could be intentional or extraction failure
+            return "high"
+
+        # String fields
+        if isinstance(field_val, str):
+            stripped = field_val.strip()
+            if len(stripped) < 2:
+                return "low"
+            if stripped.lower() in ("na", "n/a", "nil", "none", "-", "unknown", "not specified", "not mentioned"):
+                return "not_found"
+            if len(stripped) < 5 and not any(c.isdigit() for c in stripped):
+                return "medium"
+            return "high"
+
+        # Lists
+        if isinstance(field_val, list):
+            return "high" if len(field_val) > 0 else "not_found"
+
+        # Booleans
+        if isinstance(field_val, bool):
+            return "high"
+
+        return "medium"
+
     for section_key, section_val in extraction.items():
         if isinstance(section_val, dict):
             for field_key, field_val in section_val.items():
                 if field_key.endswith("_confidence"):
-                    confidence[field_key.replace("_confidence", "")] = field_val
-                elif field_val is None or field_val == "" or field_val == "not_found":
-                    confidence[field_key] = "not_found"
+                    # Use model-provided confidence directly
+                    conf_val = str(field_val).lower()
+                    confidence[field_key.replace("_confidence", "")] = (
+                        conf_val if conf_val in ("high", "medium", "low", "not_found") else "medium"
+                    )
                 else:
-                    confidence[field_key] = "high"
+                    confidence[field_key] = _assess_field_confidence(field_key, field_val)
+        else:
+            # Top-level fields (non-nested)
+            if not section_key.endswith("_confidence"):
+                confidence[section_key] = _assess_field_confidence(section_key, section_val)
+
     return confidence
 
 
@@ -743,6 +1005,155 @@ async def detect_risk_flags_vision(images: list, extraction: dict) -> list:
         return result.get("flags", result.get("risk_flags", []))
     except Exception:
         return []
+
+
+# ============================================
+# EXTRACTION MERGE & DERIVATION HELPERS
+# ============================================
+
+def _merge_extractions(primary: dict, secondary: dict, primary_conf: dict, secondary_conf: dict) -> int:
+    """Merge fields from secondary extraction into primary where primary has not_found/low confidence.
+
+    Only fills in fields that are missing or low-confidence in primary.
+    Returns the number of fields merged.
+    """
+    merged = 0
+    for key, sec_val in secondary.items():
+        if isinstance(sec_val, dict) and isinstance(primary.get(key), dict):
+            # Recurse into nested sections
+            for field_key, field_val in sec_val.items():
+                if field_key.endswith("_confidence"):
+                    continue
+                pri_section = primary[key]
+                pri_field_conf = primary_conf.get(field_key, "not_found")
+                sec_field_conf = secondary_conf.get(field_key, "not_found")
+
+                # Fill if primary is not_found/low and secondary is better
+                if pri_field_conf in ("not_found", "low") and sec_field_conf in ("high", "medium"):
+                    if field_val is not None and field_val != "" and field_val != "not_found":
+                        pri_section[field_key] = field_val
+                        primary_conf[field_key] = sec_field_conf
+                        merged += 1
+        elif not isinstance(sec_val, dict):
+            # Top-level field
+            pri_conf = primary_conf.get(key, "not_found")
+            sec_conf = secondary_conf.get(key, "not_found")
+
+            if pri_conf in ("not_found", "low") and sec_conf in ("high", "medium"):
+                if sec_val is not None and sec_val != "" and sec_val != "not_found":
+                    primary[key] = sec_val
+                    primary_conf[key] = sec_conf
+                    merged += 1
+    return merged
+
+
+def _derive_missing_fields(extraction: dict, confidence: dict):
+    """Try to derive missing fields from related extracted data.
+
+    Examples:
+    - If monthly_rent is missing but rent_schedule exists, derive from first entry
+    - If lease_expiry_date is missing but commencement + term_years exist, calculate it
+    - If cam_monthly is missing but cam_rate_per_sqft and area exist, calculate it
+    - If security_deposit_amount is missing but months and monthly_rent exist, calculate it
+    """
+    rent = extraction.get("rent", {})
+    lease_term = extraction.get("lease_term", {})
+    charges = extraction.get("charges", {})
+    deposits = extraction.get("deposits", {})
+    premises = extraction.get("premises", {})
+
+    if not isinstance(rent, dict):
+        rent = {}
+    if not isinstance(lease_term, dict):
+        lease_term = {}
+    if not isinstance(charges, dict):
+        charges = {}
+    if not isinstance(deposits, dict):
+        deposits = {}
+    if not isinstance(premises, dict):
+        premises = {}
+
+    # --- Derive monthly_rent from rent_schedule ---
+    monthly_rent_val = _get_nested_val(rent, "monthly_rent")
+    rent_schedule = rent.get("rent_schedule")
+    if monthly_rent_val is None and isinstance(rent_schedule, list) and len(rent_schedule) > 0:
+        first = rent_schedule[0]
+        if isinstance(first, dict):
+            derived = (
+                _get_nested_num(first, "mglr_monthly")
+                or _get_nested_num(first, "monthly_rent")
+                or _get_nested_num(first, "rent")
+            )
+            if derived:
+                rent["monthly_rent"] = derived
+                confidence["monthly_rent"] = "medium"
+                print(f"[DERIVE] monthly_rent={derived} from rent_schedule")
+
+    # --- Derive lease_expiry_date from commencement + term_years ---
+    expiry_val = _get_nested_val(lease_term, "lease_expiry_date")
+    commencement_val = _get_nested_val(lease_term, "lease_commencement_date")
+    term_years = _get_nested_num(lease_term, "lease_term_years")
+    if expiry_val is None and commencement_val and term_years:
+        try:
+            comm_date = date.fromisoformat(str(commencement_val))
+            expiry_date = comm_date + relativedelta(years=int(term_years))
+            lease_term["lease_expiry_date"] = expiry_date.isoformat()
+            confidence["lease_expiry_date"] = "medium"
+            print(f"[DERIVE] lease_expiry_date={expiry_date.isoformat()} from commencement + {term_years} years")
+        except (ValueError, TypeError):
+            pass
+
+    # --- Derive cam_monthly from cam_rate_per_sqft * area ---
+    cam_monthly_val = _get_nested_num(charges, "cam_monthly")
+    cam_rate = _get_nested_num(charges, "cam_rate_per_sqft")
+    if cam_monthly_val is None and cam_rate:
+        area_basis = _get_nested_val(charges, "cam_area_basis") or "super_area"
+        area = None
+        if "super" in str(area_basis).lower():
+            area = _get_nested_num(premises, "super_area_sqft")
+        if area is None:
+            area = _get_nested_num(premises, "covered_area_sqft") or _get_nested_num(premises, "super_area_sqft")
+        if area:
+            derived_cam = round(cam_rate * area, 2)
+            charges["cam_monthly"] = derived_cam
+            confidence["cam_monthly"] = "medium"
+            print(f"[DERIVE] cam_monthly={derived_cam} from {cam_rate}/sqft * {area} sqft")
+
+    # --- Derive security_deposit_amount from months * monthly_rent ---
+    sd_amount = _get_nested_num(deposits, "security_deposit_amount")
+    sd_months = _get_nested_num(deposits, "security_deposit_months")
+    final_monthly_rent = _get_nested_num(rent, "monthly_rent")
+    if sd_amount is None and sd_months and final_monthly_rent:
+        derived_sd = round(sd_months * final_monthly_rent, 2)
+        deposits["security_deposit_amount"] = derived_sd
+        confidence["security_deposit_amount"] = "medium"
+        print(f"[DERIVE] security_deposit_amount={derived_sd} from {sd_months} months * {final_monthly_rent}")
+
+
+def _get_nested_val(section: dict, key: str):
+    """Get value from a section, handling {value, confidence} wrapper objects."""
+    val = section.get(key)
+    if val is None or val in ("", "not_found", "N/A", "null"):
+        return None
+    if isinstance(val, dict) and "value" in val:
+        v = val["value"]
+        if v in (None, "", "not_found", "N/A", "null"):
+            return None
+        return v
+    return val
+
+
+def _get_nested_num(section: dict, key: str) -> Optional[float]:
+    """Get numeric value from a section, handling wrappers."""
+    v = _get_nested_val(section, key)
+    if v is None:
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    try:
+        return float(str(v).replace(",", ""))
+    except (ValueError, TypeError):
+        return None
 
 
 # ============================================
@@ -852,10 +1263,56 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
         # --- Step 4: Calculate confidence ---
         confidence = calculate_confidence(extraction)
 
+        # --- Step 4.5: Fallback — retry with Cloud Vision OCR if text extraction gave low confidence ---
+        if (
+            extraction_method == "text"
+            and extraction
+            and doc_type in ("lease_loi", "franchise_agreement")
+        ):
+            not_found_count = sum(1 for v in confidence.values() if v == "not_found")
+            low_count = sum(1 for v in confidence.values() if v == "low")
+            total_fields = len(confidence)
+
+            # If >40% of fields are not_found or low, retry with OCR
+            if total_fields > 0 and (not_found_count + low_count) / total_fields > 0.4:
+                print(f"[PROCESS] Low confidence on text extraction ({not_found_count} not_found, {low_count} low out of {total_fields}). Retrying with Cloud Vision OCR...")
+                try:
+                    if not images:
+                        images = pdf_bytes_to_images(file_bytes)
+                    if images:
+                        ocr_text = extract_text_cloud_vision(images)
+                        if len(ocr_text.strip()) >= 100:
+                            ocr_text = clean_ocr_text(ocr_text)
+                            ocr_extraction = await extract_structured_data(ocr_text, doc_type)
+                            ocr_confidence = calculate_confidence(ocr_extraction)
+                            ocr_not_found = sum(1 for v in ocr_confidence.values() if v == "not_found")
+                            ocr_low = sum(1 for v in ocr_confidence.values() if v == "low")
+
+                            # Use OCR result if it's better
+                            if (ocr_not_found + ocr_low) < (not_found_count + low_count):
+                                print(f"[PROCESS] OCR fallback produced better results ({ocr_not_found} not_found, {ocr_low} low). Using OCR extraction.")
+                                extraction = ocr_extraction
+                                confidence = ocr_confidence
+                                text = ocr_text
+                                extraction_method = "cloud_vision_fallback"
+                            else:
+                                # Merge: fill in not_found fields from OCR result
+                                merged_count = _merge_extractions(extraction, ocr_extraction, confidence, ocr_confidence)
+                                if merged_count > 0:
+                                    print(f"[PROCESS] Merged {merged_count} fields from OCR fallback into text extraction.")
+                                    confidence = calculate_confidence(extraction)
+                                    extraction_method = "text+cloud_vision"
+                except Exception as e:
+                    print(f"[PROCESS] OCR fallback failed: {type(e).__name__}: {e}")
+
+        # --- Step 4.6: Derive missing fields from related extracted data ---
+        if extraction and doc_type in ("lease_loi", "franchise_agreement"):
+            _derive_missing_fields(extraction, confidence)
+
         # --- Step 5: Detect risk flags ---
         if doc_type == "lease_loi":
             try:
-                if extraction_method in ("text", "cloud_vision"):
+                if extraction_method in ("text", "cloud_vision", "cloud_vision_fallback", "text+cloud_vision"):
                     risk_flags = await detect_risk_flags(text, extraction)
                 elif extraction_method == "vision":
                     risk_flags = await detect_risk_flags_vision(images, extraction)

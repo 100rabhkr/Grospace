@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { createClient } from "@/lib/supabase/client";
@@ -10,6 +10,14 @@ import { Label } from "@/components/ui/label";
 import { Loader2, ArrowRight, User, Shield, Settings, Users, Bot, Building2, FileText, TrendingUp } from "lucide-react";
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-gray-400" /></div>}>
+      <LoginContent />
+    </Suspense>
+  );
+}
+
+function LoginContent() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
@@ -26,7 +34,10 @@ export default function LoginPage() {
   const redirectTo = searchParams.get("redirect") || "/";
 
   const goToApp = useCallback(() => {
-    window.location.href = redirectTo;
+    // Small delay to ensure cookies are set before redirect
+    setTimeout(() => {
+      window.location.href = redirectTo;
+    }, 100);
   }, [redirectTo]);
 
   useEffect(() => {

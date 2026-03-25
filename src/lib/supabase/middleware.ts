@@ -68,10 +68,12 @@ export async function updateSession(request: NextRequest) {
       return NextResponse.redirect(url);
     }
 
-    // Approved user trying to visit auth pages — redirect to home
+    // Approved user trying to visit auth pages — honor redirect param or go home
     if (request.nextUrl.pathname.startsWith("/auth")) {
+      const redirect = request.nextUrl.searchParams.get("redirect");
       const url = request.nextUrl.clone();
-      url.pathname = "/";
+      url.pathname = redirect || "/";
+      url.search = "";
       return NextResponse.redirect(url);
     }
   }
