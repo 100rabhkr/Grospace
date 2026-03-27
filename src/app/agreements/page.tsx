@@ -99,21 +99,21 @@ const extractionLabels: Record<string, string> = {
 };
 
 function statusColor(status: string): string {
-  if (!status) return "bg-[#f4f6f9] text-[#4a5568]";
+  if (!status) return "bg-muted text-[#4a5568]";
   const map: Record<string, string> = {
-    active: "bg-emerald-100 text-emerald-800",
-    expiring: "bg-orange-100 text-orange-800",
-    expired: "bg-red-100 text-red-800",
-    terminated: "bg-red-100 text-red-800",
-    draft: "bg-[#f4f6f9] text-[#4a5568]",
-    renewed: "bg-teal-100 text-teal-800",
-    confirmed: "bg-emerald-100 text-emerald-800",
-    review: "bg-amber-100 text-amber-800",
-    processing: "bg-[#f4f6f9] text-[#132337]",
-    pending: "bg-[#f4f6f9] text-[#4a5568]",
-    failed: "bg-red-100 text-red-800",
+    active: "bg-emerald-50 text-emerald-700",
+    expiring: "bg-amber-50 text-amber-700",
+    expired: "bg-rose-50 text-rose-700",
+    terminated: "bg-rose-50 text-rose-700",
+    draft: "bg-muted text-[#4a5568]",
+    renewed: "bg-emerald-50 text-emerald-700",
+    confirmed: "bg-emerald-50 text-emerald-700",
+    review: "bg-amber-50 text-amber-700",
+    processing: "bg-muted text-foreground",
+    pending: "bg-muted text-[#4a5568]",
+    failed: "bg-rose-50 text-rose-700",
   };
-  return map[status] || "bg-[#f4f6f9] text-[#4a5568]";
+  return map[status] || "bg-muted text-[#4a5568]";
 }
 
 function statusLabel(status: string): string {
@@ -141,10 +141,10 @@ function formatDate(dateStr: string | null): string {
 
 function TableSkeleton() {
   return (
-    <div className="rounded-lg border bg-[#fafbfd]">
+    <div className="rounded-lg border bg-card">
       <Table>
         <TableHeader>
-          <TableRow className="bg-[#f4f6f9] hover:bg-[#f4f6f9]">
+          <TableRow className="bg-muted hover:bg-muted">
             <TableHead className="w-[220px]">Document</TableHead>
             <TableHead>Outlet</TableHead>
             <TableHead>Type</TableHead>
@@ -162,11 +162,11 @@ function TableSkeleton() {
             <TableRow key={i}>
               {Array.from({ length: 9 }).map((_, j) => (
                 <TableCell key={j}>
-                  <div className="h-4 bg-[#e4e8ef] rounded animate-pulse w-full max-w-[120px]" />
+                  <div className="h-4 bg-border rounded animate-pulse w-full max-w-[120px]" />
                 </TableCell>
               ))}
               <TableCell>
-                <div className="h-4 w-4 bg-[#e4e8ef] rounded animate-pulse" />
+                <div className="h-4 w-4 bg-border rounded animate-pulse" />
               </TableCell>
             </TableRow>
           ))}
@@ -253,9 +253,9 @@ export default function AgreementsPage() {
   }, [agreements, searchQuery, typeFilter, statusFilter, extractionFilter]);
 
   function riskDotColor(count: number, flags: RiskFlag[]) {
-    if (count === 0) return "bg-emerald-500";
+    if (count === 0) return "bg-slate-300";
     const hasHigh = flags.some((f) => f.severity === "high");
-    return hasHigh ? "bg-red-500" : "bg-amber-500";
+    return hasHigh ? "bg-rose-500" : "bg-amber-500";
   }
 
   return (
@@ -278,7 +278,7 @@ export default function AgreementsPage() {
 
         {/* Error State */}
         {error && (
-          <div className="flex items-center gap-3 p-4 rounded-lg border border-red-200 bg-red-50 text-red-800">
+          <div className="flex items-center gap-3 p-4 rounded-lg border border-rose-200 bg-rose-50 text-rose-700">
             <AlertTriangle className="h-5 w-5 flex-shrink-0" />
             <div className="flex-1">
               <p className="text-sm font-medium">
@@ -358,11 +358,11 @@ export default function AgreementsPage() {
 
         {/* Empty State (not loading, no error, no agreements at all) */}
         {!loading && !error && agreements.length === 0 && (
-          <div className="rounded-lg border bg-[#fafbfd] flex flex-col items-center justify-center py-20">
+          <div className="rounded-lg border bg-card flex flex-col items-center justify-center py-20">
             <FileText className="h-12 w-12 text-[#d1d5db] mb-4" />
             <h2 className="text-lg font-semibold mb-1">No agreements yet</h2>
             <p className="text-sm text-muted-foreground mb-6">
-              Upload your first agreement to get started with GroBot-powered
+              Upload your first agreement to get started with Grow AI-powered
               extraction.
             </p>
             <Link href="/agreements/upload">
@@ -376,10 +376,10 @@ export default function AgreementsPage() {
 
         {/* Table */}
         {!loading && !error && agreements.length > 0 && (
-          <div className="rounded-lg border bg-[#fafbfd]">
+          <div className="rounded-lg border bg-card">
             <Table>
               <TableHeader>
-                <TableRow className="bg-[#f4f6f9] hover:bg-[#f4f6f9]">
+                <TableRow className="bg-muted hover:bg-muted">
                   <TableHead className="w-[220px]">Document</TableHead>
                   <TableHead>Outlet</TableHead>
                   <TableHead>Type</TableHead>
@@ -412,7 +412,7 @@ export default function AgreementsPage() {
                         <TableCell>
                           <Link
                             href={`/agreements/${agr.id}`}
-                            className="flex items-center gap-2 font-medium text-black hover:underline"
+                            className="flex items-center gap-2 font-medium text-foreground hover:underline"
                           >
                             <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                             <span className="truncate max-w-[180px]">
@@ -485,8 +485,8 @@ export default function AgreementsPage() {
                                       <span
                                         className={`inline-block h-1.5 w-1.5 rounded-full mr-1 ${
                                           flag.severity === "high"
-                                            ? "bg-red-400"
-                                            : "bg-amber-400"
+                                            ? "bg-rose-500"
+                                            : "bg-amber-500"
                                         }`}
                                       />
                                       {flag.name}

@@ -41,11 +41,11 @@ function hasAccess(userRole: UserRole, minRole?: UserRole): boolean {
 const navItems: { label: string; href: string; icon: typeof LayoutDashboard; minRole?: UserRole }[] = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
   { label: "Map View", href: "/map", icon: Map },
-  { label: "GroBot", href: "/ai-assistant", icon: Bot },
+  { label: "Grow AI", href: "/ai-assistant", icon: Bot },
   { label: "Outlets", href: "/outlets", icon: Store },
   { label: "Agreements", href: "/agreements", icon: FileText },
   { label: "Upload Documents", href: "/agreements/upload", icon: FileText, minRole: "org_admin" },
-  { label: "Alerts", href: "/alerts", icon: Bell },
+  { label: "Reminders", href: "/alerts", icon: Bell },
   { label: "Pipeline", href: "/pipeline", icon: Kanban, minRole: "org_admin" },
   { label: "Payments", href: "/payments", icon: Wallet },
   { label: "Reports", href: "/reports", icon: BarChart3 },
@@ -77,7 +77,7 @@ export function MobileNav({ open, onOpenChange }: MobileNavProps) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="left" className="w-[280px] p-0">
-        <SheetHeader className="p-4 border-b border-[#e4e8ef]">
+        <SheetHeader className="p-4 border-b border-border">
           <SheetTitle className="flex items-center gap-2.5">
             <Image src="/logo.png" alt="GroSpace" width={28} height={28} className="rounded-md" />
             <span className="text-[17px] font-semibold tracking-tight text-foreground">GroSpace</span>
@@ -100,8 +100,8 @@ export function MobileNav({ open, onOpenChange }: MobileNavProps) {
                   className={cn(
                     "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors w-full text-left",
                     isActive
-                      ? "bg-[#132337] text-white"
-                      : "text-[#132337]/50 hover:text-[#132337] hover:bg-[#f4f6f9]"
+                      ? "bg-foreground text-white"
+                      : "text-foreground/50 hover:text-foreground hover:bg-muted"
                   )}
                 >
                   <Icon className="w-4 h-4" />
@@ -113,9 +113,9 @@ export function MobileNav({ open, onOpenChange }: MobileNavProps) {
         </nav>
 
         {/* User section */}
-        <div className="p-3 border-t border-[#e4e8ef] mt-auto">
+        <div className="p-3 border-t border-border mt-auto">
           <div className="flex items-center gap-2.5 px-2 py-1.5">
-            <div className="w-7 h-7 rounded-full bg-[#132337] flex items-center justify-center">
+            <div className="w-7 h-7 rounded-full bg-foreground flex items-center justify-center">
               <span className="text-white text-[10px] font-semibold">
                 {user?.initials || "??"}
               </span>
@@ -124,7 +124,7 @@ export function MobileNav({ open, onOpenChange }: MobileNavProps) {
               <p className="text-xs font-medium truncate">
                 {userLoading ? "Loading..." : user?.fullName || "User"}
               </p>
-              <p className="text-[10px] text-[#132337]/40 truncate">
+              <p className="text-[10px] text-foreground/40 truncate">
                 {userLoading ? "" : roleLabels[user?.role || ""] || "Member"}
               </p>
             </div>
@@ -134,7 +134,7 @@ export function MobileNav({ open, onOpenChange }: MobileNavProps) {
                   window.location.href = "/auth/login";
                 });
               }}
-              className="text-[#132337]/40 hover:text-[#132337] transition-colors"
+              className="text-foreground/40 hover:text-foreground transition-colors"
               title="Sign out"
             >
               <LogOut className="w-3.5 h-3.5" />

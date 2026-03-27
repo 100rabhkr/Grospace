@@ -72,7 +72,8 @@ export async function updateSession(request: NextRequest) {
     if (request.nextUrl.pathname.startsWith("/auth")) {
       const redirect = request.nextUrl.searchParams.get("redirect");
       const url = request.nextUrl.clone();
-      url.pathname = redirect || "/";
+      // Only allow relative paths to prevent open redirect attacks
+      url.pathname = (redirect && redirect.startsWith("/") && !redirect.startsWith("//")) ? redirect : "/";
       url.search = "";
       return NextResponse.redirect(url);
     }

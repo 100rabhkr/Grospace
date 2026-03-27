@@ -56,19 +56,19 @@ interface PipelineOutlet {
 type StageMap = Record<string, PipelineOutlet[]>;
 
 const STAGES = [
-  { key: "lead", label: "Lead", color: "bg-[#f4f6f9] text-[#132337]" },
-  { key: "site_visit", label: "Site Visit", color: "bg-[#f4f6f9] text-[#132337]" },
-  { key: "negotiation", label: "Negotiation", color: "bg-[#f4f6f9] text-[#132337]" },
-  { key: "loi", label: "LOI", color: "bg-[#f4f6f9] text-[#132337]" },
-  { key: "agreement", label: "Agreement", color: "bg-[#f4f6f9] text-[#132337]" },
-  { key: "fitout", label: "Fitout", color: "bg-[#f4f6f9] text-[#132337]" },
-  { key: "operational", label: "Operational", color: "bg-[#f4f6f9] text-[#132337]" },
+  { key: "lead", label: "Lead", color: "bg-muted text-foreground" },
+  { key: "site_visit", label: "Site Visit", color: "bg-muted text-foreground" },
+  { key: "negotiation", label: "Negotiation", color: "bg-muted text-foreground" },
+  { key: "loi", label: "LOI", color: "bg-muted text-foreground" },
+  { key: "agreement", label: "Agreement", color: "bg-muted text-foreground" },
+  { key: "fitout", label: "Fitout", color: "bg-muted text-foreground" },
+  { key: "operational", label: "Operational", color: "bg-muted text-foreground" },
 ];
 
 const PRIORITY_COLORS: Record<string, string> = {
-  high: "bg-red-50 text-red-700 border-red-200",
+  high: "bg-rose-50 text-rose-700 border-rose-200",
   medium: "bg-amber-50 text-amber-700 border-amber-200",
-  low: "bg-[#f4f6f9] text-[#132337] border-[#e4e8ef]",
+  low: "bg-muted text-foreground border-border",
 };
 
 // ---------------------------------------------------------------------------
@@ -262,8 +262,8 @@ export default function PipelinePage() {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="flex flex-col items-center gap-3">
-          <Loader2 className="h-8 w-8 animate-spin text-neutral-400" />
-          <p className="text-sm text-neutral-500">Loading pipeline...</p>
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">Loading pipeline...</p>
         </div>
       </div>
     );
@@ -272,13 +272,13 @@ export default function PipelinePage() {
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center h-96 gap-4">
-        <p className="text-sm text-red-600">{error}</p>
+        <p className="text-sm text-rose-600">{error}</p>
         <Button variant="outline" onClick={fetchPipeline}>Retry</Button>
       </div>
     );
   }
 
-  const totalOutlets = Object.values(stages).reduce((sum, arr) => sum + arr.length, 0);
+  const totalLeads = Object.values(stages).reduce((sum, arr) => sum + arr.length, 0);
 
   // ---------------------------------------------------------------------------
   // Render
@@ -286,12 +286,12 @@ export default function PipelinePage() {
   return (
     <div className="space-y-4 animate-fade-in">
       {/* Header */}
-      <PageHeader title="Pipeline" description={`${totalOutlets} outlet${totalOutlets !== 1 ? "s" : ""} across ${STAGES.length} stages`}>
+      <PageHeader title="Pipeline (Beta)" description={`${totalLeads} lead${totalLeads !== 1 ? "s" : ""} across ${STAGES.length} stages`}>
         <div className="flex items-center gap-2">
           <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-neutral-400" />
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
-              placeholder="Search outlets..."
+              placeholder="Search leads..."
               className="pl-8 h-8 w-48 text-sm"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -324,13 +324,13 @@ export default function PipelinePage() {
                 <Badge variant="outline" className={`text-xs font-medium ${stage.color}`}>
                   {stage.label}
                 </Badge>
-                <span className="text-xs text-neutral-400 font-medium">{outlets.length}</span>
+                <span className="text-xs text-muted-foreground font-medium">{outlets.length}</span>
               </div>
               <div className="space-y-2">
                 {outlets.map((outlet) => (
                   <div
                     key={outlet.id}
-                    className="bg-[#fafbfd] rounded-lg border border-[#e4e8ef] p-3"
+                    className="bg-card rounded-lg border border-border p-3"
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
@@ -341,15 +341,15 @@ export default function PipelinePage() {
                           {outlet.name}
                         </Link>
                         <div className="flex items-center gap-1 mt-0.5">
-                          <MapPin className="w-3 h-3 text-neutral-400" />
-                          <span className="text-xs text-neutral-500 truncate">
+                          <MapPin className="w-3 h-3 text-muted-foreground" />
+                          <span className="text-xs text-muted-foreground truncate">
                             {outlet.city || "Unknown"}
                           </span>
                         </div>
                       </div>
                       <Link
                         href={`/outlets/${outlet.id}`}
-                        className="text-neutral-400 hover:text-neutral-600 mt-0.5"
+                        className="text-muted-foreground hover:text-foreground mt-0.5"
                       >
                         <ChevronRight className="w-4 h-4" />
                       </Link>
@@ -359,16 +359,16 @@ export default function PipelinePage() {
                     <div className="flex items-center gap-3 mt-1.5 flex-wrap">
                       {outlet.super_area_sqft != null && outlet.super_area_sqft > 0 && (
                         <div className="flex items-center gap-1">
-                          <Ruler className="w-3 h-3 text-neutral-400" />
-                          <span className="text-xs text-neutral-500">
+                          <Ruler className="w-3 h-3 text-muted-foreground" />
+                          <span className="text-xs text-muted-foreground">
                             {Number(outlet.super_area_sqft).toLocaleString()} sq ft
                           </span>
                         </div>
                       )}
                       {outlet.property_type && (
                         <div className="flex items-center gap-1">
-                          <Building2 className="w-3 h-3 text-neutral-400" />
-                          <span className="text-xs text-neutral-500">
+                          <Building2 className="w-3 h-3 text-muted-foreground" />
+                          <span className="text-xs text-muted-foreground">
                             {formatPropertyType(outlet.property_type)}
                           </span>
                         </div>
@@ -391,12 +391,12 @@ export default function PipelinePage() {
                         </Badge>
                       </button>
                       {daysInStage(outlet.deal_stage_entered_at) != null && (
-                        <span className="text-[10px] text-neutral-400">
+                        <span className="text-[10px] text-muted-foreground">
                           {daysInStage(outlet.deal_stage_entered_at)}d in stage
                         </span>
                       )}
                       {outlet.agreements?.[0]?.monthly_rent > 0 && (
-                        <span className="text-[10px] text-neutral-400">
+                        <span className="text-[10px] text-muted-foreground">
                           {formatCurrency(outlet.agreements[0].monthly_rent)}/mo
                         </span>
                       )}
@@ -437,15 +437,15 @@ export default function PipelinePage() {
               return (
                 <div
                   key={stage.key}
-                  className="flex-shrink-0 w-[300px] bg-[#f4f6f9] rounded-lg border border-[#e4e8ef]"
+                  className="flex-shrink-0 w-[300px] bg-muted rounded-lg border border-border"
                 >
                   {/* Column Header */}
-                  <div className="flex items-center justify-between p-3 border-b border-[#e4e8ef]">
+                  <div className="flex items-center justify-between p-3 border-b border-border">
                     <div className="flex items-center gap-2">
                       <Badge variant="outline" className={`text-xs font-semibold ${stage.color}`}>
                         {stage.label}
                       </Badge>
-                      <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-[#e4e8ef] text-[11px] font-semibold text-neutral-600">{outlets.length}</span>
+                      <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-border text-[11px] font-semibold text-foreground">{outlets.length}</span>
                     </div>
                   </div>
 
@@ -456,7 +456,7 @@ export default function PipelinePage() {
                         ref={provided.innerRef}
                         {...provided.droppableProps}
                         className={`p-2 space-y-2 min-h-[100px] transition-colors ${
-                          snapshot.isDraggingOver ? "bg-[#f4f6f9]/50" : ""
+                          snapshot.isDraggingOver ? "bg-muted/50" : ""
                         }`}
                       >
                         {outlets.map((outlet, index) => (
@@ -464,18 +464,18 @@ export default function PipelinePage() {
                             {(dragProvided, dragSnapshot) => (
                               <PortalAwareDraggable provided={dragProvided} snapshot={dragSnapshot}>
                                 <div
-                                  className={`bg-[#fafbfd] rounded-xl border-l-4 border p-3.5 ${
+                                  className={`bg-card rounded-xl border-l-4 border p-3.5 ${
                                     dragSnapshot.isDragging
-                                      ? "shadow-xl border-[#e4e8ef] border-l-[#132337] w-[284px]"
-                                      : `shadow-sm hover:shadow-md border-[#e4e8ef] ${
-                                          (outlet.deal_priority || "medium") === "high" ? "border-l-red-500" :
-                                          (outlet.deal_priority || "medium") === "low" ? "border-l-[#132337]" :
+                                      ? "shadow-xl border-border border-l-foreground w-[284px]"
+                                      : `shadow-sm hover:shadow-md border-border ${
+                                          (outlet.deal_priority || "medium") === "high" ? "border-l-rose-500" :
+                                          (outlet.deal_priority || "medium") === "low" ? "border-l-slate-300" :
                                           "border-l-amber-400"
                                         }`
                                   }`}
                                 >
                                   <div className="flex items-start gap-2">
-                                    <div className="mt-0.5 text-neutral-300 hover:text-neutral-500 cursor-grab">
+                                    <div className="mt-0.5 text-neutral-300 hover:text-muted-foreground cursor-grab">
                                       <GripVertical className="w-3.5 h-3.5" />
                                     </div>
                                   <div className="flex-1 min-w-0">
@@ -488,7 +488,7 @@ export default function PipelinePage() {
                                       </Link>
                                       <Link
                                         href={`/outlets/${outlet.id}`}
-                                        className="text-neutral-300 hover:text-neutral-500 flex-shrink-0"
+                                        className="text-neutral-300 hover:text-muted-foreground flex-shrink-0"
                                       >
                                         <ExternalLink className="w-3 h-3" />
                                       </Link>
@@ -496,8 +496,8 @@ export default function PipelinePage() {
 
                                     {/* Location */}
                                     <div className="flex items-center gap-1 mt-1">
-                                      <MapPin className="w-3 h-3 text-neutral-400" />
-                                      <span className="text-xs text-neutral-600 truncate">
+                                      <MapPin className="w-3 h-3 text-muted-foreground" />
+                                      <span className="text-xs text-foreground truncate">
                                         {outlet.city || "Unknown"}
                                       </span>
                                     </div>
@@ -506,16 +506,16 @@ export default function PipelinePage() {
                                     <div className="flex items-center gap-3 mt-1.5">
                                       {outlet.super_area_sqft != null && outlet.super_area_sqft > 0 && (
                                         <div className="flex items-center gap-1">
-                                          <Ruler className="w-3 h-3 text-neutral-400" />
-                                          <span className="text-xs text-neutral-600">
+                                          <Ruler className="w-3 h-3 text-muted-foreground" />
+                                          <span className="text-xs text-foreground">
                                             {Number(outlet.super_area_sqft).toLocaleString()} sq ft
                                           </span>
                                         </div>
                                       )}
                                       {outlet.property_type && (
                                         <div className="flex items-center gap-1">
-                                          <Building2 className="w-3 h-3 text-neutral-400" />
-                                          <span className="text-xs text-neutral-600">
+                                          <Building2 className="w-3 h-3 text-muted-foreground" />
+                                          <span className="text-xs text-foreground">
                                             {formatPropertyType(outlet.property_type)}
                                           </span>
                                         </div>
@@ -524,7 +524,7 @@ export default function PipelinePage() {
 
                                     {/* Rent quoted */}
                                     {outlet.agreements?.[0]?.monthly_rent > 0 && (
-                                      <p className="text-xs font-medium text-neutral-700 mt-1.5">
+                                      <p className="text-xs font-medium text-foreground mt-1.5">
                                         {formatCurrency(outlet.agreements[0].monthly_rent)}/mo
                                       </p>
                                     )}
@@ -546,7 +546,7 @@ export default function PipelinePage() {
                                         </Badge>
                                       </button>
                                       {daysInStage(outlet.deal_stage_entered_at) != null && (
-                                        <span className="text-[10px] text-neutral-400">
+                                        <span className="text-[10px] text-muted-foreground">
                                           {daysInStage(outlet.deal_stage_entered_at)}d in stage
                                         </span>
                                       )}
@@ -554,7 +554,7 @@ export default function PipelinePage() {
 
                                     {/* Notes */}
                                     {outlet.deal_notes && (
-                                      <p className="text-[10px] text-neutral-400 mt-1 truncate" title={outlet.deal_notes}>
+                                      <p className="text-[10px] text-muted-foreground mt-1 truncate" title={outlet.deal_notes}>
                                         {outlet.deal_notes}
                                       </p>
                                     )}
@@ -566,8 +566,8 @@ export default function PipelinePage() {
                           </Draggable>
                         ))}
                         {outlets.length === 0 && (
-                          <div className="flex items-center justify-center h-20 text-xs text-neutral-400">
-                            No outlets in this stage
+                          <div className="flex items-center justify-center h-20 text-xs text-muted-foreground">
+                            No leads in this stage
                           </div>
                         )}
                         {provided.placeholder}

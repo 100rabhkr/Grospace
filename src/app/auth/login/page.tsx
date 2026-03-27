@@ -7,11 +7,11 @@ import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, ArrowRight, User, Shield, Settings, Users, Bot, Building2, FileText, TrendingUp } from "lucide-react";
+import { Loader2, ArrowRight, User, Shield, Settings, Users, Bot, Building2, FileText, TrendingUp, Sparkles } from "lucide-react";
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-gray-400" /></div>}>
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>}>
       <LoginContent />
     </Suspense>
   );
@@ -25,6 +25,8 @@ function LoginContent() {
   const [phone, setPhone] = useState("");
   const [city, setCity] = useState("");
   const [numOutlets, setNumOutlets] = useState("");
+  const [industry, setIndustry] = useState("");
+  const [role, setRole] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [signupSuccess, setSignupSuccess] = useState(false);
@@ -34,7 +36,6 @@ function LoginContent() {
   const redirectTo = searchParams.get("redirect") || "/";
 
   const goToApp = useCallback(() => {
-    // Small delay to ensure cookies are set before redirect
     setTimeout(() => {
       window.location.href = redirectTo;
     }, 100);
@@ -88,6 +89,8 @@ function LoginContent() {
               phone,
               city,
               num_outlets: numOutlets ? parseInt(numOutlets, 10) : undefined,
+              industry: industry || undefined,
+              role: role || undefined,
             },
           },
         });
@@ -136,59 +139,25 @@ function LoginContent() {
   ];
 
   const features = [
-    { icon: Bot, label: "GroBot", desc: "AI-powered lease intelligence" },
+    { icon: Bot, label: "AI Intelligence", desc: "AI-powered lease analysis" },
     { icon: Building2, label: "Portfolio Ops", desc: "Manage outlets & locations" },
     { icon: FileText, label: "Smart Extraction", desc: "Auto-extract from documents" },
     { icon: TrendingUp, label: "Deal Pipeline", desc: "Track deals end-to-end" },
   ];
 
-  return (
-    <div className="min-h-screen flex bg-[#f4f6f9]">
-      {/* Left panel — premium branding */}
-      <div className="hidden lg:flex lg:w-[48%] relative overflow-hidden flex-col justify-between p-12"
-        style={{
-          background: "linear-gradient(135deg, #0c1829 0%, #132337 40%, #1a2d42 70%, #132337 100%)",
-        }}
-      >
-        {/* Animated gradient orbs */}
-        <div className="absolute inset-0 overflow-hidden">
-          <div
-            className="absolute w-[600px] h-[600px] rounded-full opacity-[0.07]"
-            style={{
-              background: "radial-gradient(circle, #ffffff 0%, transparent 70%)",
-              top: "-15%",
-              right: "-10%",
-              animation: mounted ? "float1 20s ease-in-out infinite" : "none",
-            }}
-          />
-          <div
-            className="absolute w-[500px] h-[500px] rounded-full opacity-[0.05]"
-            style={{
-              background: "radial-gradient(circle, #ffffff 0%, transparent 70%)",
-              bottom: "-10%",
-              left: "-5%",
-              animation: mounted ? "float2 25s ease-in-out infinite" : "none",
-            }}
-          />
-          <div
-            className="absolute w-[300px] h-[300px] rounded-full opacity-[0.04]"
-            style={{
-              background: "radial-gradient(circle, #ffffff 0%, transparent 70%)",
-              top: "40%",
-              left: "30%",
-              animation: mounted ? "float3 18s ease-in-out infinite" : "none",
-            }}
-          />
-        </div>
+  const inputClasses = "h-10 bg-transparent border-border rounded-lg text-sm placeholder:text-muted-foreground/50 focus:border-foreground/20 focus:ring-ring/10 transition-all duration-200";
 
-        {/* Dot grid pattern */}
+  return (
+    <div className="min-h-screen flex bg-background">
+      {/* Left panel */}
+      <div className="hidden lg:flex lg:w-[48%] relative overflow-hidden flex-col justify-between p-12 bg-foreground">
+        {/* Subtle grid */}
         <div className="absolute inset-0 opacity-[0.03]" style={{
           backgroundImage: "radial-gradient(circle at 1px 1px, white 1px, transparent 0)",
           backgroundSize: "32px 32px",
         }} />
 
         <div className="relative z-10">
-          {/* Logo + tagline */}
           <div
             className="mb-16 transition-all duration-700 ease-out"
             style={{
@@ -197,15 +166,14 @@ function LoginContent() {
             }}
           >
             <div className="flex items-center gap-3 mb-3">
-              <Image src="/logo.png" alt="GroSpace" width={40} height={40} className="rounded-xl shadow-lg shadow-white/5" />
-              <span className="text-2xl font-bold tracking-tight text-white">GroSpace</span>
+              <Image src="/logo.png" alt="GroSpace" width={36} height={36} className="rounded-lg invert brightness-200" />
+              <span className="text-xl font-semibold tracking-tight text-white">GroSpace</span>
             </div>
-            <p className="text-white/40 text-sm font-medium tracking-wide">
-              AI-Native Real Estate Platform
+            <p className="text-white/35 text-sm tracking-wide">
+              Real Estate Intelligence Platform
             </p>
           </div>
 
-          {/* Hero text */}
           <div
             className="transition-all duration-1000 ease-out"
             style={{
@@ -213,45 +181,39 @@ function LoginContent() {
               transform: mounted ? "translateY(0)" : "translateY(20px)",
             }}
           >
-            <h1 className="text-[44px] leading-[1.08] font-bold text-white tracking-tight">
+            <h1 className="text-[42px] leading-[1.1] font-semibold text-white tracking-tight">
               Operate.
               <br />
-              <span className="text-white/80">
-                Optimize.
-              </span>
+              <span className="text-white/60">Optimize.</span>
               <br />
               Scale.
             </h1>
-            <p className="mt-6 text-[15px] text-white/40 leading-relaxed max-w-[380px]">
-              Helping F&B and retail brands manage their real estate portfolios — from outlet leases and licenses to smarter expansion decisions — all in one place.
+            <p className="mt-6 text-[14px] text-white/35 leading-relaxed max-w-[360px]">
+              Helping F&B and retail brands manage their real estate portfolios — from outlet leases and licenses to smarter expansion decisions.
             </p>
           </div>
         </div>
 
-        {/* Feature cards */}
         <div className="relative z-10">
           <div
-            className="grid grid-cols-2 gap-3 mb-8 transition-all duration-1000 delay-300 ease-out"
+            className="grid grid-cols-2 gap-2.5 mb-8 transition-all duration-1000 delay-300 ease-out"
             style={{
               opacity: mounted ? 1 : 0,
               transform: mounted ? "translateY(0)" : "translateY(15px)",
             }}
           >
-            {features.map((feat, i) => {
+            {features.map((feat) => {
               const Icon = feat.icon;
               return (
                 <div
                   key={feat.label}
-                  className="group flex items-center gap-3 px-4 py-3 rounded-xl border border-white/[0.06] bg-[#fafbfd]/[0.03] hover:bg-[#fafbfd]/[0.06] hover:border-white/[0.12] transition-all duration-300"
-                  style={{
-                    animationDelay: `${i * 100}ms`,
-                  }}
+                  className="flex items-center gap-3 px-3.5 py-2.5 rounded-lg border border-white/[0.06] bg-white/[0.03] hover:bg-white/[0.06] transition-all duration-300"
                 >
-                  <div className="w-8 h-8 rounded-lg bg-[#fafbfd]/[0.08] flex items-center justify-center flex-shrink-0 group-hover:bg-[#fafbfd]/[0.12] transition-all duration-300">
-                    <Icon className="w-3.5 h-3.5 text-white/60" />
+                  <div className="w-7 h-7 rounded-md bg-white/[0.08] flex items-center justify-center shrink-0">
+                    <Icon className="w-3.5 h-3.5 text-white/50" />
                   </div>
                   <div>
-                    <p className="text-xs font-semibold text-white/80">{feat.label}</p>
+                    <p className="text-[12px] font-medium text-white/70">{feat.label}</p>
                     <p className="text-[10px] text-white/30">{feat.desc}</p>
                   </div>
                 </div>
@@ -260,66 +222,74 @@ function LoginContent() {
           </div>
 
           <div
-            className="flex items-center gap-6 text-white/20 text-xs transition-all duration-700 delay-500 ease-out"
+            className="flex items-center gap-4 text-white/20 text-[11px] transition-all duration-700 delay-500 ease-out"
             style={{
               opacity: mounted ? 1 : 0,
-              transform: mounted ? "translateY(0)" : "translateY(8px)",
             }}
           >
             <span>Powered by 360Labs</span>
-            <span className="w-px h-3 bg-[#fafbfd]/10" />
+            <span className="w-px h-3 bg-white/10" />
             <span>Trusted by India&apos;s leading F&B chains</span>
           </div>
         </div>
-
-        {/* CSS animations */}
-        <style>{`
-          @keyframes float1 {
-            0%, 100% { transform: translate(0, 0) scale(1); }
-            33% { transform: translate(30px, -40px) scale(1.1); }
-            66% { transform: translate(-20px, 20px) scale(0.95); }
-          }
-          @keyframes float2 {
-            0%, 100% { transform: translate(0, 0) scale(1); }
-            33% { transform: translate(-30px, 30px) scale(1.05); }
-            66% { transform: translate(40px, -20px) scale(0.9); }
-          }
-          @keyframes float3 {
-            0%, 100% { transform: translate(0, 0) scale(1); }
-            50% { transform: translate(20px, -30px) scale(1.15); }
-          }
-        `}</style>
       </div>
 
       {/* Right panel — form */}
-      <div className="flex-1 flex items-center justify-center px-6 sm:px-12 relative overflow-y-auto"
-        style={{ background: "linear-gradient(180deg, #f8f9fb 0%, #f4f6f9 50%, #f0f2f6 100%)" }}
-      >
-        {/* Subtle pattern */}
-        <div className="absolute inset-0 opacity-[0.3]" style={{
-          backgroundImage: "radial-gradient(circle at 1px 1px, #e2e8f0 0.5px, transparent 0)",
-          backgroundSize: "24px 24px",
-        }} />
-
-        <div
-          className="w-full max-w-[400px] relative z-10 py-8"
-        >
+      <div className="flex-1 flex items-center justify-center px-6 sm:px-12 relative overflow-y-auto">
+        <div className="w-full max-w-[380px] relative z-10 py-8">
           {/* Mobile logo */}
           <div className="flex items-center gap-2.5 mb-10 lg:hidden">
-            <Image src="/logo.png" alt="GroSpace" width={36} height={36} className="rounded-xl" />
-            <span className="text-xl font-bold tracking-tight text-[#132337]">GroSpace</span>
+            <Image src="/logo.png" alt="GroSpace" width={32} height={32} className="rounded-lg" />
+            <span className="text-lg font-semibold tracking-tight text-foreground">GroSpace</span>
           </div>
 
+          {/* Try Demo -- always visible, shown first in login mode */}
+          {mode === "login" && !signupSuccess && (
+            <div className="mb-8">
+              <div className="rounded-xl border border-foreground/10 bg-foreground/[0.02] p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-6 h-6 rounded-md bg-foreground flex items-center justify-center">
+                    <Sparkles className="w-3 h-3 text-background" />
+                  </div>
+                  <p className="text-xs font-semibold text-foreground">Try Demo</p>
+                  <span className="text-[10px] text-muted-foreground ml-auto">No signup needed</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {demoAccounts.map((acc) => {
+                    const Icon = acc.icon;
+                    return (
+                      <button
+                        key={acc.label}
+                        type="button"
+                        disabled={loading}
+                        onClick={() => handleDemoLogin(acc.email, acc.password)}
+                        className="group flex items-center gap-2.5 px-3 py-2.5 rounded-lg border border-border bg-card hover:border-foreground/15 hover:shadow-xs text-left transition-all duration-200 disabled:opacity-50"
+                      >
+                        <div className="w-7 h-7 rounded-md bg-muted flex items-center justify-center shrink-0 group-hover:bg-foreground group-hover:text-background transition-all duration-200">
+                          <Icon className="w-3.5 h-3.5" />
+                        </div>
+                        <div>
+                          <p className="text-[12px] font-medium text-foreground">{acc.label}</p>
+                          <p className="text-[10px] text-muted-foreground">{acc.desc}</p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
           {signupSuccess ? (
-            <div className="rounded-2xl border border-green-200 bg-green-50/80 backdrop-blur-sm p-8 text-center shadow-sm">
-              <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-green-100 shadow-sm">
-                <svg className="h-7 w-7 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <div className="rounded-xl border border-neutral-300 bg-neutral-50 p-8 text-center">
+              <div className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-xl bg-neutral-100">
+                <svg className="h-6 w-6 text-neutral-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
               </div>
-              <h3 className="text-xl font-bold text-[#132337]">Thank you!</h3>
-              <p className="mt-3 text-sm text-[#132337]/50 leading-relaxed">
-                Your account is pending approval. We&apos;ll notify you once your access is granted.
+              <h3 className="text-lg font-semibold text-foreground">Application received!</h3>
+              <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
+                Our team will review your details and activate your account within 24 hours. You&apos;ll receive an email once approved.
               </p>
               <button
                 type="button"
@@ -327,125 +297,108 @@ function LoginContent() {
                   setSignupSuccess(false);
                   setMode("login");
                 }}
-                className="mt-6 text-sm text-[#132337]/40 hover:text-[#132337] transition-colors duration-200"
+                className="mt-5 text-sm text-muted-foreground hover:text-foreground transition-colors"
               >
                 Back to sign in
               </button>
             </div>
           ) : (
             <>
+              {mode === "login" && (
+                <div className="relative mb-6">
+                  <div className="absolute inset-0 flex items-center">
+                    <span className="w-full border-t border-border" />
+                  </div>
+                  <div className="relative flex justify-center">
+                    <span className="px-3 text-[10px] font-medium uppercase tracking-widest text-muted-foreground/50 bg-background">or sign in with credentials</span>
+                  </div>
+                </div>
+              )}
+
               <div className="mb-8">
-                <h2 className="text-[28px] font-bold text-[#132337] tracking-tight">
+                <h2 className="text-2xl font-semibold text-foreground tracking-tight">
                   {mode === "login" ? "Welcome back" : "Create account"}
                 </h2>
-                <p className="text-sm text-[#132337]/40 mt-2">
+                <p className="text-sm text-muted-foreground mt-1.5">
                   {mode === "login"
                     ? "Enter your credentials to access your portfolio"
                     : "Get started with GroSpace"}
                 </p>
               </div>
 
-              <form onSubmit={handleSubmit} className="space-y-4">
+              <form onSubmit={handleSubmit} className="space-y-3.5">
                 {mode === "signup" && (
                   <>
                     <div className="space-y-1.5">
-                      <Label htmlFor="fullName" className="text-[11px] font-semibold text-[#132337]/50 uppercase tracking-wider">Full Name</Label>
-                      <Input
-                        id="fullName"
-                        type="text"
-                        placeholder="Your full name"
-                        value={fullName}
-                        onChange={(e) => setFullName(e.target.value)}
-                        required
-                        className="h-12 bg-[#fafbfd] border-[#e4e8ef] rounded-xl text-sm placeholder:text-[#132337]/30 focus:border-[#132337]/40 focus:ring-[#132337]/10 transition-all duration-200 shadow-sm"
-                      />
+                      <Label htmlFor="fullName" className="text-[12px] font-medium text-muted-foreground">Full Name</Label>
+                      <Input id="fullName" type="text" placeholder="Your full name" value={fullName} onChange={(e) => setFullName(e.target.value)} required className={inputClasses} />
                     </div>
                     <div className="space-y-1.5">
-                      <Label htmlFor="company" className="text-[11px] font-semibold text-[#132337]/50 uppercase tracking-wider">Company</Label>
-                      <Input
-                        id="company"
-                        type="text"
-                        placeholder="Company name"
-                        value={company}
-                        onChange={(e) => setCompany(e.target.value)}
-                        required
-                        className="h-12 bg-[#fafbfd] border-[#e4e8ef] rounded-xl text-sm placeholder:text-[#132337]/30 focus:border-[#132337]/40 focus:ring-[#132337]/10 transition-all duration-200 shadow-sm"
-                      />
+                      <Label htmlFor="company" className="text-[12px] font-medium text-muted-foreground">Company</Label>
+                      <Input id="company" type="text" placeholder="Company name" value={company} onChange={(e) => setCompany(e.target.value)} required className={inputClasses} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="phone" className="text-[12px] font-medium text-muted-foreground">Phone</Label>
+                        <Input id="phone" type="tel" placeholder="+91 98765 43210" value={phone} onChange={(e) => setPhone(e.target.value)} className={inputClasses} />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="city" className="text-[12px] font-medium text-muted-foreground">City</Label>
+                        <Input id="city" type="text" placeholder="e.g. Mumbai" value={city} onChange={(e) => setCity(e.target.value)} required className={inputClasses} />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="numOutlets" className="text-[12px] font-medium text-muted-foreground">No. of Outlets</Label>
+                        <Input id="numOutlets" type="number" placeholder="e.g. 10" value={numOutlets} onChange={(e) => setNumOutlets(e.target.value)} required min="1" className={inputClasses} />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="industry" className="text-[12px] font-medium text-muted-foreground">Industry</Label>
+                        <select id="industry" value={industry} onChange={(e) => setIndustry(e.target.value)} required className={`${inputClasses} w-full border px-3`}>
+                          <option value="">Select...</option>
+                          <option value="fnb">F&B / QSR</option>
+                          <option value="retail">Retail</option>
+                          <option value="grocery">Grocery</option>
+                          <option value="pharmacy">Pharmacy</option>
+                          <option value="salon">Salon / Wellness</option>
+                          <option value="education">Education</option>
+                          <option value="other">Other</option>
+                        </select>
+                      </div>
                     </div>
                     <div className="space-y-1.5">
-                      <Label htmlFor="phone" className="text-[11px] font-semibold text-[#132337]/50 uppercase tracking-wider">Phone</Label>
-                      <Input
-                        id="phone"
-                        type="tel"
-                        placeholder="+91 98765 43210"
-                        value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        className="h-12 bg-[#fafbfd] border-[#e4e8ef] rounded-xl text-sm placeholder:text-[#132337]/30 focus:border-[#132337]/40 focus:ring-[#132337]/10 transition-all duration-200 shadow-sm"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="city" className="text-[11px] font-semibold text-[#132337]/50 uppercase tracking-wider">City</Label>
-                      <Input
-                        id="city"
-                        type="text"
-                        placeholder="e.g. Mumbai"
-                        value={city}
-                        onChange={(e) => setCity(e.target.value)}
-                        required
-                        className="h-12 bg-[#fafbfd] border-[#e4e8ef] rounded-xl text-sm placeholder:text-[#132337]/30 focus:border-[#132337]/40 focus:ring-[#132337]/10 transition-all duration-200 shadow-sm"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="numOutlets" className="text-[11px] font-semibold text-[#132337]/50 uppercase tracking-wider">No. of Outlets</Label>
-                      <Input
-                        id="numOutlets"
-                        type="number"
-                        placeholder="e.g. 10"
-                        value={numOutlets}
-                        onChange={(e) => setNumOutlets(e.target.value)}
-                        required
-                        min="1"
-                        className="h-12 bg-[#fafbfd] border-[#e4e8ef] rounded-xl text-sm placeholder:text-[#132337]/30 focus:border-[#132337]/40 focus:ring-[#132337]/10 transition-all duration-200 shadow-sm"
-                      />
+                      <Label htmlFor="role" className="text-[12px] font-medium text-muted-foreground">Your Role</Label>
+                      <select id="role" value={role} onChange={(e) => setRole(e.target.value)} required className={`${inputClasses} w-full border px-3`}>
+                        <option value="">Select...</option>
+                        <option value="founder">Founder / CEO</option>
+                        <option value="cfo">CFO / Finance</option>
+                        <option value="operations">Operations Head</option>
+                        <option value="real_estate">Real Estate / Expansion</option>
+                        <option value="manager">Store / Area Manager</option>
+                        <option value="other">Other</option>
+                      </select>
                     </div>
                   </>
                 )}
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="email" className="text-[11px] font-semibold text-[#132337]/50 uppercase tracking-wider">Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    placeholder="you@company.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                    className="h-12 bg-[#fafbfd] border-[#e4e8ef] rounded-xl text-sm placeholder:text-[#132337]/30 focus:border-[#132337]/40 focus:ring-[#132337]/10 transition-all duration-200 shadow-sm"
-                  />
+                  <Label htmlFor="email" className="text-[12px] font-medium text-muted-foreground">Email</Label>
+                  <Input id="email" type="email" placeholder="you@company.com" value={email} onChange={(e) => setEmail(e.target.value)} required className={inputClasses} />
                 </div>
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
-                    <Label htmlFor="password" className="text-[11px] font-semibold text-[#132337]/50 uppercase tracking-wider">Password</Label>
+                    <Label htmlFor="password" className="text-[12px] font-medium text-muted-foreground">Password</Label>
                     {mode === "login" && (
-                      <button type="button" className="text-[11px] text-[#132337]/50 hover:text-[#132337] transition-colors font-medium">
+                      <button type="button" className="text-[11px] text-muted-foreground hover:text-foreground transition-colors">
                         Forgot password?
                       </button>
                     )}
                   </div>
-                  <Input
-                    id="password"
-                    type="password"
-                    placeholder="Enter your password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    minLength={6}
-                    className="h-12 bg-[#fafbfd] border-[#e4e8ef] rounded-xl text-sm placeholder:text-[#132337]/30 focus:border-[#132337]/40 focus:ring-[#132337]/10 transition-all duration-200 shadow-sm"
-                  />
+                  <Input id="password" type="password" placeholder="Enter your password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} className={inputClasses} />
                 </div>
 
                 {error && (
-                  <div className="flex items-center gap-2.5 text-sm text-red-600 bg-red-50/80 backdrop-blur-sm px-4 py-3 rounded-xl border border-red-100 shadow-sm">
+                  <div className="flex items-center gap-2.5 text-sm text-destructive bg-destructive/5 px-4 py-3 rounded-lg border border-destructive/10">
                     <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                     {error}
                   </div>
@@ -453,7 +406,7 @@ function LoginContent() {
 
                 <Button
                   type="submit"
-                  className="w-full h-12 bg-[#132337] hover:bg-[#1a2d42] text-white rounded-xl font-semibold text-sm shadow-lg shadow-[#132337]/20 hover:shadow-xl active:scale-[0.98] transition-all duration-200 group"
+                  className="w-full h-10 rounded-lg font-medium text-sm group"
                   disabled={loading}
                 >
                   {loading ? (
@@ -461,57 +414,22 @@ function LoginContent() {
                   ) : (
                     <>
                       {mode === "login" ? "Sign In" : "Create Account"}
-                      <ArrowRight className="ml-2 h-4 w-4 transition-transform duration-200 group-hover:translate-x-1" />
+                      <ArrowRight className="ml-2 h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
                     </>
                   )}
                 </Button>
               </form>
 
-              {mode === "login" && (
-                <div className="mt-8">
-                  <div className="relative mb-5">
-                    <div className="absolute inset-0 flex items-center">
-                      <span className="w-full border-t border-[#e4e8ef]" />
-                    </div>
-                    <div className="relative flex justify-center">
-                      <span className="px-4 text-[10px] font-semibold uppercase tracking-widest text-[#132337]/30" style={{ background: "linear-gradient(180deg, #f8f9fb, #f4f6f9)" }}>Demo Access</span>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2.5">
-                    {demoAccounts.map((acc) => {
-                      const Icon = acc.icon;
-                      return (
-                        <button
-                          key={acc.label}
-                          type="button"
-                          disabled={loading}
-                          onClick={() => handleDemoLogin(acc.email, acc.password)}
-                          className="group flex items-center gap-3 px-3.5 py-3 rounded-xl border border-[#e4e8ef] bg-[#fafbfd]/80 backdrop-blur-sm hover:border-[#132337]/20 hover:bg-[#fafbfd] hover:shadow-sm text-left transition-all duration-200 disabled:opacity-50"
-                        >
-                          <div className="w-8 h-8 rounded-lg bg-[#f4f6f9] group-hover:bg-[#e4e8ef]/60 flex items-center justify-center transition-colors duration-200">
-                            <Icon className="w-3.5 h-3.5 text-[#132337]/40 group-hover:text-[#132337] transition-colors duration-200" />
-                          </div>
-                          <div>
-                            <p className="text-xs font-semibold text-[#132337]">{acc.label}</p>
-                            <p className="text-[10px] text-[#132337]/40">{acc.desc}</p>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
               <div className="mt-8 text-center">
                 <button
                   type="button"
                   onClick={() => setMode(mode === "login" ? "signup" : "login")}
-                  className="text-sm text-[#132337]/40 hover:text-[#132337] transition-colors duration-200"
+                  className="text-sm text-muted-foreground hover:text-foreground transition-colors"
                 >
                   {mode === "login"
                     ? "Don\u2019t have an account? "
                     : "Already have an account? "}
-                  <span className="font-semibold text-[#132337]">
+                  <span className="font-medium text-foreground">
                     {mode === "login" ? "Sign up" : "Sign in"}
                   </span>
                 </button>
@@ -519,8 +437,37 @@ function LoginContent() {
             </>
           )}
 
-          <p className="text-[10px] text-[#132337]/30 text-center mt-8 tracking-wide">
-            Built with care by 360Labs
+          {/* Demo accounts after signup success */}
+          {signupSuccess && (
+            <div className="mt-6">
+              <p className="text-xs font-medium text-muted-foreground text-center mb-3">Explore with a demo account</p>
+              <div className="grid grid-cols-2 gap-2">
+                {demoAccounts.map((acc) => {
+                  const Icon = acc.icon;
+                  return (
+                    <button
+                      key={acc.label}
+                      type="button"
+                      disabled={loading}
+                      onClick={() => handleDemoLogin(acc.email, acc.password)}
+                      className="group flex items-center gap-2.5 px-3 py-2.5 rounded-lg border border-border bg-card hover:border-foreground/15 hover:shadow-xs text-left transition-all duration-200 disabled:opacity-50"
+                    >
+                      <div className="w-7 h-7 rounded-md bg-muted flex items-center justify-center shrink-0 group-hover:bg-foreground group-hover:text-background transition-all duration-200">
+                        <Icon className="w-3.5 h-3.5" />
+                      </div>
+                      <div>
+                        <p className="text-[12px] font-medium text-foreground">{acc.label}</p>
+                        <p className="text-[10px] text-muted-foreground">{acc.desc}</p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <p className="text-[10px] text-muted-foreground/40 text-center mt-8">
+            Built by 360Labs
           </p>
         </div>
       </div>

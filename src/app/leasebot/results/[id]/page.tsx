@@ -55,14 +55,14 @@ type AnalysisResult = {
 
 function HealthScoreGauge({ score }: { score: number }) {
   const color =
-    score >= 70 ? "text-emerald-600" :
-    score >= 40 ? "text-amber-500" :
-    "text-red-500";
+    score >= 70 ? "text-emerald-700" :
+    score >= 40 ? "text-amber-700" :
+    "text-rose-700";
 
   const bgColor =
     score >= 70 ? "bg-emerald-50 border-emerald-200" :
     score >= 40 ? "bg-amber-50 border-amber-200" :
-    "bg-red-50 border-red-200";
+    "bg-rose-50 border-rose-200";
 
   const label =
     score >= 70 ? "Good" :
@@ -75,9 +75,9 @@ function HealthScoreGauge({ score }: { score: number }) {
   const strokeDashoffset = circumference - (score / 100) * circumference;
 
   const strokeColor =
-    score >= 70 ? "#059669" :
-    score >= 40 ? "#f59e0b" :
-    "#ef4444";
+    score >= 70 ? "#404040" :
+    score >= 40 ? "#737373" :
+    "#a3a3a3";
 
   return (
     <div className={`flex flex-col items-center p-6 rounded-xl border ${bgColor}`}>
@@ -224,9 +224,9 @@ export default function LeasebotResultsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#fafbfd] flex items-center justify-center">
+      <div className="min-h-screen bg-card flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <Loader2 className="h-8 w-8 text-[#132337] animate-spin" />
+          <Loader2 className="h-8 w-8 text-foreground animate-spin" />
           <p className="text-sm text-[#6b7280]">Loading analysis results...</p>
         </div>
       </div>
@@ -235,14 +235,14 @@ export default function LeasebotResultsPage() {
 
   if (error && !result) {
     return (
-      <div className="min-h-screen bg-[#fafbfd] flex items-center justify-center p-4">
+      <div className="min-h-screen bg-card flex items-center justify-center p-4">
         <Card className="max-w-md w-full">
           <CardContent className="pt-8 pb-8 text-center">
-            <AlertTriangle className="h-10 w-10 text-red-500 mx-auto mb-4" />
-            <h2 className="text-lg font-semibold text-[#132337] mb-2">Analysis Not Found</h2>
+            <AlertTriangle className="h-10 w-10 text-rose-500 mx-auto mb-4" />
+            <h2 className="text-lg font-semibold text-foreground mb-2">Analysis Not Found</h2>
             <p className="text-sm text-[#6b7280] mb-6">{error}</p>
             <Link href="/leasebot">
-              <Button className="gap-2 bg-[#132337] hover:bg-[#1a2f47]">
+              <Button className="gap-2 bg-foreground hover:bg-[#1a2f47]">
                 <Sparkles className="h-4 w-4" />
                 Try Again
               </Button>
@@ -258,18 +258,18 @@ export default function LeasebotResultsPage() {
   const riskCount = result.risk_count ?? (result.risk_flags?.length || 0);
 
   return (
-    <div className="min-h-screen bg-[#fafbfd]">
+    <div className="min-h-screen bg-card">
       {/* Header */}
-      <header className="border-b border-[#e4e8ef] bg-white">
+      <header className="border-b border-border bg-card">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
           <Link href="/leasebot" className="flex items-center gap-2.5">
             <Image src="/logo.png" alt="GroSpace" width={28} height={28} className="rounded-md" />
-            <span className="text-[17px] font-semibold tracking-tight text-[#132337]">GroSpace</span>
-            <Badge variant="outline" className="text-[10px] ml-1">Leasebot</Badge>
+            <span className="text-[17px] font-semibold tracking-tight text-foreground">GroSpace</span>
+            <Badge variant="outline" className="text-[10px] ml-1">Lease AI</Badge>
           </Link>
           {!isAuthenticated ? (
             <a href={`/auth/login?redirect=${encodeURIComponent(`/leasebot/results/${token}?convert=true`)}`}>
-              <Button size="sm" className="bg-[#132337] hover:bg-[#1a2f47]">
+              <Button size="sm" className="bg-foreground hover:bg-[#1a2f47]">
                 Sign in
               </Button>
             </a>
@@ -286,7 +286,7 @@ export default function LeasebotResultsPage() {
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
         {/* Error Banner */}
         {error && (
-          <div className="mb-6 flex items-center gap-3 p-4 rounded-lg border border-red-200 bg-red-50 text-red-800">
+          <div className="mb-6 flex items-center gap-3 p-4 rounded-lg border border-rose-200 bg-rose-50 text-rose-700">
             <AlertTriangle className="h-5 w-5 flex-shrink-0" />
             <p className="text-sm">{error}</p>
           </div>
@@ -298,7 +298,7 @@ export default function LeasebotResultsPage() {
           <HealthScoreGauge score={result.health_score} />
 
           {/* Document Info */}
-          <div className="flex flex-col justify-center gap-4 p-6 rounded-xl border border-[#e4e8ef] bg-white">
+          <div className="flex flex-col justify-center gap-4 p-6 rounded-xl border border-border bg-card">
             <div>
               <p className="text-[10px] uppercase tracking-wider text-[#9ca3af] font-semibold mb-1">Document Type</p>
               <Badge variant="outline" className="text-xs">
@@ -308,8 +308,8 @@ export default function LeasebotResultsPage() {
             <div>
               <p className="text-[10px] uppercase tracking-wider text-[#9ca3af] font-semibold mb-1">Risk Flags</p>
               <div className="flex items-center gap-2">
-                <Shield className={`h-4 w-4 ${riskCount > 0 ? "text-red-500" : "text-emerald-500"}`} />
-                <span className="text-sm font-semibold text-[#132337]">
+                <Shield className={`h-4 w-4 ${riskCount > 0 ? "text-rose-600" : "text-emerald-600"}`} />
+                <span className="text-sm font-semibold text-foreground">
                   {riskCount} {riskCount === 1 ? "flag" : "flags"} detected
                 </span>
               </div>
@@ -327,14 +327,14 @@ export default function LeasebotResultsPage() {
           </div>
 
           {/* Sample Fields */}
-          <div className="flex flex-col justify-center gap-4 p-6 rounded-xl border border-[#e4e8ef] bg-white">
+          <div className="flex flex-col justify-center gap-4 p-6 rounded-xl border border-border bg-card">
             <p className="text-[10px] uppercase tracking-wider text-[#9ca3af] font-semibold">Key Details</p>
             <div className="space-y-3">
               <div className="flex items-center gap-2.5">
                 <Building2 className="h-4 w-4 text-[#6b7280] flex-shrink-0" />
                 <div>
                   <p className="text-[10px] text-[#9ca3af]">Property</p>
-                  <p className="text-sm font-medium text-[#132337]">
+                  <p className="text-sm font-medium text-foreground">
                     {result.sample_fields?.property || "Not found"}
                   </p>
                 </div>
@@ -343,7 +343,7 @@ export default function LeasebotResultsPage() {
                 <MapPin className="h-4 w-4 text-[#6b7280] flex-shrink-0" />
                 <div>
                   <p className="text-[10px] text-[#9ca3af]">City</p>
-                  <p className="text-sm font-medium text-[#132337]">
+                  <p className="text-sm font-medium text-foreground">
                     {result.sample_fields?.city || "Not found"}
                   </p>
                 </div>
@@ -352,7 +352,7 @@ export default function LeasebotResultsPage() {
                 <IndianRupee className="h-4 w-4 text-[#6b7280] flex-shrink-0" />
                 <div>
                   <p className="text-[10px] text-[#9ca3af]">Monthly Rent</p>
-                  <p className="text-sm font-medium text-[#132337]">
+                  <p className="text-sm font-medium text-foreground">
                     {result.sample_fields?.rent
                       ? `Rs ${Number(result.sample_fields.rent).toLocaleString("en-IN")}`
                       : "Not found"}
@@ -369,12 +369,12 @@ export default function LeasebotResultsPage() {
         {isAuthenticated && result.extraction ? (
           <div className="space-y-6">
             <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-[#132337]">Full Extraction</h2>
+              <h2 className="text-lg font-semibold text-foreground">Full Extraction</h2>
               {!result.converted && (
                 <Button
                   onClick={handleConvert}
                   disabled={isConverting}
-                  className="gap-2 bg-[#132337] hover:bg-[#1a2f47]"
+                  className="gap-2 bg-foreground hover:bg-[#1a2f47]"
                 >
                   {isConverting ? (
                     <>
@@ -401,14 +401,14 @@ export default function LeasebotResultsPage() {
 
             {/* Risk Flags */}
             {result.risk_flags && result.risk_flags.length > 0 && (
-              <Card className="border-red-200">
+              <Card className="border-rose-200">
                 <button
-                  className="w-full flex items-center gap-2 px-4 py-3 bg-red-50/50 hover:bg-red-50 transition-colors text-left"
+                  className="w-full flex items-center gap-2 px-4 py-3 bg-rose-50/50 hover:bg-rose-50 transition-colors text-left"
                   onClick={() => toggleSection("_risk_flags")}
                 >
-                  <Shield className="h-4 w-4 text-red-500 flex-shrink-0" />
+                  <Shield className="h-4 w-4 text-rose-600 flex-shrink-0" />
                   <span className="text-sm font-semibold flex-1">Risk Flags</span>
-                  <Badge variant="outline" className="text-[10px] border-red-300 text-red-700 mr-1">
+                  <Badge variant="outline" className="text-[10px] border-rose-200 text-rose-700 mr-1">
                     {result.risk_flags.length}
                   </Badge>
                   {collapsedSections["_risk_flags"] ? (
@@ -424,14 +424,14 @@ export default function LeasebotResultsPage() {
                         key={i}
                         className={`p-2.5 rounded-lg border ${
                           flag.severity === "high"
-                            ? "border-red-200 bg-red-50/50"
+                            ? "border-rose-200 bg-rose-50/50"
                             : "border-amber-200 bg-amber-50/50"
                         }`}
                       >
                         <div className="flex items-start gap-2">
                           <AlertTriangle
                             className={`h-3.5 w-3.5 mt-0.5 flex-shrink-0 ${
-                              flag.severity === "high" ? "text-red-500" : "text-amber-500"
+                              flag.severity === "high" ? "text-rose-600" : "text-amber-600"
                             }`}
                           />
                           <div className="flex-1 min-w-0">
@@ -441,8 +441,8 @@ export default function LeasebotResultsPage() {
                                 variant="outline"
                                 className={`text-[10px] px-1.5 py-0 ${
                                   flag.severity === "high"
-                                    ? "border-red-300 text-red-700"
-                                    : "border-amber-300 text-amber-700"
+                                    ? "border-rose-200 text-rose-700"
+                                    : "border-amber-200 text-amber-700"
                                 }`}
                               >
                                 {flag.severity}
@@ -477,7 +477,7 @@ export default function LeasebotResultsPage() {
               return (
                 <Card key={sectionKey} className="overflow-hidden">
                   <button
-                    className="w-full flex items-center gap-2 px-4 py-3 hover:bg-[#f4f6f9]/80 transition-colors text-left"
+                    className="w-full flex items-center gap-2 px-4 py-3 hover:bg-muted/80 transition-colors text-left"
                     onClick={() => toggleSection(sectionKey)}
                   >
                     <span className="text-sm font-semibold flex-1">{sectionTitle}</span>
@@ -516,13 +516,13 @@ export default function LeasebotResultsPage() {
                                   <div className="space-y-1">
                                     {formattedVal.split("\n").filter(Boolean).map((line, idx) => (
                                       <div key={idx} className="flex items-start gap-2">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-[#132337] mt-1.5 flex-shrink-0" />
-                                        <span className="text-sm text-[#132337] font-medium">{line}</span>
+                                        <span className="w-1.5 h-1.5 rounded-full bg-foreground mt-1.5 flex-shrink-0" />
+                                        <span className="text-sm text-foreground font-medium">{line}</span>
                                       </div>
                                     ))}
                                   </div>
                                 ) : (
-                                  <p className="text-sm font-medium text-[#132337]">{formattedVal}</p>
+                                  <p className="text-sm font-medium text-foreground">{formattedVal}</p>
                                 )}
                               </div>
                             );
@@ -550,19 +550,19 @@ export default function LeasebotResultsPage() {
                     ].map((label) => (
                       <div key={label} className="p-2.5">
                         <p className="text-[10px] text-[#9ca3af] uppercase tracking-wider font-semibold mb-1">{label}</p>
-                        <div className="h-4 w-32 bg-[#e4e8ef] rounded" />
+                        <div className="h-4 w-32 bg-border rounded" />
                       </div>
                     ))}
                   </div>
                 </CardContent>
               </Card>
 
-              <Card className="border-red-200">
+              <Card className="border-neutral-300">
                 <CardContent className="pt-4 pb-4">
                   <p className="text-sm font-semibold mb-2">Risk Flag Details</p>
                   <div className="space-y-2">
                     {[1, 2, 3].map((i) => (
-                      <div key={i} className="h-12 bg-red-50 rounded-lg border border-red-200" />
+                      <div key={i} className="h-12 bg-neutral-50 rounded-lg border border-neutral-300" />
                     ))}
                   </div>
                 </CardContent>
@@ -570,19 +570,19 @@ export default function LeasebotResultsPage() {
             </div>
 
             {/* Lock overlay */}
-            <div className="absolute inset-0 flex items-center justify-center bg-white/60 backdrop-blur-[2px] rounded-xl">
+            <div className="absolute inset-0 flex items-center justify-center bg-card/60 backdrop-blur-[2px] rounded-xl">
               <div className="text-center max-w-sm">
-                <div className="h-14 w-14 rounded-full bg-[#132337] flex items-center justify-center mx-auto mb-4">
+                <div className="h-14 w-14 rounded-full bg-foreground flex items-center justify-center mx-auto mb-4">
                   <Lock className="h-7 w-7 text-white" />
                 </div>
-                <h3 className="text-lg font-semibold text-[#132337] mb-2">
+                <h3 className="text-lg font-semibold text-foreground mb-2">
                   Sign up free to unlock full analysis
                 </h3>
                 <p className="text-sm text-[#6b7280] mb-6">
                   Get the complete extraction table, detailed risk flags, and AI-powered Q&A for your lease.
                 </p>
                 <a href={`/auth/login?redirect=${encodeURIComponent(`/leasebot/results/${token}?convert=true`)}`}>
-                  <Button className="gap-2 bg-[#132337] hover:bg-[#1a2f47] px-8" size="lg">
+                  <Button className="gap-2 bg-foreground hover:bg-[#1a2f47] px-8" size="lg">
                     <Sparkles className="h-4 w-4" />
                     Sign up free to unlock
                   </Button>
@@ -594,10 +594,10 @@ export default function LeasebotResultsPage() {
       </div>
 
       {/* Footer */}
-      <footer className="border-t border-[#e4e8ef] bg-white py-6 mt-12">
+      <footer className="border-t border-border bg-card py-6 mt-12">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 flex items-center justify-between">
           <p className="text-xs text-[#9ca3af]">Powered by GroSpace AI</p>
-          <Link href="/leasebot" className="text-xs text-[#132337] font-medium hover:underline">
+          <Link href="/leasebot" className="text-xs text-foreground font-medium hover:underline">
             Analyze another lease
           </Link>
         </div>
