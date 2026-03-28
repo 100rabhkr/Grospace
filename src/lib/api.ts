@@ -58,7 +58,7 @@ async function apiFetch(endpoint: string, options: RequestInit = {}) {
     if (err instanceof Error && err.name === "AbortError") {
       throw new Error("Request timed out — server may be starting up. Please retry in a moment.");
     }
-    throw new Error("Network error — unable to reach the server.");
+    throw new Error("Network error — unable to reach the server. Please check your connection and try again.");
   }
   clearTimeout(timeoutId);
 
@@ -148,8 +148,8 @@ export async function confirmAndActivate(data: {
 /** List agreements (paginated) */
 export async function listAgreements(params?: { page?: number; page_size?: number }) {
   const sp = new URLSearchParams();
-  if (params?.page) sp.set("page", String(params.page));
-  if (params?.page_size) sp.set("page_size", String(params.page_size));
+  if (params?.page != null) sp.set("page", String(params.page));
+  if (params?.page_size != null) sp.set("page_size", String(params.page_size));
   const qs = sp.toString();
   return apiFetch(`/api/agreements${qs ? `?${qs}` : ""}`);
 }
@@ -162,8 +162,8 @@ export async function getAgreement(id: string) {
 /** List outlets (paginated) */
 export async function listOutlets(params?: { page?: number; page_size?: number }) {
   const sp = new URLSearchParams();
-  if (params?.page) sp.set("page", String(params.page));
-  if (params?.page_size) sp.set("page_size", String(params.page_size));
+  if (params?.page != null) sp.set("page", String(params.page));
+  if (params?.page_size != null) sp.set("page_size", String(params.page_size));
   const qs = sp.toString();
   return apiFetch(`/api/outlets${qs ? `?${qs}` : ""}`);
 }
@@ -176,8 +176,8 @@ export async function getOutlet(id: string) {
 /** List alerts (paginated) */
 export async function listAlerts(params?: { page?: number; page_size?: number }) {
   const sp = new URLSearchParams();
-  if (params?.page) sp.set("page", String(params.page));
-  if (params?.page_size) sp.set("page_size", String(params.page_size));
+  if (params?.page != null) sp.set("page", String(params.page));
+  if (params?.page_size != null) sp.set("page_size", String(params.page_size));
   const qs = sp.toString();
   return apiFetch(`/api/alerts${qs ? `?${qs}` : ""}`);
 }
@@ -253,12 +253,12 @@ export async function listPayments(params?: {
   const searchParams = new URLSearchParams();
   if (params?.outlet_id) searchParams.set("outlet_id", params.outlet_id);
   if (params?.status) searchParams.set("status", params.status);
-  if (params?.period_year) searchParams.set("period_year", String(params.period_year));
-  if (params?.period_month) searchParams.set("period_month", String(params.period_month));
+  if (params?.period_year != null) searchParams.set("period_year", String(params.period_year));
+  if (params?.period_month != null) searchParams.set("period_month", String(params.period_month));
   if (params?.due_from) searchParams.set("due_from", params.due_from);
   if (params?.due_to) searchParams.set("due_to", params.due_to);
-  if (params?.page) searchParams.set("page", String(params.page));
-  if (params?.page_size) searchParams.set("page_size", String(params.page_size));
+  if (params?.page != null) searchParams.set("page", String(params.page));
+  if (params?.page_size != null) searchParams.set("page_size", String(params.page_size));
   const qs = searchParams.toString();
   return apiFetch(`/api/payments${qs ? `?${qs}` : ""}`);
 }
@@ -293,8 +293,8 @@ export async function listObligations(params?: {
   const searchParams = new URLSearchParams();
   if (params?.outlet_id) searchParams.set("outlet_id", params.outlet_id);
   if (params?.active_only !== undefined) searchParams.set("active_only", String(params.active_only));
-  if (params?.page) searchParams.set("page", String(params.page));
-  if (params?.page_size) searchParams.set("page_size", String(params.page_size));
+  if (params?.page != null) searchParams.set("page", String(params.page));
+  if (params?.page_size != null) searchParams.set("page_size", String(params.page_size));
   const qs = searchParams.toString();
   return apiFetch(`/api/obligations${qs ? `?${qs}` : ""}`);
 }
@@ -625,6 +625,22 @@ export async function saveAsDraft(agreementId: string, data: {
   });
 }
 
+/** Create a new draft agreement from extraction results (no outlet created) */
+export async function createDraft(data: {
+  extraction: Record<string, unknown>;
+  document_type: string;
+  risk_flags: unknown[];
+  confidence: Record<string, string>;
+  filename: string;
+  document_text?: string | null;
+  document_url?: string | null;
+}) {
+  return apiFetch("/api/agreements/create-draft", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
 // ============================================
 // BULK PAYMENTS
 // ============================================
@@ -647,6 +663,20 @@ export async function markAllPaid(month: string, orgId?: string) {
   return apiFetch("/api/payments/mark-all-paid", {
     method: "POST",
     body: JSON.stringify({ month, org_id: orgId }),
+  });
+}
+
+// ============================================
+// REVENUE CSV UPLOAD
+// ============================================
+
+/** Upload a CSV file of revenue data (server-side fuzzy matching) */
+export async function uploadRevenueCSV(file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiFetch("/api/revenue/upload-csv", {
+    method: "POST",
+    body: formData,
   });
 }
 
@@ -892,8 +922,9 @@ export async function analyzeLeasebot(file: File) {
 }
 
 /** Get Leasebot results by token */
-export async function getLeasebotResults(token: string) {
-  return apiFetch(`/api/leasebot/results/${token}`);
+export async function getLeasebotResults(token: string, full?: boolean) {
+  const params = full ? "?full=true" : "";
+  return apiFetch(`/api/leasebot/results/${token}${params}`);
 }
 
 /** Convert Leasebot analysis to full agreement (auth required) */
@@ -918,4 +949,58 @@ export async function uploadAndExtractAsync(file: File) {
 /** Get extraction job status */
 export async function getExtractionJob(jobId: string) {
   return apiFetch(`/api/extraction-jobs/${jobId}`);
+}
+
+// ============================================
+// AGREEMENT TEMPLATES (Supabase Storage)
+// ============================================
+
+/** Upload a standard agreement template to Supabase storage */
+export async function uploadTemplate(orgId: string, file: File) {
+  const { createClient } = await import("@/lib/supabase/client");
+  const supabase = createClient();
+
+  const ext = file.name.split(".").pop() || "pdf";
+  const filename = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const path = `${orgId}/templates/${filename}`;
+
+  const { error } = await supabase.storage
+    .from("outlet-photos")
+    .upload(path, file, { upsert: false });
+
+  if (error) throw new Error(error.message);
+
+  const { data: urlData } = supabase.storage
+    .from("outlet-photos")
+    .getPublicUrl(path);
+
+  return { path, url: urlData.publicUrl, filename, originalName: file.name, size: file.size };
+}
+
+/** Delete a template file from Supabase storage */
+export async function deleteTemplate(path: string) {
+  const { createClient } = await import("@/lib/supabase/client");
+  const supabase = createClient();
+
+  const { error } = await supabase.storage
+    .from("outlet-photos")
+    .remove([path]);
+
+  if (error) throw new Error(error.message);
+}
+
+// ============================================
+// USAGE LOGGING (#109)
+// ============================================
+
+/** Log a usage event. Fails silently if backend doesn't support it yet. */
+export async function logUsage(action: string, metadata?: Record<string, unknown>) {
+  try {
+    await apiFetch("/api/admin/log-usage", {
+      method: "POST",
+      body: JSON.stringify({ action, metadata, timestamp: new Date().toISOString() }),
+    });
+  } catch {
+    // Silent — usage logging should never break the UI
+  }
 }

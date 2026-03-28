@@ -2,11 +2,8 @@
 
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
-import { getDashboardStats, smartChat, listOutlets, listPayments, updatePayment, listAgreements, getOrgMembers } from "@/lib/api";
+import { getDashboardStats, smartChat, listOutlets, listPayments, updatePayment, listAgreements, getOrgMembers, logUsage } from "@/lib/api";
 import { useUser } from "@/lib/hooks/use-user";
-import dynamic from "next/dynamic";
-
-const IndiaMap = dynamic(() => import("@/components/india-map"), { ssr: false });
 import { HealthScoreGauge } from "@/components/health-score-gauge";
 import { OnboardingChecklist } from "@/components/onboarding-checklist";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,7 +17,6 @@ import {
   Bell,
   CalendarClock,
   ShieldAlert,
-  TrendingDown,
   Upload,
   AlertTriangle,
   BarChart3,
@@ -103,7 +99,7 @@ function statusColor(status: string): string {
     case "fit_out": return "#f59e0b";
     case "closed": return "#ef4444";
     case "under_construction": return "#3b82f6";
-    default: return "#a3a3a3";
+    default: return "#94a3b8";
   }
 }
 
@@ -116,7 +112,7 @@ function propertyTypeColor(type: string): string {
     case "food_court": return "#f59e0b";
     case "cloud_kitchen": return "#ef4444";
     case "institutional": return "#06b6d4";
-    default: return "#a3a3a3";
+    default: return "#94a3b8";
   }
 }
 
@@ -128,7 +124,7 @@ function propertyTypeColor(type: string): string {
 function SkeletonBlock({ className }: { className?: string }) {
   return (
     <div
-      className={`animate-pulse rounded-md bg-[#e4e8ef]/50 ${className ?? ""}`}
+      className={`animate-pulse rounded-md bg-border/50 ${className ?? ""}`}
     />
   );
 }
@@ -158,7 +154,7 @@ function DashboardSkeleton() {
       </div>
 
       {/* Row 1 - 4 stat cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-5 lg:gap-6">
         <StatCardSkeleton />
         <StatCardSkeleton />
         <StatCardSkeleton />
@@ -166,14 +162,14 @@ function DashboardSkeleton() {
       </div>
 
       {/* Row 2 - 3 stat cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 lg:gap-5">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 lg:gap-6">
         <StatCardSkeleton />
         <StatCardSkeleton />
         <StatCardSkeleton />
       </div>
 
       {/* Row 3 - 2 cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-5">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5 lg:gap-6">
         <Card>
           <CardHeader className="p-4 pb-2">
             <SkeletonBlock className="h-4 w-28" />
@@ -206,21 +202,21 @@ function EmptyState() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight">Dashboard</h1>
-        <p className="text-xs text-neutral-500 mt-0.5">
+        <h1 className="text-lg font-semibold tracking-tight">Dashboard</h1>
+        <p className="text-xs text-muted-foreground mt-0.5">
           Welcome to GroSpace
         </p>
       </div>
 
       <Card className="border-dashed">
         <CardContent className="p-8 flex flex-col items-center text-center">
-          <div className="w-12 h-12 rounded-full bg-[#f4f6f9] flex items-center justify-center mb-4">
-            <Rocket className="h-6 w-6 text-neutral-400" />
+          <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-4">
+            <Rocket className="h-6 w-6 text-muted-foreground" />
           </div>
           <h2 className="text-lg font-semibold mb-1">Get Started with GroSpace</h2>
-          <p className="text-sm text-neutral-500 max-w-md mb-6">
+          <p className="text-sm text-muted-foreground max-w-md mb-6">
             Upload your first document to start tracking outlets,
-            obligations, and alerts across your portfolio.
+            events, and reminders across your portfolio.
           </p>
           <div className="flex gap-3">
             <Link href="/agreements/upload">
@@ -252,7 +248,7 @@ interface ChatMessage {
 }
 
 // ---------------------------------------------------------------------------
-// GroBot Chat Component
+// Grow AI Chat Component
 // ---------------------------------------------------------------------------
 
 function SmartAIChat() {
@@ -348,7 +344,7 @@ function SmartAIChat() {
       }
       if (line.startsWith("- ") || line.startsWith("• ")) {
         return (
-          <li key={i} className="text-sm text-neutral-600 ml-4 list-disc">
+          <li key={i} className="text-sm text-foreground ml-4 list-disc">
             {line.replace(/^[-•]\s*/, "").replace(/\*\*(.*?)\*\*/g, "$1")}
           </li>
         );
@@ -357,7 +353,7 @@ function SmartAIChat() {
         return <br key={i} />;
       }
       return (
-        <p key={i} className="text-sm text-neutral-600">
+        <p key={i} className="text-sm text-foreground">
           {line.replace(/\*\*(.*?)\*\*/g, "$1")}
         </p>
       );
@@ -372,15 +368,15 @@ function SmartAIChat() {
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-neutral-600" />
-            <CardTitle className="text-sm font-semibold">GroBot</CardTitle>
+            <Sparkles className="h-4 w-4 text-foreground" />
+            <CardTitle className="text-sm font-semibold">Grow AI</CardTitle>
             <Badge variant="outline" className="text-[10px]">AI</Badge>
           </div>
           <div className="flex items-center gap-2">
             <Link
               href="/ai-assistant"
               onClick={(e) => e.stopPropagation()}
-              className="text-[10px] text-neutral-400 hover:text-neutral-600 flex items-center gap-1 transition-colors"
+              className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
             >
               Full view <ExternalLink className="w-3 h-3" />
             </Link>
@@ -389,7 +385,7 @@ function SmartAIChat() {
             </Badge>
           </div>
         </div>
-        <p className="text-xs text-neutral-400 mt-0.5">
+        <p className="text-xs text-muted-foreground mt-0.5">
           Ask anything about your portfolio — escalation, risk, payments, expiry
         </p>
       </CardHeader>
@@ -397,13 +393,13 @@ function SmartAIChat() {
       {isOpen && (
         <CardContent className="p-4 pt-2">
           {/* Chat Messages */}
-          <div className="border border-[#e4e8ef] rounded-lg bg-[#f4f6f9]/50 h-[300px] overflow-y-auto p-3 mb-3 space-y-3">
+          <div className="border border-border rounded-lg bg-muted/50 h-[300px] overflow-y-auto p-3 mb-3 space-y-3">
             {messages.length === 0 && (
               <div className="flex flex-col items-center justify-center h-full text-center gap-3">
-                <MessageSquare className="h-8 w-8 text-neutral-300" />
+                <MessageSquare className="h-8 w-8 text-muted-foreground" />
                 <div>
-                  <p className="text-sm text-neutral-500 font-medium">Ask your portfolio a question</p>
-                  <p className="text-xs text-neutral-400 mt-1">Pick a category or type your own question</p>
+                  <p className="text-sm text-muted-foreground font-medium">Ask your portfolio a question</p>
+                  <p className="text-xs text-muted-foreground mt-1">Pick a category or type your own question</p>
                 </div>
               </div>
             )}
@@ -414,15 +410,15 @@ function SmartAIChat() {
                 className={`flex gap-2 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
               >
                 {msg.role === "ai" && (
-                  <div className="w-6 h-6 rounded-full bg-slate-800 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <div className="w-6 h-6 rounded-full bg-foreground flex items-center justify-center flex-shrink-0 mt-0.5">
                     <Sparkles className="w-3 h-3 text-white" />
                   </div>
                 )}
                 <div
                   className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
                     msg.role === "user"
-                      ? "bg-[#132337] text-white"
-                      : "bg-[#fafbfd] border border-[#e4e8ef] text-neutral-700"
+                      ? "bg-foreground text-white"
+                      : "bg-card border border-border text-foreground"
                   }`}
                 >
                   {msg.role === "user" ? (
@@ -432,8 +428,8 @@ function SmartAIChat() {
                   )}
                 </div>
                 {msg.role === "user" && (
-                  <div className="w-6 h-6 rounded-full bg-[#e4e8ef] flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <User className="w-3 h-3 text-neutral-600" />
+                  <div className="w-6 h-6 rounded-full bg-border flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <User className="w-3 h-3 text-foreground" />
                   </div>
                 )}
               </div>
@@ -441,13 +437,13 @@ function SmartAIChat() {
 
             {loading && (
               <div className="flex gap-2">
-                <div className="w-6 h-6 rounded-full bg-slate-800 flex items-center justify-center flex-shrink-0">
+                <div className="w-6 h-6 rounded-full bg-foreground flex items-center justify-center flex-shrink-0">
                   <Sparkles className="w-3 h-3 text-white" />
                 </div>
-                <div className="bg-[#fafbfd] border border-[#e4e8ef] rounded-lg px-3 py-2">
+                <div className="bg-card border border-border rounded-lg px-3 py-2">
                   <div className="flex items-center gap-2">
-                    <Loader2 className="w-4 h-4 animate-spin text-neutral-400" />
-                    <span className="text-xs text-neutral-400">Analyzing...</span>
+                    <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground">Analyzing...</span>
                   </div>
                 </div>
               </div>
@@ -469,8 +465,8 @@ function SmartAIChat() {
                       onClick={() => setActiveCategory(isActive ? null : cat.label)}
                       className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded-full border transition-colors ${
                         isActive
-                          ? "bg-[#132337] text-white border-[#132337]"
-                          : "bg-[#fafbfd] border-[#e4e8ef] text-neutral-500 hover:bg-[#f4f6f9]"
+                          ? "bg-foreground text-white border-foreground"
+                          : "bg-card border-border text-muted-foreground hover:bg-muted"
                       }`}
                     >
                       <Icon className="w-3 h-3" />
@@ -489,7 +485,7 @@ function SmartAIChat() {
                         key={q}
                         onClick={() => handleSend(q)}
                         disabled={loading}
-                        className="text-xs bg-[#fafbfd] border border-[#e4e8ef] rounded-full px-3 py-1.5 text-neutral-600 hover:bg-[#f4f6f9] transition-colors disabled:opacity-50"
+                        className="text-xs bg-card border border-border rounded-full px-3 py-1.5 text-foreground hover:bg-muted transition-colors disabled:opacity-50"
                       >
                         {q}
                       </button>
@@ -504,7 +500,7 @@ function SmartAIChat() {
                       key={q}
                       onClick={() => handleSend(q)}
                       disabled={loading}
-                      className="text-xs bg-[#fafbfd] border border-[#e4e8ef] rounded-full px-3 py-1.5 text-neutral-600 hover:bg-[#f4f6f9] transition-colors disabled:opacity-50"
+                      className="text-xs bg-card border border-border rounded-full px-3 py-1.5 text-foreground hover:bg-muted transition-colors disabled:opacity-50"
                     >
                       {q}
                     </button>
@@ -522,7 +518,7 @@ function SmartAIChat() {
                   key={q}
                   onClick={() => handleSend(q)}
                   disabled={loading}
-                  className="text-[10px] text-neutral-400 hover:text-neutral-600 border border-[#e4e8ef] rounded-full px-2.5 py-1 whitespace-nowrap transition-colors disabled:opacity-50"
+                  className="text-[10px] text-muted-foreground hover:text-foreground border border-border rounded-full px-2.5 py-1 whitespace-nowrap transition-colors disabled:opacity-50"
                 >
                   {q}
                 </button>
@@ -570,14 +566,7 @@ export default function Dashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [mapCluster, setMapCluster] = useState<{
-    label: string;
-    cities: string[];
-    count: number;
-    outlets: { name: string; status: string; rent?: number }[];
-  } | null>(null);
   const [propertyTypeCounts, setPropertyTypeCounts] = useState<Record<string, number>>({});
-  const mapSectionRef = useRef<HTMLDivElement>(null);
 
   // Due This Week state
   const [dueThisWeek, setDueThisWeek] = useState<{
@@ -608,6 +597,7 @@ export default function Dashboard() {
         const data = await getDashboardStats();
         if (!cancelled) {
           setStats(data);
+          logUsage("dashboard_view");
         }
       } catch (err) {
         if (!cancelled) {
@@ -807,17 +797,17 @@ export default function Dashboard() {
   const roleTierConfig: Record<string, { badge: string; color: string; icon: JSX.Element }> = {
     platform_admin: {
       badge: "System Admin",
-      color: "bg-[#132337]/10 text-[#132337] border-[#132337]/20",
+      color: "bg-foreground/10 text-foreground border-foreground/20",
       icon: <Shield className="h-3 w-3" />,
     },
     org_admin: {
       badge: "Admin",
-      color: "bg-[#132337]/[0.08] text-[#132337]/80 border-[#132337]/[0.15]",
+      color: "bg-foreground/[0.08] text-foreground/80 border-foreground/[0.15]",
       icon: <Users className="h-3 w-3" />,
     },
     org_member: {
       badge: "Member",
-      color: "bg-[#f4f6f9] text-neutral-700 border-[#e4e8ef]",
+      color: "bg-muted text-foreground border-border",
       icon: <User className="h-3 w-3" />,
     },
   };
@@ -833,15 +823,15 @@ export default function Dashboard() {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">Dashboard</h1>
+          <h1 className="text-lg font-semibold tracking-tight">Dashboard</h1>
         </div>
-        <Card className="border-red-200">
+        <Card className="border-neutral-200">
           <CardContent className="p-6 flex flex-col items-center text-center">
-            <AlertTriangle className="h-8 w-8 text-red-400 mb-3" />
-            <p className="text-sm font-medium text-red-700 mb-1">
+            <AlertTriangle className="h-8 w-8 text-neutral-500 mb-3" />
+            <p className="text-sm font-medium text-neutral-900 mb-1">
               Failed to load dashboard
             </p>
-            <p className="text-xs text-neutral-500 mb-4">{error}</p>
+            <p className="text-xs text-muted-foreground mb-4">{error}</p>
             <Button
               variant="outline"
               size="sm"
@@ -883,30 +873,30 @@ export default function Dashboard() {
     : 1;
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-8 animate-fade-in max-w-[1400px] mx-auto">
       {/* -------------------------------------------------------------- */}
       {/* Page heading                                                     */}
       {/* -------------------------------------------------------------- */}
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-xl font-semibold tracking-tight">Dashboard</h1>
+            <h1 className="text-lg font-semibold tracking-tight">Dashboard</h1>
             <Badge className={`text-[10px] gap-1 px-2 py-0.5 border ${currentTier.color}`}>
               {currentTier.icon}
               {currentTier.badge}
             </Badge>
           </div>
-          <p className="text-xs text-neutral-500 mt-0.5">
+          <p className="text-xs text-muted-foreground mt-0.5">
             {user?.role === "platform_admin"
               ? `System-wide overview across ${stats?.total_outlets ?? 0} outlets and ${stats?.total_agreements ?? 0} agreements`
               : isPlatformAdmin
                 ? `Organization overview — ${stats?.total_outlets ?? 0} outlets, ${stats?.total_agreements ?? 0} agreements`
-                : `Your portfolio — ${stats?.total_outlets ?? 0} outlets, ${stats?.pending_alerts ?? 0} pending alerts`}
+                : `Your portfolio — ${stats?.total_outlets ?? 0} outlets, ${stats?.pending_alerts ?? 0} pending reminders`}
           </p>
         </div>
         {user?.role === "platform_admin" && (
           <div className="flex items-center gap-1.5">
-            <Badge variant="outline" className="gap-1 text-[10px] text-emerald-700 border-emerald-200 bg-emerald-50">
+            <Badge variant="outline" className="gap-1 text-[10px] text-emerald-700 border-emerald-200/60 bg-emerald-50">
               <Activity className="h-3 w-3" />
               System Healthy
             </Badge>
@@ -926,51 +916,116 @@ export default function Dashboard() {
       )}
 
       {/* -------------------------------------------------------------- */}
-      {/* Portfolio Health + Due This Week row                              */}
+      {/* Row 1 -- Primary stat cards (4 columns)                          */}
       {/* -------------------------------------------------------------- */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 lg:gap-5">
-        {/* Portfolio Health Score */}
-        {avgHealthScore !== null && (
-          <Card>
-            <CardContent className="p-4 flex items-center gap-4">
-              <HealthScoreGauge score={avgHealthScore} size="sm" />
-              <div className="flex-1 min-w-0">
-                <h3 className="text-sm font-semibold text-[#132337]">Portfolio Health</h3>
-                <p className="text-[11px] text-neutral-500 mt-0.5">
-                  Average across {stats?.total_agreements ?? 0} agreements
-                </p>
-                <div className="flex items-center gap-1.5 mt-1.5">
-                  <Heart className="h-3 w-3 text-neutral-400" />
-                  <span className="text-xs text-neutral-600">
-                    {avgHealthScore >= 70
-                      ? "Portfolio is in good shape"
-                      : avgHealthScore >= 40
-                        ? "Some agreements need attention"
-                        : "Multiple agreements at risk"}
-                  </span>
-                </div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-5 lg:gap-6">
+        {/* Total Outlets */}
+        <Link href="/outlets" className="cursor-pointer">
+          <Card className="hover:border-foreground/20 hover:shadow-sm transition-all duration-200 cursor-pointer h-full">
+            <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 p-4">
+              <CardTitle className="text-xs font-medium text-muted-foreground">
+                Total Outlets
+              </CardTitle>
+              <Store className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent className="p-4 pt-0">
+              <div className="text-xl font-semibold font-mono tracking-tighter">
+                {stats?.total_outlets ?? 0}
               </div>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Across all locations
+              </p>
             </CardContent>
           </Card>
-        )}
+        </Link>
 
+        {/* Active Agreements */}
+        <Link href="/agreements" className="cursor-pointer">
+          <Card className="hover:border-foreground/20 hover:shadow-sm transition-all duration-200 cursor-pointer h-full">
+            <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 p-4">
+              <CardTitle className="text-xs font-medium text-muted-foreground">
+                Active Agreements
+              </CardTitle>
+              <FileCheck className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent className="p-4 pt-0">
+              <div className="text-xl font-semibold font-mono tracking-tighter">
+                {stats?.active_agreements ?? 0}
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                of {stats?.total_agreements ?? 0} total
+              </p>
+            </CardContent>
+          </Card>
+        </Link>
+
+        {/* Monthly Rent Exposure -- prominent */}
+        <Link href="/payments" className="cursor-pointer">
+          <Card className="border-neutral-800 bg-white hover:border-neutral-900 hover:shadow-sm transition-all duration-200 cursor-pointer h-full">
+            <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 p-4">
+              <CardTitle className="text-xs font-medium text-neutral-900">
+                Monthly Rent Exposure
+              </CardTitle>
+              <IndianRupee className="h-4 w-4 text-neutral-500" />
+            </CardHeader>
+            <CardContent className="p-4 pt-0">
+              <div className="text-2xl font-bold text-blue-600">
+                {formatINR(stats?.total_monthly_rent ?? 0)}
+              </div>
+              <p className="text-[11px] text-neutral-500 mt-0.5">
+                Total monthly rent
+              </p>
+            </CardContent>
+          </Card>
+        </Link>
+
+        {/* Pending Reminders */}
+        <Link href="/alerts" className="cursor-pointer">
+          <Card className="hover:border-foreground/20 hover:shadow-sm transition-all duration-200 cursor-pointer h-full">
+            <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 p-4">
+              <CardTitle className="text-xs font-medium text-muted-foreground">
+                Pending Reminders
+              </CardTitle>
+              <Bell className="h-4 w-4 text-amber-500" />
+            </CardHeader>
+            <CardContent className="p-4 pt-0">
+              <div className={`text-xl font-semibold ${(stats?.pending_alerts ?? 0) > 0 ? "text-amber-600" : ""}`}>
+                {stats?.pending_alerts ?? 0}
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Require attention
+              </p>
+            </CardContent>
+          </Card>
+        </Link>
+      </div>
+
+      {/* -------------------------------------------------------------- */}
+      {/* Due This Week + Portfolio Health (prominent, right after stats)   */}
+      {/* -------------------------------------------------------------- */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 lg:gap-6">
         {/* Due This Week Widget */}
-        <Card>
+        <Card className={dueThisWeek.total > 0 ? "border-neutral-200 bg-white" : ""}>
           <CardContent className="p-4">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
                 <Calendar className="h-4 w-4 text-neutral-500" />
-                <h3 className="text-sm font-semibold text-[#132337]">Due This Week</h3>
+                <h3 className="text-sm font-semibold text-foreground">Due This Week</h3>
+                {dueThisWeek.total > 0 && (
+                  <Badge variant="outline" className="text-[10px] bg-neutral-50 text-neutral-900 border-neutral-200">
+                    {dueThisWeek.total} pending
+                  </Badge>
+                )}
               </div>
               {dueThisWeek.total > 0 && (
                 <button
                   onClick={() => setDueExpanded(!dueExpanded)}
-                  className="p-1 rounded hover:bg-[#f4f6f9] transition-colors"
+                  className="p-1 rounded hover:bg-muted transition-colors cursor-pointer"
                 >
                   {dueExpanded ? (
-                    <ChevronUp className="h-4 w-4 text-neutral-400" />
+                    <ChevronUp className="h-4 w-4 text-muted-foreground" />
                   ) : (
-                    <ChevronDown className="h-4 w-4 text-neutral-400" />
+                    <ChevronDown className="h-4 w-4 text-muted-foreground" />
                   )}
                 </button>
               )}
@@ -978,15 +1033,15 @@ export default function Dashboard() {
 
             {dueThisWeek.total === 0 ? (
               <div className="flex items-center gap-2 py-2">
-                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                <span className="text-sm text-neutral-600">No payments due this week</span>
+                <CheckCircle2 className="h-4 w-4 text-neutral-500" />
+                <span className="text-sm text-foreground">No payments due this week</span>
               </div>
             ) : (
               <>
-                <p className="text-sm text-neutral-700">
-                  <span className="font-semibold text-[#132337]">{dueThisWeek.total}</span>{" "}
+                <p className="text-sm text-foreground">
+                  <span className="font-semibold text-foreground">{dueThisWeek.total}</span>{" "}
                   payment{dueThisWeek.total !== 1 ? "s" : ""} due this week totaling{" "}
-                  <span className="font-semibold text-[#132337]">{formatINR(dueThisWeek.totalAmount)}</span>
+                  <span className="font-semibold text-foreground">{formatINR(dueThisWeek.totalAmount)}</span>
                 </p>
 
                 {dueExpanded && (
@@ -994,28 +1049,28 @@ export default function Dashboard() {
                     {dueThisWeek.items.map((item) => (
                       <div
                         key={item.id}
-                        className="flex items-center gap-3 p-2.5 rounded-lg border border-[#e4e8ef] bg-[#fafbfd]"
+                        className="flex items-center gap-3 p-2.5 rounded-lg border border-border bg-card"
                       >
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium text-[#132337] truncate">
+                          <p className="text-xs font-medium text-foreground truncate">
                             {item.outlet_name}
                           </p>
                           <div className="flex items-center gap-2 mt-0.5">
-                            <span className="text-[10px] text-neutral-500 capitalize">
+                            <span className="text-[10px] text-muted-foreground capitalize">
                               {item.type.replace(/_/g, " ")}
                             </span>
-                            <span className="text-[10px] text-neutral-400">
+                            <span className="text-[10px] text-muted-foreground">
                               Due {item.due_date ? new Date(item.due_date).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : "--"}
                             </span>
                           </div>
                         </div>
-                        <span className="text-xs font-semibold text-[#132337] tabular-nums flex-shrink-0">
+                        <span className="text-xs font-semibold text-foreground tabular-nums flex-shrink-0">
                           {formatINR(item.amount)}
                         </span>
                         <Button
                           variant="outline"
                           size="sm"
-                          className="h-7 text-[11px] gap-1 flex-shrink-0"
+                          className="h-7 text-[11px] gap-1 flex-shrink-0 cursor-pointer"
                           disabled={markingPaid === item.id}
                           onClick={() => handleMarkPaid(item.id)}
                         >
@@ -1034,33 +1089,58 @@ export default function Dashboard() {
             )}
           </CardContent>
         </Card>
+
+        {/* Portfolio Health Score */}
+        {avgHealthScore !== null && (
+          <Card>
+            <CardContent className="p-4 flex items-center gap-4">
+              <HealthScoreGauge score={avgHealthScore} size="sm" />
+              <div className="flex-1 min-w-0">
+                <h3 className="text-sm font-semibold text-foreground">Portfolio Health</h3>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  Average across {stats?.total_agreements ?? 0} agreements
+                </p>
+                <div className="flex items-center gap-1.5 mt-1.5">
+                  <Heart className="h-3 w-3 text-muted-foreground" />
+                  <span className="text-xs text-foreground">
+                    {avgHealthScore >= 70
+                      ? "Portfolio is in good shape"
+                      : avgHealthScore >= 40
+                        ? "Some agreements need attention"
+                        : "Multiple agreements at risk"}
+                  </span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* -------------------------------------------------------------- */}
-      {/* Quick Actions Row (top)                                          */}
+      {/* Quick Actions Row                                                */}
       {/* -------------------------------------------------------------- */}
       <div className="flex flex-wrap items-center gap-2">
         {/* Common actions for all roles */}
         <Link href="/ai-assistant">
-          <Button variant="outline" size="sm" className="gap-1.5 text-xs">
+          <Button variant="outline" size="sm" className="gap-1.5 text-xs cursor-pointer">
             <Sparkles className="h-3.5 w-3.5" />
-            GroBot
+            Grow AI
           </Button>
         </Link>
         <Link href="/agreements/upload">
-          <Button variant="outline" size="sm" className="gap-1.5 text-xs">
+          <Button variant="outline" size="sm" className="gap-1.5 text-xs cursor-pointer">
             <Upload className="h-3.5 w-3.5" />
             Upload Documents
           </Button>
         </Link>
         <Link href="/outlets">
-          <Button variant="outline" size="sm" className="gap-1.5 text-xs">
+          <Button variant="outline" size="sm" className="gap-1.5 text-xs cursor-pointer">
             <Store className="h-3.5 w-3.5" />
             View All Outlets
           </Button>
         </Link>
         <Link href="/reports">
-          <Button variant="outline" size="sm" className="gap-1.5 text-xs">
+          <Button variant="outline" size="sm" className="gap-1.5 text-xs cursor-pointer">
             <BarChart3 className="h-3.5 w-3.5" />
             View Reports
           </Button>
@@ -1070,7 +1150,7 @@ export default function Dashboard() {
         {user?.role === "platform_admin" && (
           <>
             <Link href="/settings">
-              <Button variant="outline" size="sm" className="gap-1.5 text-xs">
+              <Button variant="outline" size="sm" className="gap-1.5 text-xs cursor-pointer">
                 <Settings className="h-3.5 w-3.5" />
                 System Settings
               </Button>
@@ -1081,7 +1161,7 @@ export default function Dashboard() {
         {/* org_admin: team management shortcuts */}
         {user?.role === "org_admin" && (
           <Link href="/settings">
-            <Button variant="outline" size="sm" className="gap-1.5 text-xs">
+            <Button variant="outline" size="sm" className="gap-1.5 text-xs cursor-pointer">
               <Users className="h-3.5 w-3.5" />
               Manage Team
             </Button>
@@ -1090,258 +1170,43 @@ export default function Dashboard() {
       </div>
 
       {/* -------------------------------------------------------------- */}
-      {/* Row 1 -- Primary stat cards (4 columns)                          */}
-      {/* -------------------------------------------------------------- */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5">
-        {/* Total Outlets */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 p-4">
-            <CardTitle className="text-xs font-medium text-neutral-500">
-              Total Outlets
-            </CardTitle>
-            <Store className="h-4 w-4 text-neutral-500" />
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            <div className="text-2xl font-semibold">
-              {stats?.total_outlets ?? 0}
-            </div>
-            <p className="text-[11px] text-neutral-400 mt-0.5">
-              Across all locations
-            </p>
-          </CardContent>
-        </Card>
-
-        {/* Active Agreements */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 p-4">
-            <CardTitle className="text-xs font-medium text-neutral-500">
-              Active Agreements
-            </CardTitle>
-            <FileCheck className="h-4 w-4 text-neutral-500" />
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            <div className="text-2xl font-semibold">
-              {stats?.active_agreements ?? 0}
-            </div>
-            <p className="text-[11px] text-neutral-400 mt-0.5">
-              of {stats?.total_agreements ?? 0} total
-            </p>
-          </CardContent>
-        </Card>
-
-        {/* Monthly Rent Exposure */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 p-4">
-            <CardTitle className="text-xs font-medium text-neutral-500">
-              Monthly Rent Exposure
-            </CardTitle>
-            <IndianRupee className="h-4 w-4 text-neutral-500" />
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            <div className="text-2xl font-semibold">
-              {formatINR(stats?.total_monthly_rent ?? 0)}
-            </div>
-            <p className="text-[11px] text-neutral-400 mt-0.5">
-              Total monthly rent
-            </p>
-          </CardContent>
-        </Card>
-
-        {/* Pending Alerts */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 p-4">
-            <CardTitle className="text-xs font-medium text-neutral-500">
-              Pending Alerts
-            </CardTitle>
-            <Bell className="h-4 w-4 text-amber-500" />
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            <div className={`text-2xl font-semibold ${(stats?.pending_alerts ?? 0) > 0 ? "text-amber-600" : ""}`}>
-              {stats?.pending_alerts ?? 0}
-            </div>
-            <p className="text-[11px] text-neutral-400 mt-0.5">
-              Require attention
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* -------------------------------------------------------------- */}
       {/* Map Teaser -- links to dedicated Map View page                     */}
       {/* -------------------------------------------------------------- */}
       {isPlatformAdmin && outletsByCity.length > 0 && (
-        <button
-          onClick={() => mapSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
-          className="w-full group block"
-        >
-          <div className="flex items-center justify-between px-4 py-3 rounded-xl border border-[#e4e8ef] bg-[#fafbfd] hover:border-[#132337]/20 hover:shadow-sm transition-all duration-200 cursor-pointer">
+        <Link href="/map" className="w-full group block">
+          <div className="flex items-center justify-between px-4 py-3 rounded-xl border border-border bg-card hover:border-foreground/20 hover:shadow-sm transition-all duration-200 cursor-pointer">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-[#132337] flex items-center justify-center">
+              <div className="w-8 h-8 rounded-lg bg-foreground flex items-center justify-center">
                 <Map className="h-4 w-4 text-white" />
               </div>
               <div className="text-left">
-                <p className="text-xs font-semibold text-neutral-800">Outlet Map</p>
-                <p className="text-[10px] text-neutral-400">
-                  {outletsByCity.length} {outletsByCity.length === 1 ? "city" : "cities"} &middot; Scroll to interactive map
+                <p className="text-xs font-semibold text-foreground">Outlet Map</p>
+                <p className="text-[10px] text-muted-foreground">
+                  {outletsByCity.length} {outletsByCity.length === 1 ? "city" : "cities"} &middot; Open interactive map
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-1.5 text-neutral-400 group-hover:text-[#132337] transition-colors">
-              <span className="text-[10px] font-medium hidden sm:inline">Scroll to map</span>
-              <ChevronDown className="h-4 w-4" />
+            <div className="flex items-center gap-1.5 text-muted-foreground group-hover:text-foreground transition-colors">
+              <span className="text-[10px] font-medium hidden sm:inline">View map</span>
+              <ExternalLink className="h-4 w-4" />
             </div>
           </div>
-        </button>
+        </Link>
       )}
 
       {/* -------------------------------------------------------------- */}
-      {/* Row 2 -- Secondary stat cards (3 columns) [admin/org_admin only] */}
+      {/* Action alerts — only show if there are urgent items              */}
       {/* -------------------------------------------------------------- */}
-      {isPlatformAdmin && <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 lg:gap-5">
-        {/* Expiring Leases (90 days) */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 p-4">
-            <CardTitle className="text-xs font-medium text-neutral-500">
-              Expiring Leases (90d)
-            </CardTitle>
-            <CalendarClock className="h-4 w-4 text-neutral-500" />
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            <div className={`text-2xl font-semibold ${(stats?.expiring_leases_90d ?? 0) > 0 ? "text-red-600" : ""}`}>
-              {stats?.expiring_leases_90d ?? 0}
-            </div>
-            <p className="text-[11px] text-neutral-400 mt-0.5">
-              Within the next 90 days
-            </p>
-          </CardContent>
-        </Card>
-
-        {/* Total Risk Flags */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 p-4">
-            <CardTitle className="text-xs font-medium text-neutral-500">
-              Total Risk Flags
-            </CardTitle>
-            <ShieldAlert className="h-4 w-4 text-red-400" />
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            <div className={`text-2xl font-semibold ${(stats?.total_risk_flags ?? 0) > 0 ? "text-red-600" : ""}`}>
-              {stats?.total_risk_flags ?? 0}
-            </div>
-            <p className="text-[11px] text-neutral-400 mt-0.5">
-              Across all agreements
-            </p>
-          </CardContent>
-        </Card>
-
-        {/* Total Monthly Outflow */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 p-4">
-            <CardTitle className="text-xs font-medium text-neutral-500">
-              Total Monthly Outflow
-            </CardTitle>
-            <TrendingDown className="h-4 w-4 text-neutral-500" />
-          </CardHeader>
-          <CardContent className="p-4 pt-0">
-            <div className="text-2xl font-semibold">
-              {formatINR(stats?.total_monthly_outflow ?? 0)}
-            </div>
-            <p className="text-[11px] text-neutral-400 mt-0.5">
-              Rent + CAM + all charges
-            </p>
-          </CardContent>
-        </Card>
-      </div>}
-
-      {/* -------------------------------------------------------------- */}
-      {/* Row 2.5 -- Expiring Leases + Risk Flags + Overdue inline badges  */}
-      {/* -------------------------------------------------------------- */}
-      <div className="flex flex-wrap items-center gap-3">
-        {/* Overdue payments badge */}
-        {(stats?.overdue_payments_count ?? 0) > 0 && (
-          <Link href="/payments">
-            <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-red-200 bg-red-50/80 hover:bg-red-50 transition-colors cursor-pointer">
-              <IndianRupee className="h-4 w-4 text-red-600 flex-shrink-0" />
-              <div className="flex items-center gap-1.5">
-                <span className="text-sm font-semibold text-red-700">
-                  {stats?.overdue_payments_count ?? 0}
-                </span>
-                <span className="text-xs text-red-600">
-                  overdue ({formatINR(stats?.overdue_amount ?? 0)})
-                </span>
-              </div>
-            </div>
-          </Link>
-        )}
-
-        {/* Expiring Leases mini-widget */}
-        {(stats?.expiring_leases_90d ?? 0) > 0 && (
-          <Link href="/alerts">
-            <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-amber-200 bg-amber-50/80 hover:bg-amber-50 transition-colors cursor-pointer">
-              <CalendarClock className="h-4 w-4 text-amber-600 flex-shrink-0" />
-              <div className="flex items-center gap-1.5">
-                <span className="text-sm font-semibold text-amber-700">
-                  {stats?.expiring_leases_90d ?? 0}
-                </span>
-                <span className="text-xs text-amber-600">
-                  lease{(stats?.expiring_leases_90d ?? 0) !== 1 ? "s" : ""} expiring in 90 days
-                </span>
-              </div>
-            </div>
-          </Link>
-        )}
-
-        {/* Expiring Licenses mini-widget */}
-        {((stats?.expiring_licenses_30d ?? 0) + (stats?.expiring_licenses_60d ?? 0) + (stats?.expiring_licenses_90d ?? 0)) > 0 && (
-          <Link href="/agreements">
-            <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-amber-200 bg-amber-50/80 hover:bg-amber-50 transition-colors cursor-pointer">
-              <FileCheck className="h-4 w-4 text-amber-600 flex-shrink-0" />
-              <div className="flex items-center gap-1.5">
-                {(stats?.expiring_licenses_30d ?? 0) > 0 && (
-                  <span className="text-sm font-semibold text-red-700">{stats?.expiring_licenses_30d}</span>
-                )}
-                <span className="text-xs text-amber-600">
-                  {(stats?.expiring_licenses_30d ?? 0) + (stats?.expiring_licenses_60d ?? 0) + (stats?.expiring_licenses_90d ?? 0)} license{((stats?.expiring_licenses_30d ?? 0) + (stats?.expiring_licenses_60d ?? 0) + (stats?.expiring_licenses_90d ?? 0)) !== 1 ? "s" : ""} expiring in 90 days
-                </span>
-              </div>
-            </div>
-          </Link>
-        )}
-
-        {/* Risk Flags summary badge */}
-        {(stats?.total_risk_flags ?? 0) > 0 && (
-          <Link href="/agreements">
-            <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-red-200 bg-red-50/80 hover:bg-red-50 transition-colors cursor-pointer">
-              <ShieldAlert className="h-4 w-4 text-red-500 flex-shrink-0" />
-              <div className="flex items-center gap-1.5">
-                <span className="text-sm font-semibold text-red-700">
-                  {stats?.total_risk_flags ?? 0}
-                </span>
-                <span className="text-xs text-red-600">
-                  risk flag{(stats?.total_risk_flags ?? 0) !== 1 ? "s" : ""} across agreements
-                </span>
-              </div>
-            </div>
-          </Link>
-        )}
-
-        {/* Pending alerts badge */}
-        {(stats?.pending_alerts ?? 0) > 0 && (
-          <Link href="/alerts">
-            <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-[#e4e8ef] bg-[#f4f6f9] hover:bg-[#e4e8ef]/50 transition-colors cursor-pointer">
-              <Bell className="h-4 w-4 text-neutral-500 flex-shrink-0" />
-              <div className="flex items-center gap-1.5">
-                <span className="text-sm font-semibold text-neutral-700">
-                  {stats?.pending_alerts ?? 0}
-                </span>
-                <span className="text-xs text-neutral-500">
-                  pending alert{(stats?.pending_alerts ?? 0) !== 1 ? "s" : ""}
-                </span>
-              </div>
-            </div>
-          </Link>
-        )}
-      </div>
+      {((stats?.overdue_payments_count ?? 0) > 0) && (
+        <Link href="/payments">
+          <div className="flex items-center gap-3 px-4 py-3 rounded-lg border border-rose-200 bg-rose-50/50 hover:bg-rose-100/50 transition-colors cursor-pointer">
+            <IndianRupee className="h-4 w-4 text-rose-600 flex-shrink-0" />
+            <span className="text-sm text-rose-700">
+              <span className="font-semibold">{stats?.overdue_payments_count ?? 0}</span> overdue payment{(stats?.overdue_payments_count ?? 0) !== 1 ? "s" : ""} ({formatINR(stats?.overdue_amount ?? 0)})
+            </span>
+          </div>
+        </Link>
+      )}
 
       {/* -------------------------------------------------------------- */}
       {/* Row 2.7 -- Pipeline Summary [admin only]                         */}
@@ -1350,23 +1215,22 @@ export default function Dashboard() {
         <Card>
           <CardHeader className="p-4 pb-2">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-semibold">Deal Pipeline</CardTitle>
+              <CardTitle className="text-sm font-semibold">Lead Pipeline</CardTitle>
               <Link href="/pipeline">
-                <Badge variant="outline" className="text-[10px] cursor-pointer hover:bg-[#f4f6f9]">
+                <Badge variant="outline" className="text-[10px] cursor-pointer hover:bg-muted">
                   View Pipeline
                 </Badge>
               </Link>
             </div>
           </CardHeader>
-          <CardContent className="p-4 pt-2">
-            <div className="flex gap-2 overflow-x-auto">
+          <CardContent className="p-0">
+            <div className="flex divide-x divide-border/40 overflow-x-auto">
               {["lead", "site_visit", "negotiation", "loi", "agreement", "fitout", "operational"].map((stage) => {
                 const count = stats.pipeline_stages?.[stage] ?? 0;
-                if (count === 0) return null;
                 return (
-                  <div key={stage} className="flex flex-col items-center min-w-[80px] rounded-lg border border-[#e4e8ef] p-2.5">
-                    <span className="text-lg font-bold">{count}</span>
-                    <span className="text-[10px] text-neutral-500 text-center">{statusLabel(stage)}</span>
+                  <div key={stage} className="flex-1 flex flex-col items-center py-4 px-5 min-w-[90px]">
+                    <span className="text-lg font-semibold font-mono tracking-tighter">{count}</span>
+                    <span className="text-[10px] font-medium uppercase tracking-[0.06em] text-muted-foreground text-center mt-0.5">{statusLabel(stage)}</span>
                   </div>
                 );
               })}
@@ -1379,9 +1243,9 @@ export default function Dashboard() {
       {/* Row 2.8 -- Expiring Leases + Risk Flags + Property Type cards    */}
       {/* -------------------------------------------------------------- */}
       {isPlatformAdmin && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 lg:gap-6">
           {/* Expiring Leases Card */}
-          <Card className="border-amber-200 bg-amber-50/30">
+          <Card className="border-amber-200/60 bg-amber-50/30">
             <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 p-4">
               <CardTitle className="text-xs font-medium text-amber-700">
                 Expiring Leases
@@ -1389,10 +1253,10 @@ export default function Dashboard() {
               <CalendarClock className="h-4 w-4 text-amber-500" />
             </CardHeader>
             <CardContent className="p-4 pt-0">
-              <div className="text-3xl font-bold text-amber-700">
+              <div className="text-2xl font-semibold font-mono tracking-tighter text-amber-700">
                 {stats?.expiring_leases_90d ?? 0}
               </div>
-              <p className="text-xs text-amber-600/80 mt-1">
+              <p className="text-xs text-amber-700 mt-1">
                 Agreements expiring within 90 days
               </p>
               {(stats?.expiring_leases_90d ?? 0) > 0 && (
@@ -1406,7 +1270,7 @@ export default function Dashboard() {
           </Card>
 
           {/* Expiring Licenses Card */}
-          <Card className="border-amber-200 bg-amber-50/30">
+          <Card className="border-amber-200/60 bg-amber-50/30">
             <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 p-4">
               <CardTitle className="text-xs font-medium text-amber-700">
                 Expiring Licenses
@@ -1414,19 +1278,19 @@ export default function Dashboard() {
               <FileCheck className="h-4 w-4 text-amber-500" />
             </CardHeader>
             <CardContent className="p-4 pt-0">
-              <div className="text-3xl font-bold text-amber-700">
+              <div className="text-2xl font-semibold font-mono tracking-tighter text-amber-700">
                 {(stats?.expiring_licenses_30d ?? 0) + (stats?.expiring_licenses_60d ?? 0) + (stats?.expiring_licenses_90d ?? 0)}
               </div>
               <div className="flex flex-wrap gap-1.5 mt-2">
-                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${(stats?.expiring_licenses_30d ?? 0) > 0 ? "bg-red-100 text-red-700" : "bg-neutral-100 text-neutral-400"}`}>
+                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${(stats?.expiring_licenses_30d ?? 0) > 0 ? "bg-red-100 text-red-700" : "bg-muted text-muted-foreground"}`}>
                   <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
                   {stats?.expiring_licenses_30d ?? 0} &lt;30d
                 </span>
-                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${(stats?.expiring_licenses_60d ?? 0) > 0 ? "bg-amber-100 text-amber-700" : "bg-neutral-100 text-neutral-400"}`}>
+                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${(stats?.expiring_licenses_60d ?? 0) > 0 ? "bg-amber-100 text-amber-700" : "bg-muted text-muted-foreground"}`}>
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
                   {stats?.expiring_licenses_60d ?? 0} 30-60d
                 </span>
-                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${(stats?.expiring_licenses_90d ?? 0) > 0 ? "bg-emerald-100 text-emerald-700" : "bg-neutral-100 text-neutral-400"}`}>
+                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${(stats?.expiring_licenses_90d ?? 0) > 0 ? "bg-emerald-100 text-emerald-700" : "bg-muted text-muted-foreground"}`}>
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                   {stats?.expiring_licenses_90d ?? 0} 60-90d
                 </span>
@@ -1442,25 +1306,25 @@ export default function Dashboard() {
           </Card>
 
           {/* Risk Flags Summary Card */}
-          <Card className={`${(stats?.total_risk_flags ?? 0) > 0 ? "border-red-200 bg-red-50/30" : "border-emerald-200 bg-emerald-50/30"}`}>
+          <Card className={`${(stats?.total_risk_flags ?? 0) > 0 ? "border-rose-200/60 bg-rose-50/30" : "border-emerald-200/60 bg-emerald-50/30"}`}>
             <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 p-4">
-              <CardTitle className={`text-xs font-medium ${(stats?.total_risk_flags ?? 0) > 0 ? "text-red-700" : "text-emerald-700"}`}>
+              <CardTitle className={`text-xs font-medium ${(stats?.total_risk_flags ?? 0) > 0 ? "text-rose-700" : "text-emerald-700"}`}>
                 Risk Flags Summary
               </CardTitle>
-              <ShieldAlert className={`h-4 w-4 ${(stats?.total_risk_flags ?? 0) > 0 ? "text-red-500" : "text-emerald-500"}`} />
+              <ShieldAlert className={`h-4 w-4 ${(stats?.total_risk_flags ?? 0) > 0 ? "text-rose-700" : "text-emerald-700"}`} />
             </CardHeader>
             <CardContent className="p-4 pt-0">
-              <div className={`text-3xl font-bold ${(stats?.total_risk_flags ?? 0) > 0 ? "text-red-700" : "text-emerald-700"}`}>
+              <div className={`text-2xl font-semibold ${(stats?.total_risk_flags ?? 0) > 0 ? "text-rose-700" : "text-emerald-700"}`}>
                 {stats?.total_risk_flags ?? 0}
               </div>
-              <p className={`text-xs mt-1 ${(stats?.total_risk_flags ?? 0) > 0 ? "text-red-600/80" : "text-emerald-600/80"}`}>
+              <p className={`text-xs mt-1 ${(stats?.total_risk_flags ?? 0) > 0 ? "text-rose-700" : "text-emerald-700"}`}>
                 {(stats?.total_risk_flags ?? 0) > 0
                   ? "Total risk flags across all agreements"
                   : "No risk flags — portfolio looks healthy"}
               </p>
               {(stats?.total_risk_flags ?? 0) > 0 && (
                 <Link href="/agreements" className="inline-block mt-2">
-                  <Button variant="outline" size="sm" className="text-[11px] h-7 border-red-300 text-red-700 hover:bg-red-100">
+                  <Button variant="outline" size="sm" className="text-[11px] h-7 border-rose-200 text-rose-700 hover:bg-rose-100">
                     View Flagged
                   </Button>
                 </Link>
@@ -1475,7 +1339,7 @@ export default function Dashboard() {
             </CardHeader>
             <CardContent className="p-4 pt-2">
               {Object.keys(propertyTypeCounts).length === 0 ? (
-                <p className="text-xs text-neutral-400">No property type data yet.</p>
+                <p className="text-xs text-muted-foreground">No property type data yet.</p>
               ) : (
                 <div className="space-y-2">
                   {Object.entries(propertyTypeCounts)
@@ -1490,11 +1354,11 @@ export default function Dashboard() {
                                 className="w-2 h-2 rounded-full flex-shrink-0"
                                 style={{ backgroundColor: propertyTypeColor(type) }}
                               />
-                              <span className="text-xs text-neutral-700">{statusLabel(type)}</span>
+                              <span className="text-xs text-foreground">{statusLabel(type)}</span>
                             </div>
                             <span className="text-xs font-semibold tabular-nums">{count}</span>
                           </div>
-                          <div className="h-1.5 w-full rounded-full bg-[#132337]/10 overflow-hidden">
+                          <div className="h-1.5 w-full rounded-full bg-foreground/10 overflow-hidden">
                             <div
                               className="h-full rounded-full transition-all"
                               style={{
@@ -1514,72 +1378,14 @@ export default function Dashboard() {
       )}
 
       {/* -------------------------------------------------------------- */}
-      {/* Row 3 -- India Map + Outlets by City & Status [admin only]        */}
+      {/* Row 3 -- Outlets by City & Status [admin only]                    */}
       {/* -------------------------------------------------------------- */}
-      {isPlatformAdmin && <div ref={mapSectionRef} className="grid grid-cols-1 lg:grid-cols-5 gap-4 lg:gap-5 scroll-mt-4">
-        {/* India Map -- 3 columns */}
-        <Card className="flex flex-col lg:col-span-3 overflow-hidden shadow-sm">
-          <CardHeader className="p-4 pb-2">
-            <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded-lg bg-[#132337] flex items-center justify-center">
-                <MapPin className="h-3 w-3 text-white" />
-              </div>
-              <CardTitle className="text-sm font-semibold">
-                Outlet Locations
-              </CardTitle>
-              <Badge variant="secondary" className="text-[10px] ml-auto font-semibold">
-                {stats?.total_outlets ?? 0} outlets
-              </Badge>
-            </div>
-          </CardHeader>
-          <CardContent className="p-3 pt-0">
-            {outletsByCity.length === 0 ? (
-              <p className="text-xs text-neutral-400">No outlet data yet.</p>
-            ) : (
-              <IndiaMap
-                outletsByCity={stats?.outlets_by_city || {}}
-                outletDetails={stats?.outlet_details_by_city}
-                selectedCluster={mapCluster?.label ?? null}
-                onSelectCluster={setMapCluster}
-                compact
-              />
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Right side -- City list (or selected cluster outlets) + Status */}
-        <div className="lg:col-span-2 space-y-4 lg:space-y-5">
-          {/* Outlets by City / Selected cluster detail */}
+      {isPlatformAdmin && <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 lg:gap-6">
+        {/* Outlets by City */}
           <Card className="flex flex-col overflow-hidden">
             <CardHeader className="p-4 pb-3">
-              {mapCluster ? (
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-[#132337] flex items-center justify-center flex-shrink-0">
-                    <MapPin className="h-3.5 w-3.5 text-white" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <CardTitle className="text-sm font-semibold truncate">
-                      {mapCluster.label}
-                    </CardTitle>
-                    {mapCluster.cities.length > 1 && (
-                      <p className="text-[10px] text-neutral-400 truncate">
-                        {mapCluster.cities.join(" \u2022 ")}
-                      </p>
-                    )}
-                  </div>
-                  <Badge variant="secondary" className="text-[10px] font-bold">
-                    {mapCluster.count} outlets
-                  </Badge>
-                  <button
-                    onClick={() => setMapCluster(null)}
-                    className="w-6 h-6 rounded-full bg-[#f4f6f9] hover:bg-[#e4e8ef] flex items-center justify-center text-neutral-400 hover:text-neutral-700 transition-all"
-                  >
-                    <span className="text-xs leading-none">&times;</span>
-                  </button>
-                </div>
-              ) : (
                 <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-lg bg-[#132337] flex items-center justify-center">
+                  <div className="w-6 h-6 rounded-lg bg-foreground flex items-center justify-center">
                     <MapPin className="h-3 w-3 text-white" />
                   </div>
                   <CardTitle className="text-sm font-semibold">
@@ -1589,53 +1395,10 @@ export default function Dashboard() {
                     {outletsByCity.reduce((s, c) => s + c.count, 0)} total
                   </Badge>
                 </div>
-              )}
             </CardHeader>
             <CardContent className="p-4 pt-0">
-              {mapCluster ? (
-                mapCluster.outlets.length > 0 ? (
-                  <div className="space-y-1 max-h-[320px] overflow-y-auto pr-1">
-                    {mapCluster.outlets.map((outlet, i) => {
-                      const sColor =
-                        outlet.status === "operational" ? "#10b981" :
-                        outlet.status === "closed" ? "#ef4444" :
-                        outlet.status === "up_for_renewal" ? "#f59e0b" :
-                        outlet.status === "fit_out" ? "#f59e0b" : "#a3a3a3";
-                      return (
-                        <div
-                          key={i}
-                          className="group flex items-center gap-3 py-2.5 px-3 rounded-xl border border-transparent hover:border-[#e4e8ef] hover:bg-gradient-to-r hover:from-[#f4f6f9] hover:to-[#fafbfd] hover:shadow-sm transition-all duration-200 cursor-pointer"
-                        >
-                          <div className="relative flex-shrink-0">
-                            <div
-                              className="w-2.5 h-2.5 rounded-full"
-                              style={{ backgroundColor: sColor, boxShadow: `0 0 0 3px ${sColor}20` }}
-                            />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-xs text-neutral-800 group-hover:text-[#132337] truncate transition-colors font-medium">
-                              {outlet.name}
-                            </p>
-                            <p className="text-[10px] text-neutral-400 capitalize mt-0.5">
-                              {outlet.status?.replace(/_/g, " ")}
-                            </p>
-                          </div>
-                          {outlet.rent ? (
-                            <span className="text-[11px] text-neutral-600 group-hover:text-neutral-800 tabular-nums flex-shrink-0 font-semibold transition-colors">
-                              {`\u20B9${Math.round(outlet.rent).toLocaleString("en-IN")}`}
-                            </span>
-                          ) : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <p className="text-xs text-neutral-400">
-                    {mapCluster.count} outlet{mapCluster.count > 1 ? "s" : ""} in this area
-                  </p>
-                )
-              ) : outletsByCity.length === 0 ? (
-                <p className="text-xs text-neutral-400">No outlet data yet.</p>
+              {outletsByCity.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No outlet data yet.</p>
               ) : (
                 <div className="space-y-3">
                   {outletsByCity.map(({ city, count }) => {
@@ -1643,12 +1406,12 @@ export default function Dashboard() {
                     return (
                       <div key={city} className="group">
                         <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs font-medium text-neutral-600 group-hover:text-[#132337] transition-colors">{city}</span>
-                          <span className="text-xs font-semibold text-neutral-800 tabular-nums">{count}</span>
+                          <span className="text-xs font-medium text-foreground group-hover:text-foreground transition-colors">{city}</span>
+                          <span className="text-xs font-semibold text-foreground tabular-nums">{count}</span>
                         </div>
-                        <div className="h-1.5 w-full rounded-full bg-[#132337]/10 overflow-hidden">
+                        <div className="h-1.5 w-full rounded-full bg-foreground/10 overflow-hidden">
                           <div
-                            className="h-full rounded-full bg-[#132337] transition-all duration-700 ease-out"
+                            className="h-full rounded-full bg-foreground transition-all duration-700 ease-out"
                             style={{ width: `${pct}%`, opacity: 0.15 + (pct / 100) * 0.85 }}
                           />
                         </div>
@@ -1664,7 +1427,7 @@ export default function Dashboard() {
           <Card className="flex flex-col overflow-hidden">
             <CardHeader className="p-4 pb-3">
               <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-lg bg-[#132337] flex items-center justify-center">
+                <div className="w-6 h-6 rounded-lg bg-foreground flex items-center justify-center">
                   <Activity className="h-3 w-3 text-white" />
                 </div>
                 <CardTitle className="text-sm font-semibold">
@@ -1674,7 +1437,7 @@ export default function Dashboard() {
             </CardHeader>
             <CardContent className="p-4 pt-0">
               {outletsByStatus.length === 0 ? (
-                <p className="text-xs text-neutral-400">No outlet data yet.</p>
+                <p className="text-xs text-muted-foreground">No outlet data yet.</p>
               ) : (
                 <div className="space-y-2">
                   {outletsByStatus
@@ -1684,19 +1447,19 @@ export default function Dashboard() {
                       const pct = total > 0 ? Math.round((count / total) * 100) : 0;
                       const color = statusColor(status);
                       return (
-                        <div key={status} className="group flex items-center gap-3 p-2.5 rounded-xl hover:bg-[#f4f6f9] transition-all duration-200">
+                        <div key={status} className="group flex items-center gap-3 p-2.5 rounded-lg hover:bg-muted transition-all duration-200">
                           <div
-                            className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                            className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
                             style={{ backgroundColor: `${color}15`, border: `1px solid ${color}30` }}
                           >
-                            <span className="text-sm font-bold" style={{ color }}>{count}</span>
+                            <span className="text-sm font-semibold" style={{ color }}>{count}</span>
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between mb-1">
-                              <span className="text-xs font-medium text-neutral-700">{statusLabel(status)}</span>
-                              <span className="text-[10px] font-semibold text-neutral-400">{pct}%</span>
+                              <span className="text-xs font-medium text-foreground">{statusLabel(status)}</span>
+                              <span className="text-[10px] font-semibold text-muted-foreground">{pct}%</span>
                             </div>
-                            <div className="h-1.5 w-full rounded-full bg-[#132337]/10 overflow-hidden">
+                            <div className="h-1.5 w-full rounded-full bg-foreground/10 overflow-hidden">
                               <div
                                 className="h-full rounded-full transition-all duration-700 ease-out"
                                 style={{ width: `${pct}%`, backgroundColor: color }}
@@ -1715,7 +1478,7 @@ export default function Dashboard() {
           <Card className="flex flex-col overflow-hidden">
             <CardHeader className="p-4 pb-3">
               <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-lg bg-[#132337] flex items-center justify-center">
+                <div className="w-6 h-6 rounded-lg bg-foreground flex items-center justify-center">
                   <IndianRupee className="h-3 w-3 text-white" />
                 </div>
                 <CardTitle className="text-sm font-semibold">
@@ -1728,7 +1491,7 @@ export default function Dashboard() {
             </CardHeader>
             <CardContent className="p-4 pt-0">
               {outletsByCity.length === 0 ? (
-                <p className="text-xs text-neutral-400">No rent data yet.</p>
+                <p className="text-xs text-muted-foreground">No rent data yet.</p>
               ) : (
                 <div className="space-y-2.5">
                   {outletsByCity.map(({ city }) => {
@@ -1740,13 +1503,13 @@ export default function Dashboard() {
                     return (
                       <div key={city}>
                         <div className="flex items-center justify-between mb-0.5">
-                          <span className="text-xs font-medium text-neutral-600">{city}</span>
+                          <span className="text-xs font-medium text-foreground">{city}</span>
                           <div className="flex items-center gap-2">
-                            <span className="text-[10px] text-neutral-400">{pct}%</span>
-                            <span className="text-xs font-semibold text-[#132337] tabular-nums">{formatINR(cityRent)}</span>
+                            <span className="text-[10px] text-muted-foreground">{pct}%</span>
+                            <span className="text-xs font-semibold text-foreground tabular-nums">{formatINR(cityRent)}</span>
                           </div>
                         </div>
-                        <div className="h-1.5 w-full rounded-full bg-[#132337]/10 overflow-hidden">
+                        <div className="h-1.5 w-full rounded-full bg-foreground/10 overflow-hidden">
                           <div
                             className="h-full rounded-full bg-blue-500 transition-all duration-700 ease-out"
                             style={{ width: `${pct}%`, opacity: 0.3 + (pct / 100) * 0.7 }}
@@ -1757,9 +1520,9 @@ export default function Dashboard() {
                   })}
                   {/* Avg rent per outlet */}
                   {(stats?.total_outlets ?? 0) > 0 && (
-                    <div className="mt-2 pt-2 border-t border-[#e4e8ef] flex items-center justify-between">
-                      <span className="text-[11px] text-neutral-500">Avg rent per outlet</span>
-                      <span className="text-xs font-bold text-[#132337] tabular-nums">
+                    <div className="mt-2 pt-2 border-t border-border flex items-center justify-between">
+                      <span className="text-[11px] text-muted-foreground">Avg rent per outlet</span>
+                      <span className="text-xs font-semibold text-foreground tabular-nums">
                         {formatINR((stats?.total_monthly_rent ?? 0) / (stats?.total_outlets ?? 1))}
                       </span>
                     </div>
@@ -1768,16 +1531,15 @@ export default function Dashboard() {
               )}
             </CardContent>
           </Card>
-        </div>
       </div>}
 
       {/* -------------------------------------------------------------- */}
       {/* Org Member Simplified View                                       */}
       {/* -------------------------------------------------------------- */}
       {isOrgMember && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 lg:gap-5">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 lg:gap-6">
           {/* Expiring Leases Card (org_member view) */}
-          <Card className="border-amber-200 bg-amber-50/30">
+          <Card className="border-amber-200/60 bg-amber-50/30">
             <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 p-4">
               <CardTitle className="text-xs font-medium text-amber-700">
                 Expiring Leases
@@ -1785,17 +1547,17 @@ export default function Dashboard() {
               <CalendarClock className="h-4 w-4 text-amber-500" />
             </CardHeader>
             <CardContent className="p-4 pt-0">
-              <div className="text-3xl font-bold text-amber-700">
+              <div className="text-2xl font-semibold font-mono tracking-tighter text-amber-700">
                 {stats?.expiring_leases_90d ?? 0}
               </div>
-              <p className="text-xs text-amber-600/80 mt-1">
+              <p className="text-xs text-amber-700 mt-1">
                 Agreements expiring within 90 days
               </p>
             </CardContent>
           </Card>
 
           {/* Expiring Licenses Card (org_member view) */}
-          <Card className="border-amber-200 bg-amber-50/30">
+          <Card className="border-amber-200/60 bg-amber-50/30">
             <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 p-4">
               <CardTitle className="text-xs font-medium text-amber-700">
                 Expiring Licenses
@@ -1803,19 +1565,19 @@ export default function Dashboard() {
               <FileCheck className="h-4 w-4 text-amber-500" />
             </CardHeader>
             <CardContent className="p-4 pt-0">
-              <div className="text-3xl font-bold text-amber-700">
+              <div className="text-2xl font-semibold font-mono tracking-tighter text-amber-700">
                 {(stats?.expiring_licenses_30d ?? 0) + (stats?.expiring_licenses_60d ?? 0) + (stats?.expiring_licenses_90d ?? 0)}
               </div>
               <div className="flex flex-wrap gap-1.5 mt-2">
-                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${(stats?.expiring_licenses_30d ?? 0) > 0 ? "bg-red-100 text-red-700" : "bg-neutral-100 text-neutral-400"}`}>
+                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${(stats?.expiring_licenses_30d ?? 0) > 0 ? "bg-red-100 text-red-700" : "bg-muted text-muted-foreground"}`}>
                   <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
                   {stats?.expiring_licenses_30d ?? 0} &lt;30d
                 </span>
-                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${(stats?.expiring_licenses_60d ?? 0) > 0 ? "bg-amber-100 text-amber-700" : "bg-neutral-100 text-neutral-400"}`}>
+                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${(stats?.expiring_licenses_60d ?? 0) > 0 ? "bg-amber-100 text-amber-700" : "bg-muted text-muted-foreground"}`}>
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
                   {stats?.expiring_licenses_60d ?? 0} 30-60d
                 </span>
-                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${(stats?.expiring_licenses_90d ?? 0) > 0 ? "bg-emerald-100 text-emerald-700" : "bg-neutral-100 text-neutral-400"}`}>
+                <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${(stats?.expiring_licenses_90d ?? 0) > 0 ? "bg-emerald-100 text-emerald-700" : "bg-muted text-muted-foreground"}`}>
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                   {stats?.expiring_licenses_90d ?? 0} 60-90d
                 </span>
@@ -1824,18 +1586,18 @@ export default function Dashboard() {
           </Card>
 
           {/* Risk Flags (org_member view) */}
-          <Card className={`${(stats?.total_risk_flags ?? 0) > 0 ? "border-red-200 bg-red-50/30" : "border-emerald-200 bg-emerald-50/30"}`}>
+          <Card className={`${(stats?.total_risk_flags ?? 0) > 0 ? "border-rose-200/60 bg-rose-50/30" : "border-emerald-200/60 bg-emerald-50/30"}`}>
             <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0 p-4">
-              <CardTitle className={`text-xs font-medium ${(stats?.total_risk_flags ?? 0) > 0 ? "text-red-700" : "text-emerald-700"}`}>
+              <CardTitle className={`text-xs font-medium ${(stats?.total_risk_flags ?? 0) > 0 ? "text-rose-700" : "text-emerald-700"}`}>
                 Risk Flags
               </CardTitle>
-              <ShieldAlert className={`h-4 w-4 ${(stats?.total_risk_flags ?? 0) > 0 ? "text-red-500" : "text-emerald-500"}`} />
+              <ShieldAlert className={`h-4 w-4 ${(stats?.total_risk_flags ?? 0) > 0 ? "text-rose-700" : "text-emerald-700"}`} />
             </CardHeader>
             <CardContent className="p-4 pt-0">
-              <div className={`text-3xl font-bold ${(stats?.total_risk_flags ?? 0) > 0 ? "text-red-700" : "text-emerald-700"}`}>
+              <div className={`text-2xl font-semibold ${(stats?.total_risk_flags ?? 0) > 0 ? "text-rose-700" : "text-emerald-700"}`}>
                 {stats?.total_risk_flags ?? 0}
               </div>
-              <p className={`text-xs mt-1 ${(stats?.total_risk_flags ?? 0) > 0 ? "text-red-600/80" : "text-emerald-600/80"}`}>
+              <p className={`text-xs mt-1 ${(stats?.total_risk_flags ?? 0) > 0 ? "text-rose-700" : "text-emerald-700"}`}>
                 {(stats?.total_risk_flags ?? 0) > 0
                   ? "Flags needing your attention"
                   : "All clear — no risk flags"}
@@ -1846,7 +1608,7 @@ export default function Dashboard() {
       )}
 
       {/* -------------------------------------------------------------- */}
-      {/* Row 5 -- GroBot Chat                                        */}
+      {/* Row 5 -- Grow AI Chat                                       */}
       {/* -------------------------------------------------------------- */}
       <SmartAIChat />
     </div>

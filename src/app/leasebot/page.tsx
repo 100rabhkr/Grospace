@@ -48,12 +48,12 @@ function ProcessingAnimation() {
     <Card className="max-w-md mx-auto">
       <CardContent className="pt-8 pb-10 flex flex-col items-center text-center">
         <div className="mb-6">
-          <div className="h-16 w-16 rounded-full bg-[#132337] flex items-center justify-center">
+          <div className="h-16 w-16 rounded-full bg-foreground flex items-center justify-center">
             <Loader2 className="h-8 w-8 text-white animate-spin" />
           </div>
         </div>
 
-        <h2 className="text-lg font-semibold mb-1 text-[#132337]">
+        <h2 className="text-lg font-semibold mb-1 text-foreground">
           Analyzing your lease...
         </h2>
         <p className="text-sm text-[#6b7280] mb-6">
@@ -66,16 +66,16 @@ function ProcessingAnimation() {
               key={item.label}
               className={`flex items-center gap-2.5 text-sm transition-all duration-300 ${
                 i < activeStep
-                  ? "text-[#132337]"
+                  ? "text-foreground"
                   : i === activeStep
-                  ? "text-[#132337]"
+                  ? "text-foreground"
                   : "text-[#9ca3af] opacity-40"
               }`}
             >
               {i < activeStep ? (
                 <Check className="h-4 w-4 text-emerald-600 flex-shrink-0" />
               ) : i === activeStep ? (
-                <Loader2 className="h-4 w-4 text-[#132337] animate-spin flex-shrink-0" />
+                <Loader2 className="h-4 w-4 text-foreground animate-spin flex-shrink-0" />
               ) : (
                 <div className="h-4 w-4 rounded-full border border-[#d1d5db] flex-shrink-0" />
               )}
@@ -169,45 +169,45 @@ export default function LeasebotPage() {
 
   if (isProcessing) {
     return (
-      <div className="min-h-screen bg-[#fafbfd] flex items-center justify-center p-4">
+      <div className="min-h-screen bg-card flex items-center justify-center p-4">
         <ProcessingAnimation />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#fafbfd]">
+    <div className="min-h-screen bg-card">
       {/* Header */}
-      <header className="border-b border-[#e4e8ef] bg-white">
+      <header className="border-b border-border bg-card">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2.5">
             <Image src="/logo.png" alt="GroSpace" width={28} height={28} className="rounded-md" />
-            <span className="text-[17px] font-semibold tracking-tight text-[#132337]">GroSpace</span>
+            <span className="text-[17px] font-semibold tracking-tight text-foreground">GroSpace</span>
           </Link>
           {isLoggedIn ? (
-            <Link href="/">
+            <a href="/">
               <Button variant="outline" size="sm">
                 Dashboard
               </Button>
-            </Link>
+            </a>
           ) : (
-            <Link href="/auth/login?redirect=/leasebot">
+            <a href="/auth/login?redirect=/leasebot">
               <Button variant="outline" size="sm">
                 Sign in
               </Button>
-            </Link>
+            </a>
           )}
         </div>
       </header>
 
       {/* Hero Section */}
       <section className="max-w-5xl mx-auto px-4 sm:px-6 pt-16 pb-12 text-center">
-        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#132337]/5 text-[#132337] text-xs font-medium mb-6">
+        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-foreground/5 text-foreground text-xs font-medium mb-6">
           <Sparkles className="h-3.5 w-3.5" />
           Free AI-Powered Lease Analysis
         </div>
 
-        <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-[#132337] tracking-tight mb-4">
+        <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-foreground tracking-tight mb-4">
           Review Your Lease
           <br />
           Before You Sign
@@ -220,7 +220,7 @@ export default function LeasebotPage() {
 
         {/* Upload Area */}
         <div className="max-w-lg mx-auto">
-          <Card className="border-2 border-[#e4e8ef]">
+          <Card className="border-2 border-border">
             <CardContent className="pt-6 pb-6">
               <input
                 ref={fileInputRef}
@@ -238,14 +238,14 @@ export default function LeasebotPage() {
                   onClick={() => fileInputRef.current?.click()}
                   className={`flex flex-col items-center justify-center border-2 border-dashed rounded-xl p-12 cursor-pointer transition-all ${
                     isDragOver
-                      ? "border-[#132337] bg-[#132337]/5 scale-[1.01]"
-                      : "border-[#d1d5db] hover:border-[#9ca3af] hover:bg-[#f4f6f9]/50"
+                      ? "border-foreground bg-foreground/5 scale-[1.01]"
+                      : "border-[#d1d5db] hover:border-[#9ca3af] hover:bg-muted/50"
                   }`}
                 >
-                  <div className="h-14 w-14 rounded-full bg-[#f4f6f9] flex items-center justify-center mb-4">
+                  <div className="h-14 w-14 rounded-full bg-muted flex items-center justify-center mb-4">
                     <CloudUpload className="h-7 w-7 text-[#9ca3af]" />
                   </div>
-                  <p className="text-sm font-medium text-[#132337] mb-1">
+                  <p className="text-sm font-medium text-foreground mb-1">
                     Drag and drop your lease PDF here
                   </p>
                   <p className="text-xs text-[#9ca3af] mb-3">
@@ -257,9 +257,9 @@ export default function LeasebotPage() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  <div className="flex items-center gap-3 p-4 rounded-xl border bg-[#f4f6f9]">
-                    <div className="h-10 w-10 rounded-lg bg-red-100 flex items-center justify-center">
-                      <FileText className="h-5 w-5 text-red-600" />
+                  <div className="flex items-center gap-3 p-4 rounded-xl border bg-muted">
+                    <div className="h-10 w-10 rounded-lg bg-neutral-100 flex items-center justify-center">
+                      <FileText className="h-5 w-5 text-neutral-900" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium truncate">{selectedFile.name}</p>
@@ -269,7 +269,7 @@ export default function LeasebotPage() {
                       variant="ghost"
                       size="sm"
                       onClick={handleRemoveFile}
-                      className="h-8 w-8 p-0 text-[#9ca3af] hover:text-red-600"
+                      className="h-8 w-8 p-0 text-[#9ca3af] hover:text-neutral-900"
                     >
                       <X className="h-4 w-4" />
                     </Button>
@@ -277,7 +277,7 @@ export default function LeasebotPage() {
 
                   <Button
                     onClick={handleAnalyze}
-                    className="w-full gap-2 bg-[#132337] hover:bg-[#1a2f47] text-white"
+                    className="w-full gap-2 bg-foreground hover:bg-[#1a2f47] text-white"
                     size="lg"
                   >
                     <Sparkles className="h-4 w-4" />
@@ -288,7 +288,7 @@ export default function LeasebotPage() {
 
               {/* Error */}
               {error && (
-                <div className="mt-4 flex items-center gap-2 p-3 rounded-lg border border-red-200 bg-red-50 text-red-800 text-sm">
+                <div className="mt-4 flex items-center gap-2 p-3 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 text-sm">
                   <AlertTriangle className="h-4 w-4 flex-shrink-0" />
                   <span>{error}</span>
                 </div>
@@ -305,31 +305,31 @@ export default function LeasebotPage() {
       {/* Features */}
       <section className="max-w-5xl mx-auto px-4 sm:px-6 pb-16">
         <div className="grid sm:grid-cols-3 gap-6">
-          <div className="text-center p-6 rounded-xl border border-[#e4e8ef] bg-white">
-            <div className="h-10 w-10 rounded-full bg-[#132337]/5 flex items-center justify-center mx-auto mb-3">
-              <Shield className="h-5 w-5 text-[#132337]" />
+          <div className="text-center p-6 rounded-xl border border-border bg-card">
+            <div className="h-10 w-10 rounded-full bg-foreground/5 flex items-center justify-center mx-auto mb-3">
+              <Shield className="h-5 w-5 text-foreground" />
             </div>
-            <h3 className="text-sm font-semibold text-[#132337] mb-1">Health Score</h3>
+            <h3 className="text-sm font-semibold text-foreground mb-1">Health Score</h3>
             <p className="text-xs text-[#6b7280]">
               Get a 0-100 score that tells you how favorable your lease terms are.
             </p>
           </div>
 
-          <div className="text-center p-6 rounded-xl border border-[#e4e8ef] bg-white">
-            <div className="h-10 w-10 rounded-full bg-[#132337]/5 flex items-center justify-center mx-auto mb-3">
-              <Eye className="h-5 w-5 text-[#132337]" />
+          <div className="text-center p-6 rounded-xl border border-border bg-card">
+            <div className="h-10 w-10 rounded-full bg-foreground/5 flex items-center justify-center mx-auto mb-3">
+              <Eye className="h-5 w-5 text-foreground" />
             </div>
-            <h3 className="text-sm font-semibold text-[#132337] mb-1">Key Terms</h3>
+            <h3 className="text-sm font-semibold text-foreground mb-1">Key Terms</h3>
             <p className="text-xs text-[#6b7280]">
               Property details, rent, deposits, and dates extracted automatically.
             </p>
           </div>
 
-          <div className="text-center p-6 rounded-xl border border-[#e4e8ef] bg-white">
-            <div className="h-10 w-10 rounded-full bg-[#132337]/5 flex items-center justify-center mx-auto mb-3">
-              <Clock className="h-5 w-5 text-[#132337]" />
+          <div className="text-center p-6 rounded-xl border border-border bg-card">
+            <div className="h-10 w-10 rounded-full bg-foreground/5 flex items-center justify-center mx-auto mb-3">
+              <Clock className="h-5 w-5 text-foreground" />
             </div>
-            <h3 className="text-sm font-semibold text-[#132337] mb-1">90 Seconds</h3>
+            <h3 className="text-sm font-semibold text-foreground mb-1">90 Seconds</h3>
             <p className="text-xs text-[#6b7280]">
               Full analysis in under 2 minutes. No manual review needed.
             </p>
@@ -338,14 +338,14 @@ export default function LeasebotPage() {
       </section>
 
       {/* Footer */}
-      <footer className="border-t border-[#e4e8ef] bg-white py-6">
+      <footer className="border-t border-border bg-card py-6">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 flex items-center justify-between">
           <p className="text-xs text-[#9ca3af]">
             Powered by GroSpace AI
           </p>
-          <Link href={isLoggedIn ? "/" : "/auth/login?redirect=/leasebot"} className="text-xs text-[#132337] font-medium hover:underline">
+          <a href={isLoggedIn ? "/" : "/auth/login?redirect=/leasebot"} className="text-xs text-foreground font-medium hover:underline">
             {isLoggedIn ? "Go to Dashboard" : "Sign in for full access"}
-          </Link>
+          </a>
         </div>
       </footer>
     </div>

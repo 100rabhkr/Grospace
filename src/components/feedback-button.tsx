@@ -84,7 +84,7 @@ export function FeedbackButton({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="inline-flex items-center justify-center h-5 w-5 rounded hover:bg-neutral-100 text-neutral-400 hover:text-amber-600 transition-colors flex-shrink-0"
+          className="inline-flex items-center justify-center h-5 w-5 rounded hover:bg-neutral-100 text-muted-foreground hover:text-neutral-900 transition-colors flex-shrink-0"
           title="Flag extraction error"
         >
           <Flag className="h-3 w-3" />
@@ -93,13 +93,13 @@ export function FeedbackButton({
       <PopoverContent align="end" className="w-80">
         {submitted ? (
           <div className="flex flex-col items-center gap-2 py-4">
-            <div className="h-10 w-10 rounded-full bg-emerald-100 flex items-center justify-center">
+            <div className="h-10 w-10 rounded-full bg-emerald-50 flex items-center justify-center">
               <Check className="h-5 w-5 text-emerald-600" />
             </div>
             <p className="text-sm font-medium text-emerald-700">
               Feedback submitted
             </p>
-            <p className="text-xs text-neutral-500">
+            <p className="text-xs text-muted-foreground">
               Thank you for helping improve extraction accuracy.
             </p>
           </div>
@@ -110,14 +110,14 @@ export function FeedbackButton({
               <button
                 type="button"
                 onClick={() => setOpen(false)}
-                className="h-5 w-5 rounded hover:bg-neutral-100 flex items-center justify-center text-neutral-400"
+                className="h-5 w-5 rounded hover:bg-neutral-100 flex items-center justify-center text-muted-foreground"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
             </div>
 
             <div className="space-y-1.5">
-              <Label className="text-xs text-neutral-500">Field</Label>
+              <Label className="text-xs text-muted-foreground">Field</Label>
               <p className="text-xs font-medium">
                 {fieldName
                   .replace(/_/g, " ")
@@ -126,7 +126,7 @@ export function FeedbackButton({
             </div>
 
             <div className="space-y-1.5">
-              <Label className="text-xs text-neutral-500">
+              <Label className="text-xs text-muted-foreground">
                 Original Value
               </Label>
               <Input
@@ -163,7 +163,7 @@ export function FeedbackButton({
             </div>
 
             {error && (
-              <p className="text-xs text-red-600">{error}</p>
+              <p className="text-xs text-rose-600">{error}</p>
             )}
 
             <div className="flex justify-end gap-2 pt-1">

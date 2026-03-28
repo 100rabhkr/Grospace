@@ -24,14 +24,27 @@ function getInitials(name: string): string {
 async function fetchFirstOrgId(): Promise<string | null> {
   try {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
-    const res = await fetch(`${apiUrl}/api/organizations?page_size=1`);
+    // Build headers with auth token if available
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.access_token) {
+        headers["Authorization"] = `Bearer ${session.access_token}`;
+      }
+    } catch {
+      // Supabase may not be configured in demo mode — proceed without auth
+    }
+    const res = await fetch(`${apiUrl}/api/organizations?page_size=1`, { headers });
     if (res.ok) {
       const data = await res.json();
       if (data.items && data.items.length > 0) {
         return data.items[0].id;
       }
     }
-  } catch {}
+  } catch {
+    // Silently handle — org lookup is best-effort for demo/fallback
+  }
   return null;
 }
 

@@ -12,7 +12,7 @@ import {
   BarChart3,
   Settings,
   Building2,
-  ChevronDown,
+  ChevronRight,
   LogOut,
   Kanban,
   Bot,
@@ -39,7 +39,6 @@ interface NavItem {
   children?: NavChild[];
 }
 
-/** Roles ordered by access level (highest first). */
 const ROLE_RANK: Record<UserRole, number> = {
   platform_admin: 3,
   org_admin: 2,
@@ -54,7 +53,7 @@ function hasAccess(userRole: UserRole, minRole?: UserRole): boolean {
 const navItems: NavItem[] = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
   { label: "Map View", href: "/map", icon: Map },
-  { label: "GroBot", href: "/ai-assistant", icon: Bot },
+  { label: "Grow AI", href: "/ai-assistant", icon: Bot },
   {
     label: "Outlets",
     href: "/outlets",
@@ -72,10 +71,10 @@ const navItems: NavItem[] = [
       { label: "Upload Documents", href: "/agreements/upload", minRole: "org_admin" },
     ],
   },
-  { label: "Alerts", href: "/alerts", icon: Bell },
+  { label: "Reminders", href: "/alerts", icon: Bell },
   { label: "Pipeline", href: "/pipeline", icon: Kanban, minRole: "org_admin" },
   { label: "Payments", href: "/payments", icon: Wallet },
-  { label: "Leasebot", href: "/leasebot", icon: Sparkles },
+  { label: "Lease AI", href: "/leasebot", icon: Sparkles },
   { label: "Reports", href: "/reports", icon: BarChart3 },
   { label: "Settings", href: "/settings", icon: Settings, minRole: "org_admin" },
 ];
@@ -98,12 +97,12 @@ export function Sidebar() {
   const userRole: UserRole = user?.role || "org_member";
 
   return (
-    <aside className="w-[240px] h-screen bg-[#fafbfd] border-r border-[#e4e8ef] flex flex-col shrink-0">
+    <aside className="w-[232px] h-screen bg-white border-r border-slate-200 flex flex-col shrink-0">
       {/* Logo */}
-      <div className="h-14 flex items-center px-5 border-b border-[#e4e8ef]">
+      <div className="h-14 flex items-center px-5 border-b border-slate-200/60">
         <Link href="/" className="flex items-center gap-2.5">
-          <Image src="/logo.png" alt="GroSpace" width={28} height={28} className="rounded-md" />
-          <span className="text-[17px] font-semibold tracking-tight text-foreground">GroSpace</span>
+          <Image src="/logo.png" alt="GroSpace" width={24} height={24} className="rounded-md" />
+          <span className="text-[14px] font-semibold tracking-tight text-slate-900">GroSpace</span>
         </Link>
       </div>
 
@@ -124,10 +123,10 @@ export function Sidebar() {
               <div key={item.label}>
                 <div
                   className={cn(
-                    "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 ease-out cursor-pointer",
+                    "relative flex items-center gap-2.5 px-2.5 py-[7px] rounded-lg text-[13px] font-medium transition-all duration-200 cursor-pointer",
                     isActive
-                      ? "bg-[#132337] text-white"
-                      : "text-slate-500 hover:text-[#132337] hover:bg-slate-50/80"
+                      ? "bg-slate-100 text-slate-900"
+                      : "text-slate-500 hover:text-slate-900 hover:bg-slate-50"
                   )}
                   onClick={() => {
                     router.push(item.href);
@@ -139,14 +138,15 @@ export function Sidebar() {
                     }
                   }}
                 >
-                  <Icon className={cn("w-4 h-4", isActive && "text-white")} />
+                  <Icon className="w-[15px] h-[15px] shrink-0" strokeWidth={1.5} />
                   <span className="flex-1">{item.label}</span>
                   {hasChildren && (
-                    <ChevronDown
+                    <ChevronRight
                       className={cn(
-                        "w-3.5 h-3.5 transition-transform",
-                        isExpanded && "rotate-180"
+                        "w-3 h-3 transition-transform duration-200",
+                        isExpanded && "rotate-90"
                       )}
+                      strokeWidth={1.5}
                       onClick={(e) => {
                         e.stopPropagation();
                         setExpanded((prev) => ({
@@ -158,16 +158,16 @@ export function Sidebar() {
                   )}
                 </div>
                 {hasChildren && isExpanded && (
-                  <div className="ml-6 mt-0.5 space-y-0.5">
+                  <div className="ml-[30px] mt-0.5 space-y-0.5">
                     {visibleChildren!.map((child) => (
                       <Link
                         key={child.href}
                         href={child.href}
                         className={cn(
-                          "flex items-center gap-2 px-3 py-1.5 rounded-md text-[13px] transition-colors",
+                          "flex items-center px-2.5 py-[5px] rounded-md text-[12px] transition-colors duration-150",
                           pathname === child.href
-                            ? "text-foreground font-medium"
-                            : "text-slate-400 hover:text-foreground"
+                            ? "text-slate-900 font-medium"
+                            : "text-slate-400 hover:text-slate-700"
                         )}
                       >
                         {child.label}
@@ -180,22 +180,22 @@ export function Sidebar() {
           })}
         </div>
 
-        {/* Platform Admin section — only visible to platform_admin */}
+        {/* Platform Admin section */}
         {hasAccess(userRole, "platform_admin") && (
-          <div className="mt-6 pt-4 border-t border-[#e4e8ef]">
-            <p className="px-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-2">
-              Platform Admin
+          <div className="mt-6 pt-4 border-t border-slate-200/60">
+            <p className="px-2.5 mb-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">
+              Admin
             </p>
             <Link
               href="/organizations"
               className={cn(
-                "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                "relative flex items-center gap-2.5 px-2.5 py-[7px] rounded-lg text-[13px] font-medium transition-all duration-200",
                 pathname === "/organizations"
-                  ? "bg-[#132337] text-white"
-                  : "text-slate-500 hover:text-[#132337] hover:bg-slate-50/80"
+                  ? "bg-slate-100 text-slate-900"
+                  : "text-slate-500 hover:text-slate-900 hover:bg-slate-50"
               )}
             >
-              <Building2 className={cn("w-4 h-4", pathname === "/organizations" && "text-white")} />
+              <Building2 className="w-[15px] h-[15px]" strokeWidth={1.5} />
               <span>Organizations</span>
             </Link>
           </div>
@@ -203,19 +203,19 @@ export function Sidebar() {
       </nav>
 
       {/* User */}
-      <div className="p-3 border-t border-[#e4e8ef]">
-        <div className="flex items-center gap-2.5 px-2 py-1.5">
-          <div className="w-7 h-7 rounded-full bg-[#132337] flex items-center justify-center">
+      <div className="p-3 border-t border-slate-200/60">
+        <div className="flex items-center gap-2.5 px-2">
+          <div className="w-7 h-7 rounded-full bg-slate-900 flex items-center justify-center shrink-0">
             {userLoading ? (
-              <span className="text-white text-[10px] font-semibold">...</span>
+              <span className="text-white text-[9px] font-medium font-mono">...</span>
             ) : (
-              <span className="text-white text-[10px] font-semibold">
+              <span className="text-white text-[9px] font-semibold font-mono">
                 {user?.initials || "??"}
               </span>
             )}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-medium truncate">
+            <p className="text-[12px] font-medium truncate text-slate-900">
               {userLoading ? "Loading..." : user?.fullName || "User"}
             </p>
             <p className="text-[10px] text-slate-400 truncate">
@@ -228,10 +228,10 @@ export function Sidebar() {
                 window.location.href = "/auth/login";
               });
             }}
-            className="text-slate-400 hover:text-slate-700 transition-colors"
+            className="text-slate-400 hover:text-slate-700 transition-colors duration-200 p-1.5 rounded-md hover:bg-slate-50"
             title="Sign out"
           >
-            <LogOut className="w-3.5 h-3.5" />
+            <LogOut className="w-3.5 h-3.5" strokeWidth={1.5} />
           </button>
         </div>
       </div>

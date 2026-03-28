@@ -56,7 +56,7 @@ export function OnboardingChecklist({
       icon: FileCheck,
     },
     {
-      label: "Check your alerts",
+      label: "Check your reminders",
       done: alertsVisited,
       href: "/alerts",
       icon: Bell,
@@ -82,25 +82,25 @@ export function OnboardingChecklist({
   }
 
   return (
-    <Card className="border-[#e4e8ef] bg-gradient-to-r from-[#fafbfd] to-white overflow-hidden">
+    <Card className="border-border bg-gradient-to-r from-card to-card overflow-hidden">
       <CardContent className="p-5">
         <div className="flex items-start justify-between mb-4">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-[#132337] flex items-center justify-center">
+            <div className="w-8 h-8 rounded-lg bg-foreground flex items-center justify-center">
               <Rocket className="h-4 w-4 text-white" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-[#132337]">
+              <h3 className="text-sm font-semibold text-foreground">
                 Get started with GroSpace
               </h3>
-              <p className="text-[11px] text-neutral-500">
+              <p className="text-[11px] text-muted-foreground">
                 {completedCount}/{steps.length} steps complete
               </p>
             </div>
           </div>
           <button
             onClick={handleDismiss}
-            className="p-1 rounded hover:bg-[#f4f6f9] transition-colors text-neutral-400 hover:text-neutral-600"
+            className="p-1 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
             title="Dismiss"
           >
             <X className="h-4 w-4" />
@@ -108,9 +108,9 @@ export function OnboardingChecklist({
         </div>
 
         {/* Progress bar */}
-        <div className="h-1.5 w-full rounded-full bg-[#e4e8ef] mb-4 overflow-hidden">
+        <div className="h-1.5 w-full rounded-full bg-border mb-4 overflow-hidden">
           <div
-            className="h-full rounded-full bg-[#132337] transition-all duration-500 ease-out"
+            className="h-full rounded-full bg-foreground transition-all duration-500 ease-out"
             style={{ width: `${progressPct}%` }}
           />
         </div>
@@ -126,21 +126,21 @@ export function OnboardingChecklist({
                 onClick={step.onClick}
                 className={`flex items-center gap-3 p-2.5 rounded-lg border transition-all duration-200 ${
                   step.done
-                    ? "border-emerald-200 bg-emerald-50/50 opacity-70"
-                    : "border-[#e4e8ef] bg-white hover:border-[#132337]/20 hover:shadow-sm"
+                    ? "border-emerald-200 bg-emerald-50 opacity-70"
+                    : "border-border bg-card hover:border-foreground/20 hover:shadow-sm"
                 }`}
               >
                 {step.done ? (
-                  <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" />
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0" />
                 ) : (
-                  <Circle className="h-4 w-4 text-neutral-300 flex-shrink-0" />
+                  <Circle className="h-4 w-4 text-slate-300 flex-shrink-0" />
                 )}
-                <Icon className={`h-3.5 w-3.5 flex-shrink-0 ${step.done ? "text-emerald-500" : "text-neutral-400"}`} />
+                <Icon className={`h-3.5 w-3.5 flex-shrink-0 ${step.done ? "text-emerald-600" : "text-muted-foreground"}`} />
                 <span
                   className={`text-sm ${
                     step.done
                       ? "text-emerald-700 line-through"
-                      : "text-[#132337] font-medium"
+                      : "text-foreground font-medium"
                   }`}
                 >
                   {step.label}
@@ -151,7 +151,7 @@ export function OnboardingChecklist({
         </div>
 
         {completedCount === steps.length && (
-          <div className="mt-4 pt-3 border-t border-[#e4e8ef] text-center">
+          <div className="mt-4 pt-3 border-t border-border text-center">
             <p className="text-sm text-emerald-700 font-medium">
               All done! You&apos;re all set.
             </p>
@@ -159,7 +159,7 @@ export function OnboardingChecklist({
               variant="ghost"
               size="sm"
               onClick={handleDismiss}
-              className="mt-1 text-xs text-neutral-500"
+              className="mt-1 text-xs text-muted-foreground"
             >
               Dismiss checklist
             </Button>
