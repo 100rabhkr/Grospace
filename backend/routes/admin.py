@@ -103,7 +103,7 @@ def reject_signup_request(
 @router.get("/organizations", dependencies=[Depends(require_permission("manage_org_settings"))])
 def list_organizations(
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=100),
+    page_size: int = Query(50, ge=1, le=500),
 ):
     """List all organizations (paginated)."""
     offset = (page - 1) * page_size
@@ -162,7 +162,7 @@ def update_organization(org_id: str, req: UpdateOrganizationRequest):
 def list_org_members(
     org_id: str,
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=100),
+    page_size: int = Query(50, ge=1, le=500),
 ):
     """List all profiles belonging to an organization (paginated)."""
     offset = (page - 1) * page_size
@@ -1843,7 +1843,7 @@ def list_feedback(
     org_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=500),
 ):
     """List feedback entries, optionally filtered by org and status."""
     query = supabase.table("feedback").select("*", count="exact")

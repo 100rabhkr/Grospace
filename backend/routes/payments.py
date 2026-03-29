@@ -28,7 +28,7 @@ def list_payments(
     period_year: Optional[int] = Query(None),
     period_month: Optional[int] = Query(None),
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=100),
+    page_size: int = Query(50, ge=1, le=500),
     user: Optional[CurrentUser] = Depends(get_current_user),
 ):
     """List payment records with optional filters (paginated)."""
@@ -95,7 +95,7 @@ def list_obligations(
     outlet_id: Optional[str] = Query(None),
     active_only: bool = Query(True),
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=100),
+    page_size: int = Query(50, ge=1, le=500),
     user: Optional[CurrentUser] = Depends(get_current_user),
 ):
     """List obligations with optional filters (paginated)."""

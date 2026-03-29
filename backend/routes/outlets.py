@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api", tags=["outlets"])
 @router.get("/outlets", dependencies=[Depends(require_permission("view_outlets"))])
 def list_outlets(
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=100),
+    page_size: int = Query(50, ge=1, le=500),
 ):
     """List outlets (paginated)."""
     offset = (page - 1) * page_size

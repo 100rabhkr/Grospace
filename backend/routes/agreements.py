@@ -105,7 +105,7 @@ def test_sheets_write():
 @router.get("/agreements", dependencies=[Depends(require_permission("view_agreements"))])
 def list_agreements(
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=100),
+    page_size: int = Query(50, ge=1, le=500),
 ):
     """List agreements with outlet info (paginated)."""
     offset = (page - 1) * page_size
