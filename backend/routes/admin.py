@@ -146,6 +146,8 @@ def list_organizations(
 def create_organization(name: str = Form(...)):
     """Create a new organization."""
     result = supabase.table("organizations").insert({"id": str(uuid.uuid4()), "name": name}).execute()
+    if not result.data:
+        raise HTTPException(status_code=500, detail="Failed to create organization")
     return {"organization": result.data[0]}
 
 
@@ -809,6 +811,8 @@ def create_pilot(req: CreatePilotRequest):
             "password": req.admin_password,
             "email_confirm": True,
         })
+        if not admin_user or not admin_user.user:
+            raise HTTPException(status_code=500, detail="Failed to create admin user")
         admin_user_id = admin_user.user.id
 
         # Set profile for admin
@@ -825,6 +829,8 @@ def create_pilot(req: CreatePilotRequest):
                 "password": req.ceo_password,
                 "email_confirm": True,
             })
+            if not ceo_user or not ceo_user.user:
+                raise HTTPException(status_code=500, detail="Failed to create CEO user")
             ceo_user_id = ceo_user.user.id
 
             supabase.table("profiles").update({
