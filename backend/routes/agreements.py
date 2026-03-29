@@ -454,6 +454,9 @@ def create_draft(body: ConfirmActivateRequest, request: Request):
 
         log_activity(
             org_id=org_id,
+            user_id=None,
+            entity_type="agreement",
+            entity_id=agreement_id,
             action="create_draft",
             details={"agreement_id": agreement_id, "filename": body.filename},
         )
