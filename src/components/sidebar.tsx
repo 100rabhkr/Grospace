@@ -18,6 +18,7 @@ import {
   Bot,
   Map,
   Sparkles,
+  RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -60,6 +61,7 @@ const navItems: NavItem[] = [
     icon: Store,
     children: [
       { label: "All Outlets", href: "/outlets" },
+      { label: "Create Outlet", href: "/outlets?create=true", minRole: "org_admin" },
     ],
   },
   {
@@ -68,11 +70,12 @@ const navItems: NavItem[] = [
     icon: FileText,
     children: [
       { label: "All Agreements", href: "/agreements" },
-      { label: "Upload Documents", href: "/agreements/upload", minRole: "org_admin" },
+      { label: "Draft Review", href: "/agreements/upload", minRole: "org_admin" },
     ],
   },
   { label: "Reminders", href: "/alerts", icon: Bell },
   { label: "Pipeline", href: "/pipeline", icon: Kanban, minRole: "org_admin" },
+  { label: "Renewals", href: "/renewals", icon: RefreshCw, minRole: "org_admin" },
   { label: "Payments", href: "/payments", icon: Wallet },
   { label: "Lease AI", href: "/leasebot", icon: Sparkles },
   { label: "Reports", href: "/reports", icon: BarChart3 },

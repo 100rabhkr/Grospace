@@ -392,7 +392,18 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
 
 export default function UploadAgreementPage() {
   const router = useRouter();
+
+  // Read outlet_id from URL params (outlet-first flow)
+  const [outletIdFromUrl] = useState(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      return params.get("outlet_id") || null;
+    }
+    return null;
+  });
+
   const [step, setStep] = useState(1);
+  const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -418,6 +429,49 @@ export default function UploadAgreementPage() {
 
   // Verification checkboxes state (tracks "sectionKey.fieldKey" strings)
   const [verifiedFields, setVerifiedFields] = useState<Set<string>>(new Set());
+
+  // Section-by-section stepper state
+  const [activeSectionIndex, setActiveSectionIndex] = useState(0);
+  const [verifiedSections, setVerifiedSections] = useState<Set<string>>(new Set());
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+
+  // Get ordered section keys from extraction result
+  const sectionKeys = useMemo(() => {
+    if (!result?.extraction) return [];
+    const preferred = ["parties", "premises", "lease_term", "rent", "charges", "deposits", "legal"];
+    const keys = Object.keys(result.extraction).filter(
+      (k) => typeof result.extraction[k] === "object" && result.extraction[k] !== null
+    );
+    return preferred.filter((k) => keys.includes(k)).concat(keys.filter((k) => !preferred.includes(k)));
+  }, [result?.extraction]);
+
+  const activeSectionKey = sectionKeys[activeSectionIndex] || "";
+  const allSectionsVerified = sectionKeys.length > 0 && sectionKeys.every((k) => verifiedSections.has(k));
+
+  const goToNextSection = () => {
+    if (activeSectionIndex < sectionKeys.length - 1) {
+      setActiveSectionIndex((i) => i + 1);
+      setPdfHighlightPage(undefined);
+      setPdfHighlightQuote(undefined);
+    }
+  };
+
+  const goToPrevSection = () => {
+    if (activeSectionIndex > 0) {
+      setActiveSectionIndex((i) => i - 1);
+      setPdfHighlightPage(undefined);
+      setPdfHighlightQuote(undefined);
+    }
+  };
+
+  const toggleSectionVerified = (key: string) => {
+    setVerifiedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   // Lease vs License field filter
   const [fieldFilter, setFieldFilter] = useState<FieldFilterMode>("all");
@@ -660,6 +714,21 @@ export default function UploadAgreementPage() {
 
   async function handleStartExtraction() {
     if (!selectedFile) return;
+    setDuplicateWarning(null);
+
+    // Check for duplicate if outlet_id is known
+    if (outletIdFromUrl && selectedFile.name) {
+      try {
+        const { checkDuplicateAgreement } = await import("@/lib/api");
+        const dup = await checkDuplicateAgreement(outletIdFromUrl, selectedFile.name);
+        if (dup) {
+          setDuplicateWarning(`A document named "${selectedFile.name}" already exists for this outlet. Uploading anyway.`);
+        }
+      } catch {
+        // Skip duplicate check on error
+      }
+    }
+
     setStep(2);
     setError(null);
 
@@ -777,6 +846,15 @@ export default function UploadAgreementPage() {
       </div>
 
       {/* Error Banner */}
+      {duplicateWarning && (
+        <div className="flex items-center gap-3 p-3 rounded-lg border border-amber-200 bg-amber-50 text-amber-700">
+          <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+          <p className="text-xs flex-1">{duplicateWarning}</p>
+          <Button variant="ghost" size="sm" className="p-1" onClick={() => setDuplicateWarning(null)}>
+            <X className="h-3 w-3" />
+          </Button>
+        </div>
+      )}
       {error && (
         <div className="flex items-center gap-3 p-4 rounded-lg border border-rose-200 bg-rose-50 text-rose-700">
           <AlertTriangle className="h-5 w-5 flex-shrink-0" />
@@ -808,6 +886,12 @@ export default function UploadAgreementPage() {
             </button>
           </div>
           {isDraftMode && (
+            <div className="flex items-center gap-2 p-3 rounded-lg border border-amber-200 bg-amber-50/50 text-amber-800 text-xs">
+              <Eye className="h-4 w-4 flex-shrink-0" />
+              Draft Review accepts lease/LOI documents only. Other documents (licenses, bills) should be uploaded via the Outlet Storage Drive.
+            </div>
+          )}
+          {isDraftMode && false && (
             <div className="flex items-center gap-2 p-3 rounded-lg border border-blue-200 bg-blue-50/50">
               <FileCheck className="h-4 w-4 text-blue-600 flex-shrink-0" />
               <p className="text-xs text-blue-700">
@@ -1156,9 +1240,50 @@ export default function UploadAgreementPage() {
             </div>
           )}
 
-          {/* Verification Progress + Field Filter */}
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3 rounded-xl border bg-card">
-            {/* Verification progress */}
+          {/* Section Stepper Navigation */}
+          <div className="p-3 rounded-xl border bg-card space-y-3">
+            {/* Section progress dots */}
+            <div className="flex items-center gap-1 justify-center">
+              {sectionKeys.map((key, idx) => {
+                const isActive = idx === activeSectionIndex;
+                const isVerified = verifiedSections.has(key);
+                const conf = sectionConfig[key] || { title: formatFieldLabel(key), icon: FileText };
+                return (
+                  <button
+                    key={key}
+                    onClick={() => { setActiveSectionIndex(idx); setPdfHighlightPage(undefined); setPdfHighlightQuote(undefined); }}
+                    className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[10px] font-medium transition-all ${
+                      isActive
+                        ? "bg-foreground text-white shadow-sm"
+                        : isVerified
+                        ? "bg-emerald-100 text-emerald-700"
+                        : "bg-muted text-muted-foreground hover:bg-muted/80"
+                    }`}
+                    title={conf.title}
+                  >
+                    {isVerified && !isActive && <Check className="h-2.5 w-2.5" />}
+                    <span className="hidden sm:inline">{conf.title.split(" ")[0]}</span>
+                    <span className="sm:hidden">{idx + 1}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {/* Section progress bar */}
+            <div className="flex items-center gap-2">
+              <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-emerald-500 rounded-full transition-all duration-500"
+                  style={{ width: `${sectionKeys.length > 0 ? (verifiedSections.size / sectionKeys.length) * 100 : 0}%` }}
+                />
+              </div>
+              <span className="text-[10px] font-medium text-muted-foreground tabular-nums">
+                {verifiedSections.size}/{sectionKeys.length} sections verified
+              </span>
+            </div>
+          </div>
+
+          {/* OLD: Verification Progress — hidden, replaced by stepper */}
+          <div className="hidden flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3 rounded-xl border bg-card">
             <div className="flex items-center gap-3">
               <CheckSquare className="h-4 w-4 text-emerald-600 flex-shrink-0" />
               <div className="flex-1 min-w-0">
@@ -1337,8 +1462,9 @@ export default function UploadAgreementPage() {
                 </Card>
               )}
 
-              {/* Extracted Data — Accordion Sections */}
-              {Object.entries(result.extraction).map(([sectionKey, sectionData]) => {
+              {/* Extracted Data — Section-by-Section Stepper */}
+              {sectionKeys.filter((k) => k === activeSectionKey).map((sectionKey) => {
+                const sectionData = result.extraction[sectionKey];
                 if (typeof sectionData !== "object" || sectionData === null) return null;
                 const allFields = Object.entries(sectionData as Record<string, unknown>);
                 // Apply field filter
@@ -1636,6 +1762,56 @@ export default function UploadAgreementPage() {
             </div>
           </div>
 
+          {/* Section Verification + Navigation */}
+          <div className="flex items-center justify-between p-3 rounded-xl border bg-card">
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={activeSectionIndex === 0}
+              onClick={goToPrevSection}
+              className="gap-1"
+            >
+              <ChevronLeft className="h-4 w-4" />
+              Back
+            </Button>
+
+            <div className="flex items-center gap-3">
+              {/* Section verification checkbox */}
+              <button
+                type="button"
+                onClick={() => toggleSectionVerified(activeSectionKey)}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-colors text-xs font-medium ${
+                  verifiedSections.has(activeSectionKey)
+                    ? "bg-emerald-50 border-emerald-300 text-emerald-700"
+                    : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                <span className={`h-4 w-4 rounded border flex items-center justify-center ${
+                  verifiedSections.has(activeSectionKey)
+                    ? "bg-emerald-500 border-emerald-500 text-white"
+                    : "border-slate-300"
+                }`}>
+                  {verifiedSections.has(activeSectionKey) && <Check className="h-2.5 w-2.5" />}
+                </span>
+                I have verified this section
+              </button>
+            </div>
+
+            {activeSectionIndex < sectionKeys.length - 1 ? (
+              <Button
+                size="sm"
+                onClick={goToNextSection}
+                disabled={!verifiedSections.has(activeSectionKey)}
+                className="gap-1"
+              >
+                Next
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            ) : (
+              <div /> /* spacer for last section */
+            )}
+          </div>
+
           {/* Action Bar */}
           <Separator />
           <div className="flex items-center justify-between py-2">
@@ -1646,7 +1822,8 @@ export default function UploadAgreementPage() {
                 setResult(null);
                 setSelectedFile(null);
                 setError(null);
-                // Return to bulk mode if there are remaining bulk jobs
+                setActiveSectionIndex(0);
+                setVerifiedSections(new Set());
                 if (bulkJobs.length > 0) {
                   setBulkMode(true);
                 }
@@ -1658,8 +1835,50 @@ export default function UploadAgreementPage() {
             </Button>
             <div className="flex items-center gap-3">
               <Button
-                disabled={isConfirming}
+                disabled={isConfirming || !allSectionsVerified}
                 onClick={async () => {
+                  if (!allSectionsVerified) return;
+                  setShowConfirmDialog(true);
+                }}
+                className="gap-2 px-6"
+                title={allSectionsVerified ? "" : `Verify all ${sectionKeys.length} sections before proceeding`}
+              >
+                <Rocket className="h-4 w-4" />
+                {isDraftMode ? "Save Draft" : "Confirm & Activate"}
+                {!allSectionsVerified && (
+                  <Badge variant="outline" className="text-[9px] ml-1">{verifiedSections.size}/{sectionKeys.length}</Badge>
+                )}
+              </Button>
+            </div>
+          </div>
+
+          {/* Confirmation Dialog */}
+          {showConfirmDialog && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+              <Card className="max-w-md mx-4">
+                <CardContent className="pt-6 pb-6 space-y-4">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-full bg-amber-100 flex items-center justify-center">
+                      <Eye className="h-5 w-5 text-amber-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold">Final Confirmation</p>
+                      <p className="text-xs text-muted-foreground">Have you verified all extracted fields?</p>
+                    </div>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    You have verified {verifiedSections.size} of {sectionKeys.length} sections.
+                    Once activated, this data will create an outlet and agreement in your portfolio.
+                  </p>
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" size="sm" onClick={() => setShowConfirmDialog(false)}>
+                      Go Back & Review
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={isConfirming}
+                      onClick={async () => {
+                        setShowConfirmDialog(false);
                   if (!result) return;
                   setIsConfirming(true);
                   setError(null);
@@ -1699,22 +1918,24 @@ export default function UploadAgreementPage() {
                     setIsConfirming(false);
                   }
                 }}
-                className="gap-2 px-6"
               >
                 {isConfirming ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    {isDraftMode ? "Saving Draft..." : "Activating..."}
+                    {isDraftMode ? "Saving..." : "Activating..."}
                   </>
                 ) : (
                   <>
                     <Rocket className="h-4 w-4" />
-                    {isDraftMode ? "Save Draft" : "Confirm & Activate"}
+                    Yes, {isDraftMode ? "Save Draft" : "Confirm & Activate"}
                   </>
                 )}
               </Button>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
-          </div>
+          )}
         </div>
       )}
 

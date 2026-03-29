@@ -322,6 +322,9 @@ export default function AlertsPage() {
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [severityFilter, setSeverityFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [timeFilter, setTimeFilter] = useState<string>("6");  // months ahead — default 6
+  const [outletFilter, setOutletFilter] = useState<string>("all");
+  const [cityFilter, setCityFilter] = useState<string>("all");
 
   // Local status overrides (for acknowledge / snooze)
   const [alertStates, setAlertStates] = useState<Record<string, AlertStatus>>(
@@ -413,13 +416,28 @@ export default function AlertsPage() {
       if (statusFilter !== "all" && effectiveStatus !== statusFilter)
         return false;
 
+      // Time filter: only show reminders within N months from today
+      if (timeFilter !== "all" && alert.trigger_date) {
+        const months = parseInt(timeFilter, 10);
+        const cutoff = new Date();
+        cutoff.setMonth(cutoff.getMonth() + months);
+        if (new Date(alert.trigger_date) > cutoff) return false;
+      }
+
+      // Outlet filter
+      if (outletFilter !== "all" && outletName !== outletFilter) return false;
+
+      // City filter
+      const alertCity = alert.outlets?.city || "";
+      if (cityFilter !== "all" && alertCity !== cityFilter) return false;
+
       // Snoozed reminders: still include but will be dimmed (not filtered out)
       // unless status filter explicitly excludes snoozed
       void isSnoozed;
 
       return true;
     });
-  }, [alerts, searchQuery, typeFilter, severityFilter, statusFilter, alertStates, completedIds, snoozeMap, activeTab]);
+  }, [alerts, searchQuery, typeFilter, severityFilter, statusFilter, timeFilter, outletFilter, cityFilter, alertStates, completedIds, snoozeMap, activeTab]);
 
   // Count for tabs
   const activeCount = useMemo(() => alerts.filter((a) => !completedIds.has(a.id)).length, [alerts, completedIds]);
@@ -573,7 +591,10 @@ export default function AlertsPage() {
     searchQuery !== "" ||
     typeFilter !== "all" ||
     severityFilter !== "all" ||
-    statusFilter !== "all";
+    statusFilter !== "all" ||
+    timeFilter !== "6" ||
+    outletFilter !== "all" ||
+    cityFilter !== "all";
 
   // ---------- Calendar helpers ----------
 
@@ -798,6 +819,58 @@ export default function AlertsPage() {
                 ))}
               </SelectContent>
             </Select>
+
+            {/* Time Window Filter */}
+            <Select value={timeFilter} onValueChange={setTimeFilter}>
+              <SelectTrigger>
+                <SelectValue placeholder="Time" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="1">Next 1 month</SelectItem>
+                <SelectItem value="3">Next 3 months</SelectItem>
+                <SelectItem value="6">Next 6 months</SelectItem>
+                <SelectItem value="12">Next 12 months</SelectItem>
+                <SelectItem value="all">All time</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {/* Outlet Filter */}
+            {(() => {
+              const outlets = Array.from(new Set(alerts.map((a) => a.outlets?.name).filter(Boolean))).sort();
+              if (outlets.length <= 1) return null;
+              return (
+                <Select value={outletFilter} onValueChange={setOutletFilter}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Outlet" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Outlets</SelectItem>
+                    {outlets.map((name) => (
+                      <SelectItem key={name} value={name!}>{name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              );
+            })()}
+
+            {/* City Filter */}
+            {(() => {
+              const cities = Array.from(new Set(alerts.map((a) => a.outlets?.city).filter(Boolean))).sort();
+              if (cities.length <= 1) return null;
+              return (
+                <Select value={cityFilter} onValueChange={setCityFilter}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="City" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Cities</SelectItem>
+                    {cities.map((city) => (
+                      <SelectItem key={city} value={city!}>{city}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              );
+            })()}
           </div>
 
           {hasActiveFilters && (

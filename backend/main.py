@@ -20,7 +20,7 @@ from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from core.config import limiter
-from routes import auth, documents, outlets, agreements, payments, alerts, pipeline, admin, reports, contacts, leasebot, revenue, rent_schedules, critical_dates
+from routes import auth, documents, outlets, agreements, payments, alerts, pipeline, admin, reports, contacts, leasebot, revenue, rent_schedules, critical_dates, india_compliance
 
 # ============================================
 # SENTRY MONITORING
@@ -147,6 +147,7 @@ app.include_router(leasebot.router)
 app.include_router(revenue.router)
 app.include_router(rent_schedules.router)
 app.include_router(critical_dates.router)
+app.include_router(india_compliance.router)
 
 # ============================================
 # ENTRYPOINT
