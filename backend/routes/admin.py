@@ -28,6 +28,16 @@ router = APIRouter(prefix="/api", tags=["admin"])
 
 
 # ============================================
+# USAGE LOGGING
+# ============================================
+
+@router.post("/admin/log-usage")
+def log_usage(request: Request):
+    """Log usage event (no-op for now, prevents 404)."""
+    return {"status": "ok"}
+
+
+# ============================================
 # SIGNUP REQUEST / APPROVAL ENDPOINTS
 # ============================================
 
