@@ -325,6 +325,15 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
                         )
                 except Exception as e:
                     logger.warning(f"Failed to populate rent schedule: {e}")
+
+                # Auto-populate critical dates from extraction
+                try:
+                    from routes.critical_dates import populate_critical_dates_from_extraction
+                    populate_critical_dates_from_extraction(
+                        agreement_id, org_id, outlet_id, req.extraction,
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to populate critical dates: {e}")
                 obligations_created = len(obligations)
                 alerts_created = len(alerts)
                 supabase.table("activity_log").insert({

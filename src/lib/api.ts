@@ -704,6 +704,42 @@ export async function deleteRentScheduleEntry(entryId: string) {
 }
 
 // ============================================
+// CRITICAL DATES
+// ============================================
+
+export async function listCriticalDates(agreementId: string) {
+  return apiFetch(`/api/agreements/${agreementId}/critical-dates`);
+}
+
+export async function listUpcomingCriticalDates(days: number = 90) {
+  return apiFetch(`/api/critical-dates/upcoming?days=${days}`);
+}
+
+export async function updateCriticalDateStatus(dateId: string, status: string) {
+  return apiFetch(`/api/critical-dates/${dateId}?status=${status}`, {
+    method: "PATCH",
+  });
+}
+
+// ============================================
+// ESCALATION
+// ============================================
+
+export async function generateEscalationSchedule(agreementId: string, opts: {
+  escalation_pct?: number;
+  escalation_frequency_years?: number;
+  num_years?: number;
+}) {
+  const params = new URLSearchParams();
+  if (opts.escalation_pct) params.set("escalation_pct", String(opts.escalation_pct));
+  if (opts.escalation_frequency_years) params.set("escalation_frequency_years", String(opts.escalation_frequency_years));
+  if (opts.num_years) params.set("num_years", String(opts.num_years));
+  return apiFetch(`/api/agreements/${agreementId}/rent-schedule/generate-escalation?${params}`, {
+    method: "POST",
+  });
+}
+
+// ============================================
 // REVENUE CSV UPLOAD
 // ============================================
 
