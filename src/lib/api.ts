@@ -704,6 +704,179 @@ export async function deleteRentScheduleEntry(entryId: string) {
 }
 
 // ============================================
+// CRITICAL DATES
+// ============================================
+
+export async function listEvents(agreementId: string) {
+  return apiFetch(`/api/agreements/${agreementId}/events`);
+}
+
+export async function listUpcomingEvents(days: number = 90) {
+  return apiFetch(`/api/events/upcoming?days=${days}`);
+}
+
+export async function listOverdueEvents() {
+  return apiFetch("/api/events/overdue");
+}
+
+export async function createEvent(data: {
+  agreement_id: string;
+  date_value: string;
+  label: string;
+  event_type?: string;
+  date_type?: string;
+  priority?: string;
+  notes?: string;
+  assigned_to?: string;
+  amount?: number;
+  is_recurring?: boolean;
+  recurrence_frequency?: string;
+}) {
+  return apiFetch("/api/events", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateEvent(eventId: string, updates: Record<string, unknown>) {
+  return apiFetch(`/api/events/${eventId}`, {
+    method: "PATCH",
+    body: JSON.stringify(updates),
+  });
+}
+
+export async function deleteEvent(eventId: string) {
+  return apiFetch(`/api/events/${eventId}`, { method: "DELETE" });
+}
+
+export async function assignEvent(eventId: string, userId: string, role: string = "assignee") {
+  return apiFetch(`/api/events/${eventId}/assign?user_id=${userId}&role=${role}`, { method: "POST" });
+}
+
+export async function generateIndiaEvents(agreementId: string) {
+  return apiFetch(`/api/agreements/${agreementId}/events/generate-india`, { method: "POST" });
+}
+
+export async function checkEventEscalations() {
+  return apiFetch("/api/events/check-escalations", { method: "POST" });
+}
+
+// Legacy aliases
+export const listCriticalDates = listEvents;
+export const updateCriticalDateStatus = (dateId: string, status: string) =>
+  updateEvent(dateId, { status });
+
+// ============================================
+// CREATE OUTLET
+// ============================================
+
+export async function createOutlet(data: { name: string; city?: string }) {
+  return apiFetch("/api/outlets", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+// ============================================
+// ORG LOGO
+// ============================================
+
+export async function uploadOrgLogo(orgId: string, file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("org_id", orgId);
+  // Upload to documents storage, then update org
+  const uploadRes = await apiFetch("/api/documents/upload-file", {
+    method: "POST",
+    body: formData,
+  });
+  if (uploadRes?.url) {
+    await apiFetch(`/api/organizations/${orgId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ logo_url: uploadRes.url }),
+    });
+  }
+  return uploadRes;
+}
+
+// ============================================
+// AGREEMENT DELETE + DUPLICATE CHECK
+// ============================================
+
+export async function deleteAgreement(agreementId: string) {
+  return apiFetch(`/api/agreements/${agreementId}`, { method: "DELETE" });
+}
+
+export async function checkDuplicateAgreement(outletId: string, filename: string) {
+  // Check if an agreement with similar filename already exists for this outlet
+  const agreements = await apiFetch(`/api/agreements?outlet_id=${outletId}`);
+  const existing = (agreements.agreements || []).find(
+    (a: { document_filename?: string }) =>
+      a.document_filename?.toLowerCase() === filename.toLowerCase()
+  );
+  return existing || null;
+}
+
+// ============================================
+// INDIA COMPLIANCE
+// ============================================
+
+export async function calculateStampDuty(state: string, monthlyRent: number, termYears: number, deposit: number = 0, docType: string = "lease") {
+  const params = new URLSearchParams({ state, monthly_rent: String(monthlyRent), lease_term_years: String(termYears), security_deposit: String(deposit), doc_type: docType });
+  return apiFetch(`/api/stamp-duty/calculate?${params}`);
+}
+
+export async function getTdsSummary(agreementId: string) {
+  return apiFetch(`/api/agreements/${agreementId}/tds-summary`);
+}
+
+export async function getGstBreakdown(agreementId: string) {
+  return apiFetch(`/api/agreements/${agreementId}/gst-breakdown`);
+}
+
+export async function getLockInSummary(agreementId: string) {
+  return apiFetch(`/api/agreements/${agreementId}/lock-in-summary`);
+}
+
+export async function listClauses(agreementId: string, category?: string) {
+  const url = category
+    ? `/api/agreements/${agreementId}/clauses?category=${category}`
+    : `/api/agreements/${agreementId}/clauses`;
+  return apiFetch(url);
+}
+
+export async function searchClauses(category: string, q?: string) {
+  const params = new URLSearchParams({ category });
+  if (q) params.set("q", q);
+  return apiFetch(`/api/clauses/search?${params}`);
+}
+
+export async function updateAgreementRenewalStatus(agreementId: string, renewalStatus: string) {
+  return apiFetch(`/api/agreements/${agreementId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ renewal_status: renewalStatus }),
+  });
+}
+
+// ============================================
+// ESCALATION
+// ============================================
+
+export async function generateEscalationSchedule(agreementId: string, opts: {
+  escalation_pct?: number;
+  escalation_frequency_years?: number;
+  num_years?: number;
+}) {
+  const params = new URLSearchParams();
+  if (opts.escalation_pct) params.set("escalation_pct", String(opts.escalation_pct));
+  if (opts.escalation_frequency_years) params.set("escalation_frequency_years", String(opts.escalation_frequency_years));
+  if (opts.num_years) params.set("num_years", String(opts.num_years));
+  return apiFetch(`/api/agreements/${agreementId}/rent-schedule/generate-escalation?${params}`, {
+    method: "POST",
+  });
+}
+
+// ============================================
 // REVENUE CSV UPLOAD
 // ============================================
 

@@ -142,6 +142,111 @@ def delete_rent_schedule_entry(entry_id: str):
     return {"deleted": True}
 
 
+@router.post(
+    "/agreements/{agreement_id}/rent-schedule/generate-escalation",
+    dependencies=[Depends(require_permission("edit_agreements"))],
+)
+def generate_escalation_schedule(
+    agreement_id: str,
+    escalation_pct: float = 5.0,
+    escalation_frequency_years: int = 1,
+    num_years: int = 5,
+):
+    """
+    Generate rent schedule entries with escalation applied.
+    Takes the first existing entry as the base and projects forward.
+    """
+    # Get agreement details
+    agreement = (
+        supabase.table("agreements")
+        .select("org_id, lease_commencement_date, lease_expiry_date, monthly_rent, cam_monthly")
+        .eq("id", agreement_id)
+        .single()
+        .execute()
+    )
+    if not agreement.data:
+        raise HTTPException(status_code=404, detail="Agreement not found")
+
+    agr = agreement.data
+    org_id = agr["org_id"]
+
+    # Get existing schedule to use as base, or fall back to agreement fields
+    existing = (
+        supabase.table("rent_schedules")
+        .select("*")
+        .eq("agreement_id", agreement_id)
+        .order("period_start", desc=False)
+        .limit(1)
+        .execute()
+    )
+
+    if existing.data:
+        base_rent = existing.data[0].get("base_rent") or 0
+        base_cam = existing.data[0].get("cam_monthly") or 0
+        base_sqft = existing.data[0].get("rent_per_sqft")
+    else:
+        base_rent = agr.get("monthly_rent") or 0
+        base_cam = agr.get("cam_monthly") or 0
+        base_sqft = None
+
+    commencement = agr.get("lease_commencement_date")
+    if not commencement:
+        raise HTTPException(status_code=400, detail="Lease commencement date required")
+
+    # Delete existing schedule entries for this agreement
+    supabase.table("rent_schedules").delete().eq("agreement_id", agreement_id).execute()
+
+    # Generate escalated schedule
+    from dateutil.relativedelta import relativedelta
+
+    base_date = date.fromisoformat(commencement)
+    entries = []
+    current_rent = base_rent
+    current_cam = base_cam
+    current_sqft = base_sqft
+
+    for year in range(num_years):
+        # Apply escalation after the first frequency period
+        if year > 0 and year % escalation_frequency_years == 0:
+            current_rent = round(current_rent * (1 + escalation_pct / 100), 2)
+            current_cam = round(current_cam * (1 + escalation_pct / 100), 2)
+            if current_sqft:
+                current_sqft = round(current_sqft * (1 + escalation_pct / 100), 2)
+
+        period_start = (base_date + relativedelta(years=year)).isoformat()
+        period_end = (base_date + relativedelta(years=year + 1, days=-1)).isoformat()
+
+        # Clamp to expiry
+        expiry = agr.get("lease_expiry_date")
+        if expiry and period_end > expiry:
+            period_end = expiry
+        if expiry and period_start > expiry:
+            break
+
+        entries.append({
+            "id": str(uuid.uuid4()),
+            "agreement_id": agreement_id,
+            "org_id": org_id,
+            "period_label": f"Year {year + 1}",
+            "period_start": period_start,
+            "period_end": period_end,
+            "base_rent": current_rent,
+            "rent_per_sqft": current_sqft,
+            "cam_monthly": current_cam,
+            "gst_pct": 18,
+        })
+
+    if entries:
+        supabase.table("rent_schedules").insert(entries).execute()
+
+    return {
+        "generated": len(entries),
+        "escalation_pct": escalation_pct,
+        "frequency_years": escalation_frequency_years,
+        "entries": entries,
+    }
+
+
 def populate_rent_schedule_from_extraction(
     agreement_id: str,
     org_id: str,
