@@ -14,20 +14,20 @@ export function PageHeader({ title, description, children }: PageHeaderProps) {
   const router = useRouter();
 
   return (
-    <div className="flex items-start justify-between mb-6">
+    <div className="flex items-start justify-between mb-8">
       <div className="flex items-center gap-3">
         <Button
           variant="ghost"
           size="icon"
-          className="h-8 w-8 shrink-0 text-neutral-400 hover:text-foreground hover:bg-slate-100"
+          className="h-8 w-8 shrink-0 text-muted-foreground/40 hover:text-foreground"
           onClick={() => router.back()}
         >
-          <ArrowLeft className="h-4 w-4" />
+          <ArrowLeft className="h-4 w-4" strokeWidth={1.5} />
         </Button>
         <div>
-          <h1 className="text-xl font-semibold text-black tracking-tight">{title}</h1>
+          <h1 className="text-lg font-semibold text-foreground tracking-tight">{title}</h1>
           {description && (
-            <p className="text-sm text-neutral-500 mt-0.5">{description}</p>
+            <p className="text-[12px] text-muted-foreground/60 mt-0.5">{description}</p>
           )}
         </div>
       </div>

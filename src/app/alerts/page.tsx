@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { listAlerts, acknowledgeAlert, snoozeAlert, createReminder, updateReminder, deleteReminder } from "@/lib/api";
 import { Pagination } from "@/components/pagination";
 import {
@@ -25,8 +25,15 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   Bell,
   Search,
@@ -43,6 +50,8 @@ import {
   Loader2,
   List,
   CalendarIcon,
+  UserPlus,
+  Info,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 
@@ -75,6 +84,7 @@ type Alert = {
   lead_days: number;
   reference_date: string;
   status: AlertStatus;
+  assigned_to?: string | null;
   outlets: { name: string; city: string } | null;
   agreements: { type: string; document_filename: string } | null;
 };
@@ -111,27 +121,27 @@ const statusOptions: { value: AlertStatus; label: string }[] = [
 function severityDotColor(severity: AlertSeverity): string {
   switch (severity) {
     case "high":
-      return "bg-red-500";
+      return "bg-rose-500";
     case "medium":
       return "bg-amber-500";
     case "low":
-      return "bg-[#132337]";
+      return "bg-blue-400";
     case "info":
-      return "bg-neutral-400";
+      return "bg-slate-400";
     default:
-      return "bg-neutral-400";
+      return "bg-slate-400";
   }
 }
 
 function statusColor(status: string): string {
-  if (!status) return "bg-neutral-100 text-[#132337]";
+  if (!status) return "bg-slate-100 text-foreground";
   const map: Record<string, string> = {
-    pending: "bg-amber-100 text-amber-800",
-    sent: "bg-blue-100 text-blue-800",
-    acknowledged: "bg-emerald-100 text-emerald-800",
-    snoozed: "bg-neutral-100 text-[#132337]",
+    pending: "bg-amber-50 text-amber-700",
+    sent: "bg-blue-50 text-blue-700",
+    acknowledged: "bg-emerald-50 text-emerald-700",
+    snoozed: "bg-slate-100 text-foreground",
   };
-  return map[status] || "bg-neutral-100 text-[#132337]";
+  return map[status] || "bg-slate-100 text-foreground";
 }
 
 function statusLabel(status: string): string {
@@ -167,6 +177,96 @@ function groupByTriggerDate(
     .map(([date, alerts]) => ({ date, alerts }));
 }
 
+// ---------- Snooze localStorage helpers ----------
+
+const SNOOZE_STORAGE_KEY = "grospace_snoozed_alerts";
+
+type SnoozeMap = Record<string, string>; // { [alertId]: ISO date string }
+
+function loadSnoozeMap(): SnoozeMap {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(SNOOZE_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveSnoozeMap(map: SnoozeMap) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(SNOOZE_STORAGE_KEY, JSON.stringify(map));
+}
+
+function isCurrentlySnoozed(alertId: string, snoozeMap: SnoozeMap): boolean {
+  const until = snoozeMap[alertId];
+  if (!until) return false;
+  return new Date(until) > new Date();
+}
+
+function formatSnoozeUntil(isoStr: string): string {
+  const d = new Date(isoStr);
+  return d.toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+type SnoozeOption = { label: string; getDate: () => Date };
+
+function getSnoozeOptions(): SnoozeOption[] {
+  return [
+    {
+      label: "1 hour",
+      getDate: () => new Date(Date.now() + 1 * 60 * 60 * 1000),
+    },
+    {
+      label: "4 hours",
+      getDate: () => new Date(Date.now() + 4 * 60 * 60 * 1000),
+    },
+    {
+      label: "Tomorrow",
+      getDate: () => {
+        const d = new Date();
+        d.setDate(d.getDate() + 1);
+        d.setHours(9, 0, 0, 0);
+        return d;
+      },
+    },
+    {
+      label: "Next week",
+      getDate: () => {
+        const d = new Date();
+        d.setDate(d.getDate() + 7);
+        d.setHours(9, 0, 0, 0);
+        return d;
+      },
+    },
+  ];
+}
+
+// ---------- Completion localStorage helpers ----------
+
+const COMPLETED_STORAGE_KEY = "grospace_completed_alerts";
+
+function loadCompletedSet(): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = localStorage.getItem(COMPLETED_STORAGE_KEY);
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function saveCompletedSet(set: Set<string>) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(COMPLETED_STORAGE_KEY, JSON.stringify(Array.from(set)));
+}
+
 // ---------- Loading Skeleton ----------
 
 function AlertsSkeleton() {
@@ -177,24 +277,24 @@ function AlertsSkeleton() {
           <CardContent className="py-4 px-5">
             <div className="flex items-start gap-4">
               <div className="flex flex-col items-center gap-1 pt-1">
-                <div className="h-3 w-3 rounded-full bg-[#e4e8ef] animate-pulse" />
-                <div className="h-2 w-8 bg-[#e4e8ef] rounded animate-pulse" />
+                <div className="h-3 w-3 rounded-full bg-border animate-pulse" />
+                <div className="h-2 w-8 bg-border rounded animate-pulse" />
               </div>
               <div className="flex-1 space-y-3">
                 <div className="flex items-start justify-between">
                   <div className="space-y-2 flex-1">
-                    <div className="h-4 bg-[#e4e8ef] rounded animate-pulse w-3/4 max-w-[320px]" />
-                    <div className="h-3 bg-[#e4e8ef] rounded animate-pulse w-1/2 max-w-[200px]" />
+                    <div className="h-4 bg-border rounded animate-pulse w-3/4 max-w-[320px]" />
+                    <div className="h-3 bg-border rounded animate-pulse w-1/2 max-w-[200px]" />
                   </div>
-                  <div className="h-5 w-20 bg-[#e4e8ef] rounded animate-pulse" />
+                  <div className="h-5 w-20 bg-border rounded animate-pulse" />
                 </div>
-                <div className="h-3 bg-[#e4e8ef] rounded animate-pulse w-full max-w-[400px]" />
+                <div className="h-3 bg-border rounded animate-pulse w-full max-w-[400px]" />
                 <div className="h-px bg-neutral-100" />
                 <div className="flex items-center justify-between">
-                  <div className="h-3 w-32 bg-[#e4e8ef] rounded animate-pulse" />
+                  <div className="h-3 w-32 bg-border rounded animate-pulse" />
                   <div className="flex gap-2">
-                    <div className="h-7 w-24 bg-[#e4e8ef] rounded animate-pulse" />
-                    <div className="h-7 w-20 bg-[#e4e8ef] rounded animate-pulse" />
+                    <div className="h-7 w-24 bg-border rounded animate-pulse" />
+                    <div className="h-7 w-20 bg-border rounded animate-pulse" />
                   </div>
                 </div>
               </div>
@@ -239,6 +339,22 @@ export default function AlertsPage() {
     severity: "medium" as string,
   });
 
+  // Snooze state (localStorage-backed)
+  const [snoozeMap, setSnoozeMap] = useState<SnoozeMap>({});
+  // Completed state (localStorage-backed)
+  const [completedIds, setCompletedIds] = useState<Set<string>>(new Set());
+  // Active vs Completed tab
+  const [activeTab, setActiveTab] = useState<"active" | "completed">("active");
+  // Custom snooze dialog
+  const [customSnoozeAlertId, setCustomSnoozeAlertId] = useState<string | null>(null);
+  const [customSnoozeDate, setCustomSnoozeDate] = useState("");
+
+  // Load snooze map and completed set from localStorage on mount
+  useEffect(() => {
+    setSnoozeMap(loadSnoozeMap());
+    setCompletedIds(loadCompletedSet());
+  }, []);
+
   // Calendar view state
   const [viewMode, setViewMode] = useState<"list" | "calendar">("list");
   const [calendarMonth, setCalendarMonth] = useState(() => {
@@ -258,7 +374,7 @@ export default function AlertsPage() {
       setTotal(data.total || 0);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to load alerts"
+        err instanceof Error ? err.message : "Failed to load reminders"
       );
     } finally {
       setLoading(false);
@@ -276,6 +392,12 @@ export default function AlertsPage() {
     return alerts.filter((alert) => {
       const effectiveStatus = alertStates[alert.id] || alert.status;
       const outletName = alert.outlets?.name || "";
+      const isDone = completedIds.has(alert.id);
+      const isSnoozed = isCurrentlySnoozed(alert.id, snoozeMap);
+
+      // Tab filtering: active vs completed
+      if (activeTab === "completed" && !isDone) return false;
+      if (activeTab === "active" && isDone) return false;
 
       if (
         searchQuery &&
@@ -290,9 +412,18 @@ export default function AlertsPage() {
         return false;
       if (statusFilter !== "all" && effectiveStatus !== statusFilter)
         return false;
+
+      // Snoozed reminders: still include but will be dimmed (not filtered out)
+      // unless status filter explicitly excludes snoozed
+      void isSnoozed;
+
       return true;
     });
-  }, [alerts, searchQuery, typeFilter, severityFilter, statusFilter, alertStates]);
+  }, [alerts, searchQuery, typeFilter, severityFilter, statusFilter, alertStates, completedIds, snoozeMap, activeTab]);
+
+  // Count for tabs
+  const activeCount = useMemo(() => alerts.filter((a) => !completedIds.has(a.id)).length, [alerts, completedIds]);
+  const completedCount = useMemo(() => alerts.filter((a) => completedIds.has(a.id)).length, [alerts, completedIds]);
 
   const groupedAlerts = useMemo(
     () => groupByTriggerDate(filteredAlerts),
@@ -301,6 +432,7 @@ export default function AlertsPage() {
 
   // ---------- Actions ----------
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async function handleAcknowledge(alertId: string) {
     setAlertStates((prev) => ({ ...prev, [alertId]: "acknowledged" }));
     try {
@@ -327,6 +459,64 @@ export default function AlertsPage() {
         return next;
       });
     }
+  }
+
+  const handleSnoozeUntil = useCallback((alertId: string, until: Date) => {
+    const newMap = { ...snoozeMap, [alertId]: until.toISOString() };
+    setSnoozeMap(newMap);
+    saveSnoozeMap(newMap);
+    // Also call the backend snooze with approximate days
+    const days = Math.max(1, Math.ceil((until.getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
+    handleSnooze(alertId, days);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snoozeMap]);
+
+  const handleUnsnooze = useCallback((alertId: string) => {
+    const newMap = { ...snoozeMap };
+    delete newMap[alertId];
+    setSnoozeMap(newMap);
+    saveSnoozeMap(newMap);
+    setAlertStates((prev) => {
+      const next = { ...prev };
+      delete next[alertId];
+      return next;
+    });
+  }, [snoozeMap]);
+
+  const handleMarkDone = useCallback(async (alertId: string) => {
+    const newSet = new Set(completedIds);
+    newSet.add(alertId);
+    setCompletedIds(newSet);
+    saveCompletedSet(newSet);
+    // Also call acknowledge API as completion
+    try {
+      await acknowledgeAlert(alertId);
+      setAlertStates((prev) => ({ ...prev, [alertId]: "acknowledged" }));
+    } catch {
+      // Keep local state even if API fails
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [completedIds]);
+
+  const handleUndoComplete = useCallback((alertId: string) => {
+    const newSet = new Set(completedIds);
+    newSet.delete(alertId);
+    setCompletedIds(newSet);
+    saveCompletedSet(newSet);
+    setAlertStates((prev) => {
+      const next = { ...prev };
+      delete next[alertId];
+      return next;
+    });
+  }, [completedIds]);
+
+  function handleCustomSnoozeSubmit() {
+    if (!customSnoozeAlertId || !customSnoozeDate) return;
+    const until = new Date(customSnoozeDate);
+    if (until <= new Date()) return;
+    handleSnoozeUntil(customSnoozeAlertId, until);
+    setCustomSnoozeAlertId(null);
+    setCustomSnoozeDate("");
   }
 
   function openReminderForm(alert?: Alert) {
@@ -447,9 +637,9 @@ export default function AlertsPage() {
 
   function severityCalendarColor(severity: string): string {
     switch (severity) {
-      case "high": return "bg-red-500";
-      case "medium": return "bg-amber-500";
-      default: return "bg-blue-500";
+      case "high": return "bg-rose-50";
+      case "medium": return "bg-amber-50";
+      default: return "bg-blue-50";
     }
   }
 
@@ -463,23 +653,23 @@ export default function AlertsPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
-      <PageHeader title="Alerts">
+      <PageHeader title="Reminders">
         {!loading && (
           <Badge variant="secondary" className="text-sm">
             {total}
           </Badge>
         )}
-        <div className="flex items-center gap-1 ml-2 border border-[#e4e8ef] rounded-lg p-0.5">
+        <div className="flex items-center gap-1 ml-2 border border-border rounded-lg p-0.5">
           <button
             onClick={() => setViewMode("list")}
-            className={`p-1.5 rounded transition-colors ${viewMode === "list" ? "bg-[#132337] text-white" : "text-neutral-500 hover:text-neutral-700"}`}
+            className={`p-1.5 rounded transition-colors ${viewMode === "list" ? "bg-foreground text-white" : "text-muted-foreground hover:text-foreground"}`}
             title="List view"
           >
             <List className="h-4 w-4" />
           </button>
           <button
             onClick={() => setViewMode("calendar")}
-            className={`p-1.5 rounded transition-colors ${viewMode === "calendar" ? "bg-[#132337] text-white" : "text-neutral-500 hover:text-neutral-700"}`}
+            className={`p-1.5 rounded transition-colors ${viewMode === "calendar" ? "bg-foreground text-white" : "text-muted-foreground hover:text-foreground"}`}
             title="Calendar view"
           >
             <CalendarIcon className="h-4 w-4" />
@@ -487,12 +677,56 @@ export default function AlertsPage() {
         </div>
       </PageHeader>
 
+      {/* Hint text */}
+      <div className="flex items-start gap-2 px-1">
+        <Info className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+        <p className="text-sm text-muted-foreground">
+          Reminders are auto-generated from your lease events. Snooze or complete them as you go.
+        </p>
+      </div>
+
+      {/* Active / Completed tabs */}
+      {!loading && alerts.length > 0 && (
+        <div className="flex items-center gap-1 border-b border-border">
+          <button
+            onClick={() => setActiveTab("active")}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === "active"
+                ? "border-foreground text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Active
+            {activeCount > 0 && (
+              <Badge variant="secondary" className="ml-2 text-xs">
+                {activeCount}
+              </Badge>
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab("completed")}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === "completed"
+                ? "border-foreground text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Completed
+            {completedCount > 0 && (
+              <Badge variant="secondary" className="ml-2 text-xs">
+                {completedCount}
+              </Badge>
+            )}
+          </button>
+        </div>
+      )}
+
       {/* Error State */}
       {error && (
-        <div className="flex items-center gap-3 p-4 rounded-lg border border-red-200 bg-red-50 text-red-800">
+        <div className="flex items-center gap-3 p-4 rounded-lg border border-rose-200 bg-rose-50 text-rose-700">
           <AlertTriangle className="h-5 w-5 flex-shrink-0" />
           <div className="flex-1">
-            <p className="text-sm font-medium">Failed to load alerts</p>
+            <p className="text-sm font-medium">Failed to load reminders</p>
             <p className="text-sm">{error}</p>
           </div>
           <Button
@@ -511,9 +745,9 @@ export default function AlertsPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
             {/* Search */}
             <div className="relative lg:col-span-2">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-400" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search alerts..."
+                placeholder="Search reminders..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-9"
@@ -523,7 +757,7 @@ export default function AlertsPage() {
             {/* Type Filter */}
             <Select value={typeFilter} onValueChange={setTypeFilter}>
               <SelectTrigger>
-                <SelectValue placeholder="Alert Type" />
+                <SelectValue placeholder="Reminder Type" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Types</SelectItem>
@@ -569,7 +803,7 @@ export default function AlertsPage() {
           {hasActiveFilters && (
             <div className="flex items-center justify-between mt-3 pt-3 border-t">
               <p className="text-sm text-muted-foreground">
-                Showing {filteredAlerts.length} of {alerts.length} alerts
+                Showing {filteredAlerts.length} of {alerts.length} reminders
               </p>
               <Button
                 variant="ghost"
@@ -593,10 +827,10 @@ export default function AlertsPage() {
         <Card>
           <CardContent className="py-16 text-center">
             <Bell className="h-12 w-12 text-neutral-300 mx-auto mb-4" />
-            <h2 className="text-lg font-semibold mb-1">No alerts yet</h2>
+            <h2 className="text-lg font-semibold mb-1">No reminders yet</h2>
             <p className="text-sm text-muted-foreground">
-              Alerts will appear here once agreements are activated and
-              obligations are tracked.
+              Reminders will appear here once agreements are activated and
+              events are tracked.
             </p>
           </CardContent>
         </Card>
@@ -608,7 +842,7 @@ export default function AlertsPage() {
           <CardContent className="py-12 text-center">
             <Bell className="h-10 w-10 text-neutral-300 mx-auto mb-3" />
             <p className="text-muted-foreground text-sm">
-              No alerts match your filters.
+              No reminders match your filters.
             </p>
           </CardContent>
         </Card>
@@ -626,26 +860,26 @@ export default function AlertsPage() {
                     const d = new Date(prev.year, prev.month - 1);
                     return { year: d.getFullYear(), month: d.getMonth() };
                   })}
-                  className="p-1.5 rounded hover:bg-[#f4f6f9] transition-colors"
+                  className="p-1.5 rounded hover:bg-muted transition-colors"
                 >
-                  <ChevronLeft className="h-4 w-4 text-neutral-600" />
+                  <ChevronLeft className="h-4 w-4 text-foreground" />
                 </button>
-                <h3 className="text-sm font-semibold text-[#132337]">{calMonthName}</h3>
+                <h3 className="text-sm font-semibold text-foreground">{calMonthName}</h3>
                 <button
                   onClick={() => setCalendarMonth((prev) => {
                     const d = new Date(prev.year, prev.month + 1);
                     return { year: d.getFullYear(), month: d.getMonth() };
                   })}
-                  className="p-1.5 rounded hover:bg-[#f4f6f9] transition-colors"
+                  className="p-1.5 rounded hover:bg-muted transition-colors"
                 >
-                  <ChevronRight className="h-4 w-4 text-neutral-600" />
+                  <ChevronRight className="h-4 w-4 text-foreground" />
                 </button>
               </div>
 
               {/* Day headers */}
               <div className="grid grid-cols-7 gap-1 mb-1">
                 {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
-                  <div key={d} className="text-center text-[10px] font-semibold text-neutral-500 uppercase py-1">
+                  <div key={d} className="text-center text-[10px] font-semibold text-muted-foreground uppercase py-1">
                     {d}
                   </div>
                 ))}
@@ -667,18 +901,18 @@ export default function AlertsPage() {
                         !day.isCurrentMonth
                           ? "text-neutral-300"
                           : isSelected
-                            ? "bg-[#132337] text-white"
+                            ? "bg-foreground text-white"
                             : isToday
-                              ? "bg-[#f4f6f9] font-semibold text-[#132337]"
-                              : "text-neutral-700 hover:bg-[#f4f6f9]"
+                              ? "bg-muted font-semibold text-foreground"
+                              : "text-foreground hover:bg-muted"
                       }`}
                     >
                       <span>{day.day}</span>
                       {hasAlerts && day.isCurrentMonth && (
                         <div className="flex items-center gap-0.5 mt-0.5">
-                          <div className={`w-1.5 h-1.5 rounded-full ${isSelected ? "bg-white" : severityCalendarColor(getMaxSeverityForDate(dayAlerts))}`} />
+                          <div className={`w-1.5 h-1.5 rounded-full ${isSelected ? "bg-card" : severityCalendarColor(getMaxSeverityForDate(dayAlerts))}`} />
                           {dayAlerts.length > 1 && (
-                            <span className={`text-[8px] ${isSelected ? "text-white/80" : "text-neutral-400"}`}>
+                            <span className={`text-[8px] ${isSelected ? "text-white/80" : "text-muted-foreground"}`}>
                               {dayAlerts.length}
                             </span>
                           )}
@@ -690,18 +924,18 @@ export default function AlertsPage() {
               </div>
 
               {/* Legend */}
-              <div className="flex items-center gap-4 mt-3 pt-3 border-t border-[#e4e8ef]">
+              <div className="flex items-center gap-4 mt-3 pt-3 border-t border-border">
                 <div className="flex items-center gap-1.5">
-                  <div className="w-2 h-2 rounded-full bg-red-500" />
-                  <span className="text-[10px] text-neutral-500">High</span>
+                  <div className="w-2 h-2 rounded-full bg-rose-400" />
+                  <span className="text-[10px] text-muted-foreground">High</span>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <div className="w-2 h-2 rounded-full bg-amber-500" />
-                  <span className="text-[10px] text-neutral-500">Medium</span>
+                  <div className="w-2 h-2 rounded-full bg-amber-400" />
+                  <span className="text-[10px] text-muted-foreground">Medium</span>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <div className="w-2 h-2 rounded-full bg-blue-500" />
-                  <span className="text-[10px] text-neutral-500">Low</span>
+                  <div className="w-2 h-2 rounded-full bg-blue-400" />
+                  <span className="text-[10px] text-muted-foreground">Low</span>
                 </div>
               </div>
             </CardContent>
@@ -712,51 +946,103 @@ export default function AlertsPage() {
             <div className="space-y-3">
               <div className="flex items-center gap-2">
                 <CalendarDays className="h-4 w-4 text-muted-foreground" />
-                <h2 className="text-sm font-semibold text-[#132337]">
+                <h2 className="text-sm font-semibold text-foreground">
                   {formatDate(selectedCalendarDate)}
                 </h2>
                 <span className="text-xs text-muted-foreground">
-                  ({selectedDateAlerts.length} alert{selectedDateAlerts.length !== 1 ? "s" : ""})
+                  ({selectedDateAlerts.length} reminder{selectedDateAlerts.length !== 1 ? "s" : ""})
                 </span>
                 <button
                   onClick={() => setSelectedCalendarDate(null)}
-                  className="ml-auto p-1 rounded hover:bg-[#f4f6f9]"
+                  className="ml-auto p-1 rounded hover:bg-muted"
                 >
-                  <X className="h-3.5 w-3.5 text-neutral-400" />
+                  <X className="h-3.5 w-3.5 text-muted-foreground" />
                 </button>
               </div>
 
               {selectedDateAlerts.length === 0 ? (
                 <Card>
                   <CardContent className="py-8 text-center">
-                    <p className="text-sm text-muted-foreground">No alerts on this date.</p>
+                    <p className="text-sm text-muted-foreground">No reminders on this date.</p>
                   </CardContent>
                 </Card>
               ) : (
                 selectedDateAlerts.map((alert) => {
                   const effectiveStatus = alertStates[alert.id] || alert.status;
+                  const isDone = completedIds.has(alert.id);
+                  const isSnoozedNow = isCurrentlySnoozed(alert.id, snoozeMap);
                   return (
-                    <Card key={alert.id} className={`transition-opacity ${effectiveStatus === "acknowledged" || effectiveStatus === "snoozed" ? "opacity-60" : ""}`}>
+                    <Card key={alert.id} className={`transition-opacity ${isDone || isSnoozedNow || effectiveStatus === "acknowledged" || effectiveStatus === "snoozed" ? "opacity-60" : ""}`}>
                       <CardContent className="py-3 px-4">
                         <div className="flex items-start gap-3">
                           <div className={`mt-1 h-2.5 w-2.5 rounded-full flex-shrink-0 ${severityDotColor(alert.severity)}`} />
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <h3 className="font-semibold text-sm text-black">{alert.title}</h3>
+                              <h3 className="font-semibold text-sm text-foreground">{alert.title}</h3>
                               <Badge variant="outline" className="text-[11px] font-normal">{statusLabel(alert.type)}</Badge>
                               <Badge className={`${statusColor(effectiveStatus)} border-0 text-[11px]`}>{statusLabel(effectiveStatus)}</Badge>
                             </div>
-                            {alert.message && <p className="text-sm text-neutral-600 mt-1">{alert.message}</p>}
+                            {alert.message && <p className="text-sm text-foreground mt-1">{alert.message}</p>}
                             <p className="text-xs text-muted-foreground mt-1">
                               {alert.outlets?.name || "Unknown Outlet"}{alert.outlets?.city ? ` | ${alert.outlets.city}` : ""}
                             </p>
+                            {/* Snoozed until indicator */}
+                            {isSnoozedNow && (
+                              <div className="flex items-center gap-1.5 mt-1">
+                                <Clock className="h-3 w-3 text-amber-600" />
+                                <span className="text-xs text-amber-700 font-medium">
+                                  Snoozed until {formatSnoozeUntil(snoozeMap[alert.id])}
+                                </span>
+                                <button onClick={() => handleUnsnooze(alert.id)} className="text-xs text-amber-700 underline hover:text-amber-800 ml-1">
+                                  Unsnooze
+                                </button>
+                              </div>
+                            )}
+                            {isDone && (
+                              <div className="flex items-center gap-1.5 mt-1">
+                                <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                                <span className="text-xs text-emerald-700 font-medium">Completed</span>
+                                <button onClick={() => handleUndoComplete(alert.id)} className="text-xs text-emerald-700 underline hover:text-emerald-800 ml-1">
+                                  Undo
+                                </button>
+                              </div>
+                            )}
+                            {/* Assignee */}
+                            {alert.assigned_to && (
+                              <span className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
+                                <UserPlus className="h-3 w-3" />
+                                {alert.assigned_to}
+                              </span>
+                            )}
                           </div>
                           <div className="flex items-center gap-1.5 flex-shrink-0">
-                            {effectiveStatus !== "acknowledged" && (
-                              <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => handleAcknowledge(alert.id)}>
+                            {!isDone && (
+                              <Button variant="outline" size="sm" className="h-7 text-xs text-emerald-700 border-emerald-200 hover:bg-emerald-50" onClick={() => handleMarkDone(alert.id)}>
                                 <CheckCircle2 className="h-3 w-3 mr-1" />
-                                Ack
+                                Done
                               </Button>
+                            )}
+                            {!isDone && !isSnoozedNow && (
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="outline" size="sm" className="h-7 text-xs">
+                                    <Clock className="h-3 w-3 mr-1" />
+                                    Snooze
+                                    <ChevronDown className="h-3 w-3 ml-1" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  {getSnoozeOptions().map((opt) => (
+                                    <DropdownMenuItem key={opt.label} onClick={() => handleSnoozeUntil(alert.id, opt.getDate())}>
+                                      {opt.label}
+                                    </DropdownMenuItem>
+                                  ))}
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem onClick={() => { setCustomSnoozeAlertId(alert.id); setCustomSnoozeDate(""); }}>
+                                    Custom date...
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
                             )}
                           </div>
                         </div>
@@ -780,7 +1066,7 @@ export default function AlertsPage() {
             {/* Date group header */}
             <div className="flex items-center gap-2 pt-2">
               <CalendarDays className="h-4 w-4 text-muted-foreground" />
-              <h2 className="text-sm font-semibold text-[#132337]">
+              <h2 className="text-sm font-semibold text-foreground">
                 {group.date === "unknown"
                   ? "No Date"
                   : formatDate(group.date)}
@@ -796,10 +1082,14 @@ export default function AlertsPage() {
               const outletName = alert.outlets?.name || "Unknown Outlet";
               const outletCity = alert.outlets?.city || "";
 
+              const isDone = completedIds.has(alert.id);
+              const isSnoozed = isCurrentlySnoozed(alert.id, snoozeMap);
+
               return (
                 <Card
                   key={alert.id}
                   className={`transition-opacity ${
+                    isDone || isSnoozed ||
                     effectiveStatus === "acknowledged" ||
                     effectiveStatus === "snoozed"
                       ? "opacity-60"
@@ -825,7 +1115,7 @@ export default function AlertsPage() {
                         <div className="flex items-start justify-between gap-3">
                           <div className="space-y-1">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <h3 className="font-semibold text-sm text-black">
+                              <h3 className="font-semibold text-sm text-foreground">
                                 {alert.title}
                               </h3>
                               <Badge
@@ -858,11 +1148,43 @@ export default function AlertsPage() {
                           </div>
                         </div>
 
-                        <p className="text-sm text-neutral-700 mt-2">
+                        <p className="text-sm text-foreground mt-2">
                           {alert.message}
                         </p>
 
-                        <div className="flex items-center justify-between mt-3 pt-3 border-t border-[#e4e8ef]">
+                        {/* Snoozed until indicator */}
+                        {isCurrentlySnoozed(alert.id, snoozeMap) && (
+                          <div className="flex items-center gap-1.5 mt-2">
+                            <Clock className="h-3.5 w-3.5 text-amber-600" />
+                            <span className="text-xs text-amber-700 font-medium">
+                              Snoozed until {formatSnoozeUntil(snoozeMap[alert.id])}
+                            </span>
+                            <button
+                              onClick={() => handleUnsnooze(alert.id)}
+                              className="text-xs text-amber-700 underline hover:text-amber-800 ml-1"
+                            >
+                              Unsnooze
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Completed indicator */}
+                        {completedIds.has(alert.id) && (
+                          <div className="flex items-center gap-1.5 mt-2">
+                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                            <span className="text-xs text-emerald-700 font-medium">
+                              Completed
+                            </span>
+                            <button
+                              onClick={() => handleUndoComplete(alert.id)}
+                              className="text-xs text-emerald-700 underline hover:text-emerald-800 ml-1"
+                            >
+                              Undo
+                            </button>
+                          </div>
+                        )}
+
+                        <div className="flex items-center justify-between mt-3 pt-3 border-t border-border">
                           <div className="flex items-center gap-4 text-xs text-muted-foreground">
                             <div className="flex items-center gap-1.5">
                               <CalendarDays className="h-3.5 w-3.5" />
@@ -878,24 +1200,48 @@ export default function AlertsPage() {
                             {alert.lead_days != null && (
                               <span>{alert.lead_days}d lead</span>
                             )}
+                            {/* Assignee display */}
+                            {alert.assigned_to ? (
+                              <span className="flex items-center gap-1">
+                                <UserPlus className="h-3 w-3" />
+                                {alert.assigned_to}
+                              </span>
+                            ) : (
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                      disabled
+                                      className="flex items-center gap-1 text-xs text-muted-foreground/60 cursor-not-allowed"
+                                    >
+                                      <UserPlus className="h-3 w-3" />
+                                      Assign
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <p>Coming soon</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            )}
                           </div>
 
                           <div className="flex items-center gap-2">
-                            {/* Acknowledge */}
-                            {effectiveStatus !== "acknowledged" && (
+                            {/* Mark Done */}
+                            {!completedIds.has(alert.id) && (
                               <Button
                                 variant="outline"
                                 size="sm"
-                                className="h-7 text-xs"
-                                onClick={() => handleAcknowledge(alert.id)}
+                                className="h-7 text-xs text-emerald-700 border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700"
+                                onClick={() => handleMarkDone(alert.id)}
                               >
                                 <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
-                                Acknowledge
+                                Mark Done
                               </Button>
                             )}
 
                             {/* Snooze Dropdown */}
-                            {effectiveStatus !== "snoozed" && (
+                            {!completedIds.has(alert.id) && !isCurrentlySnoozed(alert.id, snoozeMap) && (
                               <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
                                   <Button
@@ -909,20 +1255,22 @@ export default function AlertsPage() {
                                   </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
+                                  {getSnoozeOptions().map((opt) => (
+                                    <DropdownMenuItem
+                                      key={opt.label}
+                                      onClick={() => handleSnoozeUntil(alert.id, opt.getDate())}
+                                    >
+                                      {opt.label}
+                                    </DropdownMenuItem>
+                                  ))}
+                                  <DropdownMenuSeparator />
                                   <DropdownMenuItem
-                                    onClick={() => handleSnooze(alert.id, 7)}
+                                    onClick={() => {
+                                      setCustomSnoozeAlertId(alert.id);
+                                      setCustomSnoozeDate("");
+                                    }}
                                   >
-                                    Snooze 7 days
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem
-                                    onClick={() => handleSnooze(alert.id, 14)}
-                                  >
-                                    Snooze 14 days
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem
-                                    onClick={() => handleSnooze(alert.id, 30)}
-                                  >
-                                    Snooze 30 days
+                                    Custom date...
                                   </DropdownMenuItem>
                                 </DropdownMenuContent>
                               </DropdownMenu>
@@ -943,7 +1291,7 @@ export default function AlertsPage() {
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  className="h-7 text-xs text-red-600 hover:text-red-700"
+                                  className="h-7 text-xs text-rose-600 hover:text-rose-700"
                                   onClick={() => handleDeleteReminder(alert.id)}
                                 >
                                   <Trash2 className="h-3.5 w-3.5 mr-1" />
@@ -1032,6 +1380,53 @@ export default function AlertsPage() {
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
                 ) : null}
                 {editingReminder ? "Update" : "Create"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Custom Snooze Date Dialog */}
+      <Dialog
+        open={customSnoozeAlertId !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setCustomSnoozeAlertId(null);
+            setCustomSnoozeDate("");
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Snooze until custom date</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div>
+              <Label htmlFor="custom-snooze-date">Pick a date and time</Label>
+              <Input
+                id="custom-snooze-date"
+                type="datetime-local"
+                value={customSnoozeDate}
+                onChange={(e) => setCustomSnoozeDate(e.target.value)}
+                min={new Date().toISOString().slice(0, 16)}
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setCustomSnoozeAlertId(null);
+                  setCustomSnoozeDate("");
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleCustomSnoozeSubmit}
+                disabled={!customSnoozeDate || new Date(customSnoozeDate) <= new Date()}
+              >
+                <Clock className="h-4 w-4 mr-2" />
+                Snooze
               </Button>
             </div>
           </div>

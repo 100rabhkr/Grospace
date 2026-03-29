@@ -26,12 +26,18 @@ import {
   ZoomOut,
   CheckCircle2,
   Eye,
+  HelpCircle,
+  Filter,
+  CheckSquare,
+  FileCheck,
+  MapPin,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { uploadAndExtract, confirmAndActivate, getProcessingEstimate, uploadAndExtractAsync, getExtractionJob } from "@/lib/api";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { uploadAndExtract, confirmAndActivate, createDraft, getProcessingEstimate, uploadAndExtractAsync, getExtractionJob, listOutlets } from "@/lib/api";
 import { EditableField } from "@/components/editable-field";
 import { FeedbackButton } from "@/components/feedback-button";
 import { PageHeader } from "@/components/page-header";
@@ -42,8 +48,8 @@ function ConfidenceDot({ level }: { level: Confidence }) {
   const colors: Record<Confidence, string> = {
     high: "bg-emerald-500",
     medium: "bg-amber-500",
-    low: "bg-red-500",
-    not_found: "bg-neutral-300",
+    low: "bg-rose-400",
+    not_found: "bg-slate-300",
   };
   return <span className={`inline-block h-2 w-2 rounded-full flex-shrink-0 ${colors[level] || colors.not_found}`} />;
 }
@@ -72,6 +78,36 @@ const sectionConfig: Record<string, { title: string; icon: React.ElementType }> 
   legal: { title: "Legal & Compliance", icon: Scale },
   franchise: { title: "Franchise Details", icon: Building2 },
 };
+
+// Field classification for Lease vs License filtering
+const LEASE_FIELDS = new Set([
+  "rent", "monthly_rent", "base_rent", "rent_per_sqft", "mglr_monthly", "mglr_per_sqft",
+  "rent_schedule", "rent_commencement_date", "rent_escalation_pct", "escalation_frequency_years",
+  "lease_term", "lock_in_period", "lock_in_years", "lock_in_end_date",
+  "lease_commencement_date", "lease_expiry_date", "lease_duration_years",
+  "escalation_pct", "cam_monthly", "cam_per_sqft", "cam_escalation_pct",
+  "security_deposit", "security_deposit_amount", "deposit_amount",
+  "total_monthly_outflow", "revenue_share", "revenue_share_takeaway_dining", "revenue_share_online",
+]);
+
+const LICENSE_FIELDS = new Set([
+  "license_number", "licence_number", "license_no", "licence_no",
+  "license_validity", "licence_validity", "validity_period",
+  "license_renewal_date", "licence_renewal_date", "renewal_date",
+  "issuing_authority", "licensing_authority", "issued_by",
+  "license_type", "licence_type", "license_category",
+  "license_expiry_date", "licence_expiry_date",
+]);
+
+type FieldFilterMode = "all" | "lease" | "license";
+
+function fieldMatchesFilter(fieldKey: string, filter: FieldFilterMode): boolean {
+  if (filter === "all") return true;
+  const normalizedKey = fieldKey.toLowerCase();
+  if (filter === "lease") return LEASE_FIELDS.has(normalizedKey);
+  if (filter === "license") return LICENSE_FIELDS.has(normalizedKey);
+  return true;
+}
 
 /**
  * Extract display value and confidence from a field.
@@ -174,7 +210,7 @@ type ExtractionResult = {
 const processingSteps = [
   { label: "Uploading document", duration: 1500 },
   { label: "Scanning document content", duration: 3000 },
-  { label: "Running GroBot analysis", duration: 5000 },
+  { label: "Running Grow AI analysis", duration: 5000 },
   { label: "Classifying document type", duration: 3000 },
   { label: "Extracting key terms & dates", duration: 5000 },
   { label: "Analyzing financial data", duration: 4000 },
@@ -262,8 +298,8 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
     <Card className="max-w-lg mx-auto">
       <CardContent className="pt-8 pb-10 flex flex-col items-center text-center">
         <div className="mb-6">
-          <div className="h-16 w-16 rounded-full bg-[#f4f6f9] flex items-center justify-center">
-            <Loader2 className="h-8 w-8 text-black animate-spin" />
+          <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center">
+            <Loader2 className="h-8 w-8 text-foreground animate-spin" />
           </div>
         </div>
 
@@ -271,15 +307,15 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
           {currentStageLabel}
         </h2>
         <p className="text-sm text-muted-foreground mb-1">
-          Powered by GroBot
+          Powered by Grow AI
         </p>
 
         {/* Processing time estimate & live timer (Task 43) */}
         <div className="flex items-center gap-3 mb-4">
-          <span className="text-xs text-[#6b7280] bg-[#f4f6f9] px-3 py-1.5 rounded-full">
+          <span className="text-xs text-[#6b7280] bg-muted px-3 py-1.5 rounded-full">
             Estimated: {estimatedRangeLow}-{estimatedRangeHigh} seconds
           </span>
-          <span className="text-xs font-semibold tabular-nums bg-[#132337] text-white px-3 py-1.5 rounded-full">
+          <span className="text-xs font-semibold tabular-nums bg-foreground text-white px-3 py-1.5 rounded-full">
             {elapsedSec}s elapsed
           </span>
         </div>
@@ -296,12 +332,12 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
         {/* Progress bar with percentage */}
         <div className="w-full max-w-xs mb-5">
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-xs font-medium text-[#132337]">{currentStageLabel}</span>
+            <span className="text-xs font-medium text-foreground">{currentStageLabel}</span>
             <span className="text-xs font-semibold tabular-nums">{Math.round(progressPct)}%</span>
           </div>
-          <div className="h-2 bg-[#f4f6f9] rounded-full overflow-hidden">
+          <div className="h-2 bg-muted rounded-full overflow-hidden">
             <div
-              className="h-full bg-[#132337] rounded-full transition-all duration-700 ease-out"
+              className="h-full bg-foreground rounded-full transition-all duration-700 ease-out"
               style={{ width: `${progressPct}%` }}
             />
           </div>
@@ -313,18 +349,18 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
               key={item.label}
               className={`flex items-center gap-2.5 text-sm transition-all duration-300 ${
                 i < activeStep
-                  ? "text-black"
+                  ? "text-foreground"
                   : i === activeStep
-                  ? "text-black"
+                  ? "text-foreground"
                   : "text-muted-foreground opacity-40"
               }`}
             >
               {i < activeStep ? (
                 <Check className="h-4 w-4 text-emerald-600 flex-shrink-0" />
               ) : i === activeStep ? (
-                <Loader2 className="h-4 w-4 text-black animate-spin flex-shrink-0" />
+                <Loader2 className="h-4 w-4 text-foreground animate-spin flex-shrink-0" />
               ) : (
-                <div className="h-4 w-4 rounded-full border border-neutral-300 flex-shrink-0" />
+                <div className="h-4 w-4 rounded-full border border-slate-300 flex-shrink-0" />
               )}
               <span className={i < activeStep ? "font-medium" : ""}>{item.label}</span>
             </div>
@@ -361,11 +397,53 @@ export default function UploadAgreementPage() {
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
   const [pdfZoom, setPdfZoom] = useState(100);
 
+  // Verification checkboxes state (tracks "sectionKey.fieldKey" strings)
+  const [verifiedFields, setVerifiedFields] = useState<Set<string>>(new Set());
+
+  // Lease vs License field filter
+  const [fieldFilter, setFieldFilter] = useState<FieldFilterMode>("all");
+
+  // Upload help section expanded state
+  const [showUploadHelp, setShowUploadHelp] = useState(false);
+
+  // Draft review mode state
+  const [isDraftMode, setIsDraftMode] = useState(false);
+
+  // Address matching — suggest linking to existing outlet (#89)
+  const [matchedOutlet, setMatchedOutlet] = useState<{ id: string; name: string; city: string } | null>(null);
+  const [outletLinked, setOutletLinked] = useState(false);
+
+  // When extraction completes, try to match address to existing outlets
+  useEffect(() => {
+    if (!result?.extraction) return;
+    const extracted = result.extraction;
+    const premises = extracted?.premises || {};
+    const extractedCity = String(premises?.city || "").toLowerCase().trim();
+    const extractedAddress = String(premises?.full_address || premises?.property_name || "").toLowerCase().trim();
+    if (!extractedCity && !extractedAddress) return;
+
+    listOutlets({ page: 1, page_size: 200 }).then((res) => {
+      const outlets = (res as { outlets?: { id: string; name: string; city?: string; address?: string }[] })?.outlets || [];
+      for (const outlet of outlets) {
+        const outletCity = (outlet.city || "").toLowerCase().trim();
+        const outletAddr = (outlet.address || outlet.name || "").toLowerCase().trim();
+        if (extractedCity && outletCity && extractedCity.includes(outletCity)) {
+          if (extractedAddress && outletAddr && (extractedAddress.includes(outletAddr) || outletAddr.includes(extractedAddress.slice(0, 20)))) {
+            setMatchedOutlet({ id: outlet.id, name: outlet.name, city: outlet.city || "" });
+            return;
+          }
+        }
+      }
+    }).catch(() => {});
+  }, [result]);
+
   // Create object URL for PDF viewer
   const fileUrl = useMemo(() => {
     if (selectedFile) return URL.createObjectURL(selectedFile);
+    // For bulk upload results, use the document_url from the extraction result
+    if (result?.document_url) return result.document_url;
     return null;
-  }, [selectedFile]);
+  }, [selectedFile, result]);
 
   // Cleanup object URL on unmount or file change
   useEffect(() => {
@@ -407,14 +485,14 @@ export default function UploadAgreementPage() {
         );
       case "low":
         return (
-          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-red-700 bg-red-50 border border-red-200 rounded-full px-1.5 py-0.5">
+          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-rose-700 bg-rose-50 border border-rose-200 rounded-full px-1.5 py-0.5">
             <AlertTriangle className="h-3 w-3" />
             Low
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-[#6b7280] bg-[#f4f6f9] border border-[#e4e8ef] rounded-full px-1.5 py-0.5">
+          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-[#6b7280] bg-muted border border-border rounded-full px-1.5 py-0.5">
             <Eye className="h-3 w-3" />
             N/A
           </span>
@@ -433,12 +511,17 @@ export default function UploadAgreementPage() {
     error?: string;
   }[]>([]);
 
-  // Poll bulk jobs
+  // Poll bulk jobs — use ref to avoid recreating interval on every state change
+  const bulkJobsRef = useRef(bulkJobs);
+  bulkJobsRef.current = bulkJobs;
+
+  const hasProcessing = bulkJobs.some((j) => j.status === "processing");
+
   useEffect(() => {
-    const processing = bulkJobs.filter((j) => j.status === "processing");
-    if (processing.length === 0) return;
+    if (!hasProcessing) return;
 
     const interval = setInterval(async () => {
+      const processing = bulkJobsRef.current.filter((j) => j.status === "processing");
       for (const job of processing) {
         try {
           const data = await getExtractionJob(job.id);
@@ -457,18 +540,35 @@ export default function UploadAgreementPage() {
             );
           }
         } catch {
-          // keep polling
+          // keep polling — transient network errors shouldn't stop the process
         }
       }
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [bulkJobs]);
+  }, [hasProcessing]);
 
   async function handleBulkUpload(files: FileList) {
-    const newFiles = Array.from(files).slice(0, MAX_BULK_FILES - bulkJobs.length);
-    for (const file of newFiles) {
-      if (!isValidFile(file)) continue;
+    const totalFiles = Array.from(files);
+    if (totalFiles.length > MAX_BULK_FILES) {
+      setError(`Maximum ${MAX_BULK_FILES} files per batch. Please select fewer files.`);
+      return;
+    }
+    if (totalFiles.length + bulkJobs.length > MAX_BULK_FILES) {
+      setError(`Maximum ${MAX_BULK_FILES} files per batch. You already have ${bulkJobs.length} queued. Please select ${MAX_BULK_FILES - bulkJobs.length} or fewer files.`);
+      return;
+    }
+    const newFiles = totalFiles.slice(0, MAX_BULK_FILES - bulkJobs.length);
+    const validFiles = newFiles.filter((file) => {
+      if (!isValidFile(file)) {
+        setError(`Skipped "${file.name}" — unsupported type or too large.`);
+        return false;
+      }
+      return true;
+    });
+
+    // Upload all files in parallel for speed
+    const uploads = validFiles.map(async (file) => {
       try {
         const data = await uploadAndExtractAsync(file);
         setBulkJobs((prev) => [
@@ -479,10 +579,20 @@ export default function UploadAgreementPage() {
             status: "processing",
           },
         ]);
-      } catch {
-        // skip invalid files
+      } catch (err) {
+        setBulkJobs((prev) => [
+          ...prev,
+          {
+            id: `error-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            filename: file.name,
+            status: "failed",
+            error: err instanceof Error ? err.message : "Upload failed",
+          },
+        ]);
       }
-    }
+    });
+
+    await Promise.allSettled(uploads);
   }
 
   const validExtRegex = /\.(pdf|png|jpe?g|webp|gif|bmp|tiff?)$/i;
@@ -558,6 +668,29 @@ export default function UploadAgreementPage() {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
+  function toggleFieldVerified(fieldPath: string) {
+    setVerifiedFields((prev) => {
+      const next = new Set(prev);
+      if (next.has(fieldPath)) {
+        next.delete(fieldPath);
+      } else {
+        next.add(fieldPath);
+      }
+      return next;
+    });
+  }
+
+  // Count total verifiable fields for progress indicator
+  const totalFieldCount = useMemo(() => {
+    if (!result) return 0;
+    let count = 0;
+    Object.values(result.extraction).forEach((section) => {
+      if (typeof section !== "object" || section === null) return;
+      Object.keys(section as Record<string, unknown>).forEach(() => count++);
+    });
+    return count;
+  }, [result]);
+
   // Count stats from extraction
   const stats = result
     ? (() => {
@@ -588,26 +721,26 @@ export default function UploadAgreementPage() {
       <div className="flex items-center gap-0">
         {[
           { num: 1, label: "Upload Document" },
-          { num: 2, label: "GroBot Processing" },
-          { num: 3, label: "Review & Confirm" },
-          { num: 4, label: "Activated" },
+          { num: 2, label: "Grow AI Processing" },
+          { num: 3, label: isDraftMode ? "Review Draft" : "Review & Confirm" },
+          { num: 4, label: isDraftMode ? "Draft Saved" : "Activated" },
         ].map((s, i) => (
           <div key={s.num} className="flex items-center">
             <div className="flex items-center gap-2">
               <div
                 className={`flex items-center justify-center h-8 w-8 rounded-full text-sm font-semibold transition-colors ${
                   step > s.num
-                    ? "bg-emerald-600 text-white"
+                    ? "bg-emerald-500 text-white"
                     : step === s.num
-                    ? "bg-[#132337] text-white"
-                    : "bg-[#e4e8ef] text-[#6b7280]"
+                    ? "bg-foreground text-white"
+                    : "bg-border text-[#6b7280]"
                 }`}
               >
                 {step > s.num ? <Check className="h-4 w-4" /> : s.num}
               </div>
               <span
                 className={`text-sm font-medium ${
-                  step >= s.num ? "text-black" : "text-[#9ca3af]"
+                  step >= s.num ? "text-foreground" : "text-[#9ca3af]"
                 }`}
               >
                 {s.label}
@@ -616,7 +749,7 @@ export default function UploadAgreementPage() {
             {i < 3 && (
               <div
                 className={`mx-4 h-px w-16 ${
-                  step > s.num ? "bg-emerald-600" : "bg-[#e4e8ef]"
+                  step > s.num ? "bg-emerald-500" : "bg-border"
                 }`}
               />
             )}
@@ -626,7 +759,7 @@ export default function UploadAgreementPage() {
 
       {/* Error Banner */}
       {error && (
-        <div className="flex items-center gap-3 p-4 rounded-lg border border-red-200 bg-red-50 text-red-800">
+        <div className="flex items-center gap-3 p-4 rounded-lg border border-rose-200 bg-rose-50 text-rose-700">
           <AlertTriangle className="h-5 w-5 flex-shrink-0" />
           <div className="flex-1">
             <p className="text-sm font-medium">Error</p>
@@ -638,26 +771,52 @@ export default function UploadAgreementPage() {
         </div>
       )}
 
-      {/* Bulk Upload Toggle */}
+      {/* Upload Mode Toggle: Draft Review vs Full Upload */}
       {step === 1 && (
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setBulkMode(false)}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${!bulkMode ? "bg-[#132337] text-white" : "bg-[#f4f6f9] text-[#4a5568] hover:bg-[#e4e8ef]"}`}
-          >
-            Single Upload
-          </button>
-          <button
-            onClick={() => setBulkMode(true)}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${bulkMode ? "bg-[#132337] text-white" : "bg-[#f4f6f9] text-[#4a5568] hover:bg-[#e4e8ef]"}`}
-          >
-            Bulk Upload (up to {MAX_BULK_FILES})
-          </button>
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setIsDraftMode(false)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${!isDraftMode ? "bg-foreground text-white" : "bg-muted text-[#4a5568] hover:bg-muted"}`}
+            >
+              Full Upload
+            </button>
+            <button
+              onClick={() => setIsDraftMode(true)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${isDraftMode ? "bg-foreground text-white" : "bg-muted text-[#4a5568] hover:bg-muted"}`}
+            >
+              Draft Review
+            </button>
+          </div>
+          {isDraftMode && (
+            <div className="flex items-center gap-2 p-3 rounded-lg border border-blue-200 bg-blue-50/50">
+              <FileCheck className="h-4 w-4 text-blue-600 flex-shrink-0" />
+              <p className="text-xs text-blue-700">
+                <strong>Draft Review mode:</strong> Upload a draft lease for AI-powered risk analysis and term extraction. No live outlet will be created. You can review risk flags and save as draft for later.
+              </p>
+            </div>
+          )}
+          {!isDraftMode && (
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setBulkMode(false)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${!bulkMode ? "bg-foreground text-white" : "bg-muted text-[#4a5568] hover:bg-muted"}`}
+              >
+                Single Upload
+              </button>
+              <button
+                onClick={() => setBulkMode(true)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${bulkMode ? "bg-foreground text-white" : "bg-muted text-[#4a5568] hover:bg-muted"}`}
+              >
+                Bulk Upload (up to {MAX_BULK_FILES})
+              </button>
+            </div>
+          )}
         </div>
       )}
 
       {/* Bulk Upload Mode */}
-      {step === 1 && bulkMode && (
+      {step === 1 && bulkMode && !isDraftMode && (
         <div className="max-w-2xl mx-auto space-y-4">
           <Card>
             <CardContent className="pt-6">
@@ -665,18 +824,23 @@ export default function UploadAgreementPage() {
               <p className="text-sm text-[#6b7280] mb-4">
                 Upload up to {MAX_BULK_FILES} documents at once. Each will be processed independently in the background.
               </p>
+              <input
+                type="file"
+                multiple
+                accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tiff,.tif"
+                className="hidden"
+                ref={(el) => { if (el) (el as HTMLInputElement & { _bulk: boolean })._bulk = true; }}
+                id="bulk-file-input"
+                onChange={(e) => {
+                  const files = e.target.files;
+                  if (files && files.length > 0) handleBulkUpload(files);
+                  e.target.value = "";
+                }}
+              />
               <div
-                className="flex flex-col items-center justify-center border-2 border-dashed rounded-xl p-10 cursor-pointer transition-all border-neutral-300 hover:border-neutral-400 hover:bg-[#f4f6f9]/50"
+                className="flex flex-col items-center justify-center border-2 border-dashed rounded-xl p-10 cursor-pointer transition-all border-neutral-300 hover:border-neutral-400 hover:bg-muted/50"
                 onClick={() => {
-                  const input = document.createElement("input");
-                  input.type = "file";
-                  input.multiple = true;
-                  input.accept = ".pdf,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tiff,.tif";
-                  input.onchange = (e) => {
-                    const files = (e.target as HTMLInputElement).files;
-                    if (files) handleBulkUpload(files);
-                  };
-                  input.click();
+                  document.getElementById("bulk-file-input")?.click();
                 }}
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={(e) => {
@@ -696,19 +860,19 @@ export default function UploadAgreementPage() {
           {/* Bulk job status cards */}
           {bulkJobs.length > 0 && (
             <div className="space-y-3">
-              <h3 className="text-sm font-semibold text-[#132337]">Processing Queue</h3>
+              <h3 className="text-sm font-semibold text-foreground">Processing Queue</h3>
               {bulkJobs.map((job) => (
-                <Card key={job.id} className={`overflow-hidden ${job.status === "completed" ? "border-emerald-200" : job.status === "failed" ? "border-red-200" : "border-[#e4e8ef]"}`}>
+                <Card key={job.id} className={`overflow-hidden ${job.status === "completed" ? "border-emerald-200" : job.status === "failed" ? "border-rose-200" : "border-border"}`}>
                   <CardContent className="py-3 px-4">
                     <div className="flex items-center gap-3">
                       {job.status === "processing" && (
-                        <Loader2 className="h-5 w-5 animate-spin text-[#132337] flex-shrink-0" />
+                        <Loader2 className="h-5 w-5 animate-spin text-foreground flex-shrink-0" />
                       )}
                       {job.status === "completed" && (
                         <Check className="h-5 w-5 text-emerald-600 flex-shrink-0" />
                       )}
                       {job.status === "failed" && (
-                        <AlertTriangle className="h-5 w-5 text-red-500 flex-shrink-0" />
+                        <AlertTriangle className="h-5 w-5 text-rose-500 flex-shrink-0" />
                       )}
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium truncate">{job.filename}</p>
@@ -729,28 +893,12 @@ export default function UploadAgreementPage() {
                           size="sm"
                           variant="outline"
                           className="text-xs flex-shrink-0"
-                          onClick={async () => {
-                            try {
-                              const res = await confirmAndActivate({
-                                extraction: job.result!.extraction,
-                                document_type: job.result!.document_type,
-                                risk_flags: job.result!.risk_flags,
-                                confidence: job.result!.confidence,
-                                filename: job.result!.filename || job.filename,
-                                document_text: job.result!.document_text,
-                                document_url: job.result!.document_url,
-                              });
-                              setBulkJobs((prev) =>
-                                prev.map((j) =>
-                                  j.id === job.id
-                                    ? { ...j, status: "activated" as string }
-                                    : j
-                                )
-                              );
-                              router.push(`/agreements/${res.agreement_id}`);
-                            } catch {
-                              // handle error
-                            }
+                          onClick={() => {
+                            // Load result into the review step so user can inspect/edit before activating
+                            setResult(job.result!);
+                            setSelectedFile(null);
+                            setBulkMode(false);
+                            setStep(3);
                           }}
                         >
                           Review & Activate
@@ -766,7 +914,7 @@ export default function UploadAgreementPage() {
       )}
 
       {/* Step 1: Upload */}
-      {step === 1 && !bulkMode && (
+      {step === 1 && (!bulkMode || isDraftMode) && (
         <div className="max-w-xl mx-auto space-y-6">
           <Card>
             <CardContent className="pt-6">
@@ -789,14 +937,14 @@ export default function UploadAgreementPage() {
                   onClick={() => fileInputRef.current?.click()}
                   className={`flex flex-col items-center justify-center border-2 border-dashed rounded-xl p-14 cursor-pointer transition-all ${
                     isDragOver
-                      ? "border-black bg-[#f4f6f9] scale-[1.01]"
-                      : "border-neutral-300 hover:border-neutral-400 hover:bg-[#f4f6f9]/50"
+                      ? "border-black bg-muted scale-[1.01]"
+                      : "border-neutral-300 hover:border-neutral-400 hover:bg-muted/50"
                   }`}
                 >
-                  <div className="h-14 w-14 rounded-full bg-[#f4f6f9] flex items-center justify-center mb-4">
+                  <div className="h-14 w-14 rounded-full bg-muted flex items-center justify-center mb-4">
                     <CloudUpload className="h-7 w-7 text-[#9ca3af]" />
                   </div>
-                  <p className="text-sm font-medium text-black mb-1">
+                  <p className="text-sm font-medium text-foreground mb-1">
                     Drag and drop your document here
                   </p>
                   <p className="text-xs text-muted-foreground mb-3">
@@ -805,9 +953,9 @@ export default function UploadAgreementPage() {
                   <Badge variant="outline" className="text-xs font-normal">PDF or image up to 50MB</Badge>
                 </div>
               ) : (
-                <div className="flex items-center gap-3 p-4 rounded-xl border bg-[#f4f6f9]">
-                  <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${selectedFile?.type?.startsWith("image/") ? "bg-[#f4f6f9]" : "bg-red-100"}`}>
-                    <FileText className={`h-5 w-5 ${selectedFile?.type?.startsWith("image/") ? "text-[#132337]" : "text-red-600"}`} />
+                <div className="flex items-center gap-3 p-4 rounded-xl border bg-muted">
+                  <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${selectedFile?.type?.startsWith("image/") ? "bg-muted" : "bg-neutral-50"}`}>
+                    <FileText className={`h-5 w-5 ${selectedFile?.type?.startsWith("image/") ? "text-foreground" : "text-neutral-900"}`} />
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate">{selectedFile.name}</p>
@@ -819,7 +967,7 @@ export default function UploadAgreementPage() {
                     variant="ghost"
                     size="sm"
                     onClick={handleRemoveFile}
-                    className="h-8 w-8 p-0 text-muted-foreground hover:text-red-600"
+                    className="h-8 w-8 p-0 text-muted-foreground hover:text-neutral-900"
                   >
                     <X className="h-4 w-4" />
                   </Button>
@@ -828,13 +976,80 @@ export default function UploadAgreementPage() {
             </CardContent>
           </Card>
 
+          {/* Upload Help / Instructions */}
+          <Card className="border-dashed">
+            <button
+              type="button"
+              className="w-full flex items-center gap-2 px-4 py-3 hover:bg-muted transition-colors text-left"
+              onClick={() => setShowUploadHelp((v) => !v)}
+            >
+              <HelpCircle className="h-4 w-4 text-[#6b7280] flex-shrink-0" />
+              <span className="text-sm font-medium flex-1 text-foreground">Upload Guidelines & Tips</span>
+              {showUploadHelp ? (
+                <ChevronUp className="h-4 w-4 text-[#9ca3af] flex-shrink-0" />
+              ) : (
+                <ChevronDown className="h-4 w-4 text-[#9ca3af] flex-shrink-0" />
+              )}
+            </button>
+            <div
+              className={`transition-all duration-300 ease-in-out overflow-hidden ${
+                showUploadHelp ? "max-h-[600px]" : "max-h-0"
+              }`}
+            >
+              <Separator />
+              <CardContent className="pt-4 pb-4">
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="flex items-start gap-2.5 p-2.5 rounded-lg bg-muted">
+                      <FileText className="h-4 w-4 text-[#6b7280] mt-0.5 flex-shrink-0" />
+                      <div>
+                        <p className="text-xs font-semibold text-foreground">Supported Format</p>
+                        <p className="text-xs text-muted-foreground">PDF documents</p>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-2.5 p-2.5 rounded-lg bg-muted">
+                      <Shield className="h-4 w-4 text-[#6b7280] mt-0.5 flex-shrink-0" />
+                      <div>
+                        <p className="text-xs font-semibold text-foreground">Max File Size</p>
+                        <p className="text-xs text-muted-foreground">50MB per document</p>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-2.5 p-2.5 rounded-lg bg-muted">
+                      <CloudUpload className="h-4 w-4 text-[#6b7280] mt-0.5 flex-shrink-0" />
+                      <div>
+                        <p className="text-xs font-semibold text-foreground">Bulk Upload</p>
+                        <p className="text-xs text-muted-foreground">Up to 10 files at once</p>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-2.5 p-2.5 rounded-lg bg-muted">
+                      <Loader2 className="h-4 w-4 text-[#6b7280] mt-0.5 flex-shrink-0" />
+                      <div>
+                        <p className="text-xs font-semibold text-foreground">Processing Time</p>
+                        <p className="text-xs text-muted-foreground">~30-90 seconds per document</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-blue-50 border border-blue-200">
+                    <p className="text-xs font-semibold text-blue-700 mb-1">Tips for Better Extraction</p>
+                    <ul className="text-xs text-blue-600 space-y-1 list-disc list-inside">
+                      <li>Use clear, high-resolution scans for best results</li>
+                      <li>Avoid handwritten documents -- typed or printed text works best</li>
+                      <li>Ensure the document is not password-protected</li>
+                      <li>Multi-page documents are supported and processed fully</li>
+                    </ul>
+                  </div>
+                </div>
+              </CardContent>
+            </div>
+          </Card>
+
           <div className="flex justify-end">
             <Button
               onClick={handleStartExtraction}
               disabled={!selectedFile}
               className="gap-2 px-6"
             >
-              Start GroBot Extraction
+              Start Grow AI Extraction
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
@@ -848,14 +1063,27 @@ export default function UploadAgreementPage() {
       {step === 3 && result && (
         <div className="space-y-4">
           {/* Summary bar */}
-          <div className="flex items-center gap-4 p-4 rounded-xl border bg-emerald-50/80 border-emerald-200">
+          <div className="flex items-center gap-4 p-4 rounded-xl border bg-emerald-50 border-emerald-200">
             <div className="h-10 w-10 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
               <Check className="h-5 w-5 text-emerald-600" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-emerald-900">Extraction Complete</p>
-              <p className="text-xs text-emerald-700">
-                Classified as <strong>{(result.document_type || "unknown").replace(/_/g, " ").toUpperCase()}</strong>
+              <p className="text-sm font-semibold text-emerald-700">Extraction Complete</p>
+              <p className="text-xs text-emerald-600 flex items-center gap-2 flex-wrap">
+                Classified as
+                <Select
+                  value={result.document_type || "unknown"}
+                  onValueChange={(val) => setResult((prev) => prev ? { ...prev, document_type: val } : prev)}
+                >
+                  <SelectTrigger className="h-6 w-auto inline-flex text-xs font-semibold text-emerald-700 border-emerald-300 bg-white px-2 py-0">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {["lease_loi", "license_certificate", "franchise_agreement", "bill", "supplementary_agreement"].map((t) => (
+                      <SelectItem key={t} value={t}>{t.replace(/_/g, " ").toUpperCase()}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 {stats && <> &middot; {stats.total} fields extracted &middot; {stats.highConf} high confidence</>}
                 {result.processing_duration_seconds != null && (
                   <> &middot; Processed in {result.processing_duration_seconds}s</>
@@ -868,37 +1096,97 @@ export default function UploadAgreementPage() {
             <Badge variant="outline" className="text-xs flex-shrink-0 hidden sm:inline-flex">{result.filename}</Badge>
           </div>
 
+          {/* Address match suggestion (#89) */}
+          {matchedOutlet && !outletLinked && (
+            <div className="flex items-center gap-3 p-3 rounded-lg border border-blue-200 bg-blue-50/50">
+              <MapPin className="h-4 w-4 text-blue-600 shrink-0" />
+              <p className="text-sm text-blue-700 flex-1">
+                This document may belong to <strong>{matchedOutlet.name}</strong> ({matchedOutlet.city}).
+              </p>
+              <Button size="sm" variant="outline" className="text-xs border-blue-200 text-blue-700 hover:bg-blue-50" onClick={() => setOutletLinked(true)}>
+                Link to Outlet
+              </Button>
+            </div>
+          )}
+          {outletLinked && matchedOutlet && (
+            <div className="flex items-center gap-3 p-3 rounded-lg border border-emerald-200 bg-emerald-50">
+              <Check className="h-4 w-4 text-emerald-600 shrink-0" />
+              <p className="text-sm text-emerald-700">Linked to <strong>{matchedOutlet.name}</strong></p>
+            </div>
+          )}
+
           {/* Stats bar */}
           {stats && (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div className="text-center p-3 rounded-lg border bg-[#fafbfd]">
-                <p className="text-2xl font-bold">{stats.total}</p>
+              <div className="text-center p-3 rounded-lg border bg-card">
+                <p className="text-2xl font-semibold font-mono tracking-tighter">{stats.total}</p>
                 <p className="text-[11px] text-muted-foreground">Fields Extracted</p>
               </div>
-              <div className="text-center p-3 rounded-lg border bg-[#fafbfd]">
+              <div className="text-center p-3 rounded-lg border bg-card">
                 <p className="text-2xl font-bold text-emerald-600">{stats.highConf}</p>
                 <p className="text-[11px] text-muted-foreground">High Confidence</p>
               </div>
-              <div className="text-center p-3 rounded-lg border bg-[#fafbfd]">
+              <div className="text-center p-3 rounded-lg border bg-card">
                 <p className="text-2xl font-bold text-amber-600">{stats.medConf + stats.lowConf}</p>
                 <p className="text-[11px] text-muted-foreground">Needs Review</p>
               </div>
-              <div className="text-center p-3 rounded-lg border bg-[#fafbfd]">
-                <p className="text-2xl font-bold text-red-600">{result.risk_flags.length}</p>
+              <div className="text-center p-3 rounded-lg border bg-card">
+                <p className="text-2xl font-bold text-rose-600">{result.risk_flags.length}</p>
                 <p className="text-[11px] text-muted-foreground">Risk Flags</p>
               </div>
             </div>
           )}
 
+          {/* Verification Progress + Field Filter */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3 rounded-xl border bg-card">
+            {/* Verification progress */}
+            <div className="flex items-center gap-3">
+              <CheckSquare className="h-4 w-4 text-emerald-600 flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-foreground">
+                  {verifiedFields.size} of {totalFieldCount} fields verified
+                </p>
+                <div className="w-40 h-1.5 bg-muted rounded-full overflow-hidden mt-1">
+                  <div
+                    className="h-full bg-emerald-500 rounded-full transition-all duration-300"
+                    style={{ width: `${totalFieldCount > 0 ? (verifiedFields.size / totalFieldCount) * 100 : 0}%` }}
+                  />
+                </div>
+              </div>
+              {verifiedFields.size === totalFieldCount && totalFieldCount > 0 && (
+                <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]">All verified</Badge>
+              )}
+            </div>
+
+            {/* Lease vs License filter */}
+            <div className="flex items-center gap-1.5">
+              <Filter className="h-3.5 w-3.5 text-[#9ca3af]" />
+              <span className="text-xs text-muted-foreground mr-1">Filter:</span>
+              {(["all", "lease", "license"] as FieldFilterMode[]).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => setFieldFilter(mode)}
+                  className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
+                    fieldFilter === mode
+                      ? "bg-foreground text-white"
+                      : "bg-muted text-[#4a5568] hover:bg-muted/80"
+                  }`}
+                >
+                  {mode === "all" ? "All" : mode === "lease" ? "Lease" : "License"}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Split-Screen: PDF Viewer (left) + Extracted Fields (right) */}
-          <div className="flex flex-col lg:flex-row gap-4 lg:gap-5">
+          <div className="flex flex-col lg:flex-row gap-5 lg:gap-6">
             {/* LEFT SIDE: PDF Viewer */}
             <div className="w-full lg:w-1/2 lg:sticky lg:top-4 lg:self-start">
               <Card className="overflow-hidden">
-                <div className="flex items-center justify-between px-4 py-2.5 bg-[#f4f6f9] border-b">
+                <div className="flex items-center justify-between px-4 py-2.5 bg-muted border-b">
                   <div className="flex items-center gap-2">
                     <FileText className="h-4 w-4 text-[#6b7280]" />
-                    <span className="text-xs font-medium text-[#132337] truncate max-w-[200px]">
+                    <span className="text-xs font-medium text-foreground truncate max-w-[200px]">
                       {result.filename}
                     </span>
                   </div>
@@ -926,8 +1214,8 @@ export default function UploadAgreementPage() {
                     </Button>
                   </div>
                 </div>
-                <div className="bg-[#f4f6f9] overflow-auto" style={{ height: "calc(100vh - 320px)", minHeight: "400px" }}>
-                  {fileUrl && selectedFile?.type === "application/pdf" ? (
+                <div className="bg-muted overflow-auto" style={{ height: "calc(100vh - 320px)", minHeight: "400px" }}>
+                  {fileUrl && (selectedFile?.type === "application/pdf" || (!selectedFile && result?.filename?.toLowerCase().endsWith(".pdf"))) ? (
                     <iframe
                       src={`${fileUrl}#toolbar=0&view=FitH`}
                       className="border-0"
@@ -939,7 +1227,7 @@ export default function UploadAgreementPage() {
                         transformOrigin: "top left",
                       }}
                     />
-                  ) : fileUrl && selectedFile?.type?.startsWith("image/") ? (
+                  ) : fileUrl && (selectedFile?.type?.startsWith("image/") || (!selectedFile && /\.(png|jpe?g|webp|gif|bmp|tiff?)$/i.test(result?.filename || ""))) ? (
                     <div className="flex items-center justify-center p-4 h-full">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
@@ -967,7 +1255,7 @@ export default function UploadAgreementPage() {
             <div className="w-full lg:w-1/2 space-y-3">
               {/* Section controls */}
               <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-[#132337]">Extracted Data</h2>
+                <h2 className="text-sm font-semibold text-foreground">Extracted Data</h2>
                 <div className="flex items-center gap-1">
                   <Button variant="ghost" size="sm" className="text-xs h-7 px-2" onClick={expandAllSections}>
                     Expand All
@@ -980,16 +1268,16 @@ export default function UploadAgreementPage() {
 
               {/* Risk Flags Section (collapsible) */}
               {result.risk_flags.length > 0 && (
-                <Card className="overflow-hidden border-red-200">
+                <Card className="overflow-hidden border-rose-200">
                   <button
-                    className="w-full flex items-center gap-2 px-4 py-3 bg-red-50/50 hover:bg-red-50 transition-colors text-left"
+                    className="w-full flex items-center gap-2 px-4 py-3 bg-rose-50/50 hover:bg-rose-50 transition-colors text-left"
                     onClick={() => toggleSection("_risk_flags")}
                   >
-                    <Shield className="h-4 w-4 text-red-500 flex-shrink-0" />
+                    <Shield className="h-4 w-4 text-rose-600 flex-shrink-0" />
                     <span className="text-sm font-semibold flex-1">Risk Flags</span>
                     <Badge
                       variant="outline"
-                      className="text-[10px] border-red-300 text-red-700 mr-1"
+                      className="text-[10px] border-rose-200 text-rose-700 mr-1"
                     >
                       {result.risk_flags.length}
                     </Badge>
@@ -1010,14 +1298,14 @@ export default function UploadAgreementPage() {
                           key={i}
                           className={`p-2.5 rounded-lg border ${
                             flag.severity === "high"
-                              ? "border-red-200 bg-red-50/50"
+                              ? "border-rose-200 bg-rose-50/50"
                               : "border-amber-200 bg-amber-50/50"
                           }`}
                         >
                           <div className="flex items-start gap-2">
                             <AlertTriangle
                               className={`h-3.5 w-3.5 mt-0.5 flex-shrink-0 ${
-                                flag.severity === "high" ? "text-red-500" : "text-amber-500"
+                                flag.severity === "high" ? "text-rose-600" : "text-amber-600"
                               }`}
                             />
                             <div className="flex-1 min-w-0">
@@ -1027,8 +1315,8 @@ export default function UploadAgreementPage() {
                                   variant="outline"
                                   className={`text-[10px] px-1.5 py-0 ${
                                     flag.severity === "high"
-                                      ? "border-red-300 text-red-700"
-                                      : "border-amber-300 text-amber-700"
+                                      ? "border-rose-200 text-rose-700"
+                                      : "border-amber-200 text-amber-700"
                                   }`}
                                 >
                                   {flag.severity}
@@ -1054,7 +1342,11 @@ export default function UploadAgreementPage() {
               {/* Extracted Data — Accordion Sections */}
               {Object.entries(result.extraction).map(([sectionKey, sectionData]) => {
                 if (typeof sectionData !== "object" || sectionData === null) return null;
-                const fields = Object.entries(sectionData as Record<string, unknown>);
+                const allFields = Object.entries(sectionData as Record<string, unknown>);
+                // Apply field filter
+                const fields = fieldFilter === "all"
+                  ? allFields
+                  : allFields.filter(([key]) => fieldMatchesFilter(key, fieldFilter));
                 if (fields.length === 0) return null;
 
                 const config = sectionConfig[sectionKey] || {
@@ -1081,27 +1373,27 @@ export default function UploadAgreementPage() {
                   <Card key={sectionKey} className="overflow-hidden">
                     {/* Section Header (clickable to toggle) */}
                     <button
-                      className="w-full flex items-center gap-2 px-4 py-3 hover:bg-[#f4f6f9]/80 transition-colors text-left"
+                      className="w-full flex items-center gap-2 px-4 py-3 hover:bg-muted transition-colors text-left"
                       onClick={() => toggleSection(sectionKey)}
                     >
                       <Icon className="h-4 w-4 text-[#6b7280] flex-shrink-0" />
                       <span className="text-sm font-semibold flex-1">{config.title}</span>
                       <div className="flex items-center gap-1.5 mr-1">
                         {sectionStats.high > 0 && (
-                          <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-emerald-600">
+                          <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-emerald-700">
                             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                             {sectionStats.high}
                           </span>
                         )}
                         {sectionStats.medium > 0 && (
-                          <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-amber-600">
+                          <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-amber-700">
                             <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
                             {sectionStats.medium}
                           </span>
                         )}
                         {sectionStats.low > 0 && (
-                          <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-red-600">
-                            <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+                          <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-rose-700">
+                            <span className="h-1.5 w-1.5 rounded-full bg-rose-400" />
                             {sectionStats.low}
                           </span>
                         )}
@@ -1146,19 +1438,36 @@ export default function UploadAgreementPage() {
                               formattedVal = new Date(displayVal).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
                             }
 
+                            const fieldPath = `${sectionKey}.${fieldKey}`;
+                            const isVerified = verifiedFields.has(fieldPath);
+
                             return (
-                              <div key={fieldKey} className={`min-w-0 group/field rounded-lg p-2.5 -mx-1 transition-colors ${isNotFound ? "opacity-50" : "hover:bg-[#f4f6f9]"}`}>
+                              <div key={fieldKey} className={`min-w-0 group/field rounded-lg p-2.5 -mx-1 transition-colors ${isNotFound ? "opacity-50" : "hover:bg-muted"} ${isVerified ? "bg-emerald-50 ring-1 ring-emerald-200" : ""}`}>
                                 <div className="flex items-center gap-1.5 mb-1">
+                                  {/* Verification checkbox */}
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleFieldVerified(fieldPath)}
+                                    className={`flex-shrink-0 h-4 w-4 rounded border transition-colors flex items-center justify-center ${
+                                      isVerified
+                                        ? "bg-emerald-500 border-emerald-500 text-white"
+                                        : "border-slate-300 hover:border-slate-400 bg-white"
+                                    }`}
+                                    title={isVerified ? "Mark as unverified" : "Mark as verified"}
+                                  >
+                                    {isVerified && <Check className="h-2.5 w-2.5" />}
+                                  </button>
                                   <ConfidenceDot level={confidence} />
-                                  <p className="text-[10px] text-[#9ca3af] uppercase tracking-wider font-semibold flex-1">
+                                  <p className={`text-[10px] uppercase tracking-wider font-semibold flex-1 ${isVerified ? "text-emerald-700" : "text-[#9ca3af]"}`}>
                                     {formatFieldLabel(fieldKey)}
+                                    {isVerified && <span className="ml-1 normal-case tracking-normal font-normal text-emerald-600">verified</span>}
                                   </p>
                                   <span className="opacity-0 group-hover/field:opacity-100 transition-opacity">
                                     {getConfidenceBadge(confidence)}
                                   </span>
                                   <FeedbackButton
                                     agreementId={result.filename}
-                                    fieldName={`${sectionKey}.${fieldKey}`}
+                                    fieldName={fieldPath}
                                     originalValue={displayVal}
                                   />
                                 </div>
@@ -1206,7 +1515,7 @@ export default function UploadAgreementPage() {
                                       className="cursor-pointer hover:opacity-80 transition-opacity"
                                       title="Click to toggle"
                                     >
-                                      <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${displayVal === "Yes" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600"}`}>
+                                      <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${displayVal === "Yes" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
                                         {displayVal === "Yes" ? "✓" : "✗"} {displayVal}
                                       </span>
                                     </button>
@@ -1232,7 +1541,7 @@ export default function UploadAgreementPage() {
                                         const { displayVal: itemDisplay } = parseField(item);
                                         return (
                                           <div key={idx} className="flex items-start gap-2">
-                                            <span className="w-1.5 h-1.5 rounded-full bg-[#132337] mt-1.5 flex-shrink-0" />
+                                            <span className="w-1.5 h-1.5 rounded-full bg-foreground mt-1.5 flex-shrink-0" />
                                             <EditableField
                                               value={itemDisplay}
                                               isNotFound={false}
@@ -1327,11 +1636,15 @@ export default function UploadAgreementPage() {
                 setResult(null);
                 setSelectedFile(null);
                 setError(null);
+                // Return to bulk mode if there are remaining bulk jobs
+                if (bulkJobs.length > 0) {
+                  setBulkMode(true);
+                }
               }}
               className="gap-1"
             >
               <ChevronLeft className="h-4 w-4" />
-              Upload Another
+              {bulkJobs.length > 0 ? "Back to Queue" : "Upload Another"}
             </Button>
             <div className="flex items-center gap-3">
               <Button
@@ -1341,22 +1654,36 @@ export default function UploadAgreementPage() {
                   setIsConfirming(true);
                   setError(null);
                   try {
-                    const res = await confirmAndActivate({
-                      extraction: result.extraction,
-                      document_type: result.document_type,
-                      risk_flags: result.risk_flags,
-                      confidence: result.confidence,
-                      filename: result.filename,
-                      document_text: result.document_text,
-                      document_url: result.document_url,
-                    });
-                    setActivationResult(res);
-                    setStep(4);
+                    if (isDraftMode) {
+                      const res = await createDraft({
+                        extraction: result.extraction,
+                        document_type: result.document_type,
+                        risk_flags: result.risk_flags,
+                        confidence: result.confidence,
+                        filename: result.filename,
+                        document_text: result.document_text,
+                        document_url: result.document_url,
+                      });
+                      setActivationResult(res);
+                      setStep(4);
+                    } else {
+                      const res = await confirmAndActivate({
+                        extraction: result.extraction,
+                        document_type: result.document_type,
+                        risk_flags: result.risk_flags,
+                        confidence: result.confidence,
+                        filename: result.filename,
+                        document_text: result.document_text,
+                        document_url: result.document_url,
+                      });
+                      setActivationResult(res);
+                      setStep(4);
+                    }
                   } catch (err) {
                     setError(
                       err instanceof Error
                         ? err.message
-                        : "Activation failed. Please try again."
+                        : isDraftMode ? "Failed to save draft. Please try again." : "Activation failed. Please try again."
                     );
                   } finally {
                     setIsConfirming(false);
@@ -1367,12 +1694,12 @@ export default function UploadAgreementPage() {
                 {isConfirming ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    Activating...
+                    {isDraftMode ? "Saving Draft..." : "Activating..."}
                   </>
                 ) : (
                   <>
                     <Rocket className="h-4 w-4" />
-                    Confirm &amp; Activate
+                    {isDraftMode ? "Save Draft" : "Confirm & Activate"}
                   </>
                 )}
               </Button>
@@ -1386,15 +1713,16 @@ export default function UploadAgreementPage() {
         <Card className="max-w-lg mx-auto">
           <CardContent className="pt-10 pb-10 flex flex-col items-center text-center">
             <div className="mb-6">
-              <div className="h-20 w-20 rounded-full bg-emerald-100 flex items-center justify-center">
+              <div className="h-20 w-20 rounded-full bg-emerald-50 flex items-center justify-center">
                 <Check className="h-10 w-10 text-emerald-600" />
               </div>
             </div>
 
-            <h2 className="text-2xl font-bold mb-2">Agreement Activated!</h2>
+            <h2 className="text-2xl font-bold mb-2">{isDraftMode ? "Draft Saved!" : "Agreement Activated!"}</h2>
             <p className="text-sm text-muted-foreground mb-8">
-              {activationResult.obligations_count} obligations and{" "}
-              {activationResult.alerts_count} alerts have been auto-generated
+              {isDraftMode
+                ? "Your draft has been saved. You can find it in Agreements with 'Draft' status."
+                : `${activationResult.obligations_count} events and ${activationResult.alerts_count} reminders have been auto-generated`}
             </p>
 
             <div className="flex flex-col sm:flex-row items-center gap-3 w-full max-w-sm">
@@ -1404,10 +1732,10 @@ export default function UploadAgreementPage() {
                   router.push(`/agreements/${activationResult.agreement_id}`)
                 }
               >
-                View Agreement
+                View {isDraftMode ? "Draft" : "Agreement"}
                 <ArrowRight className="h-4 w-4" />
               </Button>
-              <Button
+              {!isDraftMode && <Button
                 variant="outline"
                 className="w-full gap-2"
                 onClick={() =>
@@ -1416,7 +1744,7 @@ export default function UploadAgreementPage() {
               >
                 View Outlet
                 <ArrowRight className="h-4 w-4" />
-              </Button>
+              </Button>}
             </div>
 
             <Button
@@ -1428,10 +1756,14 @@ export default function UploadAgreementPage() {
                 setSelectedFile(null);
                 setActivationResult(null);
                 setError(null);
+                // Return to bulk mode if there are remaining bulk jobs
+                if (bulkJobs.length > 0) {
+                  setBulkMode(true);
+                }
               }}
             >
               <ChevronLeft className="h-4 w-4" />
-              Upload Another
+              {bulkJobs.length > 0 ? "Back to Queue" : "Upload Another"}
             </Button>
           </CardContent>
         </Card>

@@ -4,6 +4,7 @@ Admin endpoints, cron triggers, org management, seed data, dashboard, smart chat
 
 import os
 import json
+import uuid
 import asyncio
 from typing import Optional
 from datetime import datetime, date, timedelta
@@ -102,7 +103,7 @@ def reject_signup_request(
 @router.get("/organizations", dependencies=[Depends(require_permission("manage_org_settings"))])
 def list_organizations(
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=100),
+    page_size: int = Query(50, ge=1, le=500),
 ):
     """List all organizations (paginated)."""
     offset = (page - 1) * page_size
@@ -115,7 +116,7 @@ def list_organizations(
 @router.post("/organizations", dependencies=[Depends(require_permission("manage_org_settings"))])
 def create_organization(name: str = Form(...)):
     """Create a new organization."""
-    result = supabase.table("organizations").insert({"name": name}).execute()
+    result = supabase.table("organizations").insert({"id": str(uuid.uuid4()), "name": name}).execute()
     return {"organization": result.data[0]}
 
 
@@ -161,7 +162,7 @@ def update_organization(org_id: str, req: UpdateOrganizationRequest):
 def list_org_members(
     org_id: str,
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=100),
+    page_size: int = Query(50, ge=1, le=500),
 ):
     """List all profiles belonging to an organization (paginated)."""
     offset = (page - 1) * page_size
@@ -369,7 +370,7 @@ def seed_demo_data():
 
         outlets_data = [
             {
-                "org_id": org_id, "name": "Ambience Mall", "brand_name": "Tan Coffee",
+                "id": str(uuid.uuid4()), "org_id": org_id, "name": "Ambience Mall", "brand_name": "Tan Coffee",
                 "address": "Unit GF-127, Ground Floor, Ambience Mall, NH-8, Gurugram, Haryana 122002",
                 "city": "Gurugram", "state": "Haryana", "pincode": "122002",
                 "property_type": "mall", "floor": "Ground Floor", "unit_number": "GF-127",
@@ -378,7 +379,7 @@ def seed_demo_data():
                 "deal_stage": "operational", "deal_priority": "medium",
             },
             {
-                "org_id": org_id, "name": "Phoenix MarketCity", "brand_name": "Tan Coffee",
+                "id": str(uuid.uuid4()), "org_id": org_id, "name": "Phoenix MarketCity", "brand_name": "Tan Coffee",
                 "address": "Unit F-215, 2nd Floor, Phoenix MarketCity, LBS Marg, Kurla, Mumbai 400070",
                 "city": "Mumbai", "state": "Maharashtra", "pincode": "400070",
                 "property_type": "mall", "floor": "2nd Floor", "unit_number": "F-215",
@@ -387,7 +388,7 @@ def seed_demo_data():
                 "deal_stage": "operational", "deal_priority": "low",
             },
             {
-                "org_id": org_id, "name": "Indiranagar High Street", "brand_name": "Tan Coffee",
+                "id": str(uuid.uuid4()), "org_id": org_id, "name": "Indiranagar High Street", "brand_name": "Tan Coffee",
                 "address": "No. 42, 12th Main, HAL 2nd Stage, Indiranagar, Bengaluru 560038",
                 "city": "Bengaluru", "state": "Karnataka", "pincode": "560038",
                 "property_type": "high_street", "floor": "Ground Floor", "unit_number": "42",
@@ -396,7 +397,7 @@ def seed_demo_data():
                 "deal_stage": "fitout", "deal_priority": "high",
             },
             {
-                "org_id": org_id, "name": "Select Citywalk", "brand_name": "Tan Coffee",
+                "id": str(uuid.uuid4()), "org_id": org_id, "name": "Select Citywalk", "brand_name": "Tan Coffee",
                 "address": "Unit 2-14, 2nd Floor, Select Citywalk, Saket, New Delhi 110017",
                 "city": "New Delhi", "state": "Delhi", "pincode": "110017",
                 "property_type": "mall", "floor": "2nd Floor", "unit_number": "2-14",
@@ -405,7 +406,7 @@ def seed_demo_data():
                 "deal_stage": "agreement", "deal_priority": "high",
             },
             {
-                "org_id": org_id, "name": "Palladium Chennai", "brand_name": "Tan Coffee",
+                "id": str(uuid.uuid4()), "org_id": org_id, "name": "Palladium Chennai", "brand_name": "Tan Coffee",
                 "address": "Unit GF-08, Ground Floor, Palladium Mall, Velachery, Chennai 600042",
                 "city": "Chennai", "state": "Tamil Nadu", "pincode": "600042",
                 "property_type": "mall", "floor": "Ground Floor", "unit_number": "GF-08",
@@ -414,7 +415,7 @@ def seed_demo_data():
                 "deal_stage": "operational", "deal_priority": "medium",
             },
             {
-                "org_id": org_id, "name": "DLF CyberHub", "brand_name": "Tan Coffee",
+                "id": str(uuid.uuid4()), "org_id": org_id, "name": "DLF CyberHub", "brand_name": "Tan Coffee",
                 "address": "Unit CH-305, 3rd Floor, DLF CyberHub, DLF Cyber City, Gurugram 122002",
                 "city": "Gurugram", "state": "Haryana", "pincode": "122002",
                 "property_type": "cyber_park", "floor": "3rd Floor", "unit_number": "CH-305",
@@ -432,7 +433,7 @@ def seed_demo_data():
         today = date.today()
         agreements_data = [
             {
-                "org_id": org_id, "outlet_id": created_outlets[0]["id"],
+                "id": str(uuid.uuid4()), "org_id": org_id, "outlet_id": created_outlets[0]["id"],
                 "type": "lease_loi", "status": "active",
                 "document_filename": "ambience-mall-lease.pdf",
                 "lessor_name": "Mr. Rajesh Kumar Sharma", "lessee_name": "Tan Coffee Pvt Ltd",
@@ -447,7 +448,7 @@ def seed_demo_data():
                 "extracted_data": {"parties": {"lessor_name": "Mr. Rajesh Kumar Sharma", "lessee_name": "Tan Coffee Pvt Ltd", "brand_name": "Tan Coffee"}, "premises": {"property_name": "Ambience Mall", "city": "Gurugram"}},
             },
             {
-                "org_id": org_id, "outlet_id": created_outlets[1]["id"],
+                "id": str(uuid.uuid4()), "org_id": org_id, "outlet_id": created_outlets[1]["id"],
                 "type": "lease_loi", "status": "active",
                 "document_filename": "phoenix-mumbai-lease.pdf",
                 "lessor_name": "Phoenix Mills Ltd", "lessee_name": "Tan Coffee Pvt Ltd",
@@ -462,7 +463,7 @@ def seed_demo_data():
                 "extracted_data": {"parties": {"lessor_name": "Phoenix Mills Ltd", "lessee_name": "Tan Coffee Pvt Ltd", "brand_name": "Tan Coffee"}, "premises": {"property_name": "Phoenix MarketCity", "city": "Mumbai"}},
             },
             {
-                "org_id": org_id, "outlet_id": created_outlets[2]["id"],
+                "id": str(uuid.uuid4()), "org_id": org_id, "outlet_id": created_outlets[2]["id"],
                 "type": "lease_loi", "status": "active",
                 "document_filename": "indiranagar-lease.pdf",
                 "lessor_name": "Mrs. Lakshmi Devi", "lessee_name": "Tan Coffee Pvt Ltd",
@@ -477,7 +478,7 @@ def seed_demo_data():
                 "extracted_data": {"parties": {"lessor_name": "Mrs. Lakshmi Devi", "lessee_name": "Tan Coffee Pvt Ltd", "brand_name": "Tan Coffee"}, "premises": {"property_name": "Indiranagar High Street", "city": "Bengaluru"}},
             },
             {
-                "org_id": org_id, "outlet_id": created_outlets[3]["id"],
+                "id": str(uuid.uuid4()), "org_id": org_id, "outlet_id": created_outlets[3]["id"],
                 "type": "lease_loi", "status": "expiring",
                 "document_filename": "select-citywalk-lease.pdf",
                 "lessor_name": "Select Infrastructure Pvt Ltd", "lessee_name": "Tan Coffee Pvt Ltd",
@@ -493,7 +494,7 @@ def seed_demo_data():
                 "extracted_data": {"parties": {"lessor_name": "Select Infrastructure Pvt Ltd", "lessee_name": "Tan Coffee Pvt Ltd", "brand_name": "Tan Coffee"}, "premises": {"property_name": "Select Citywalk", "city": "New Delhi"}},
             },
             {
-                "org_id": org_id, "outlet_id": created_outlets[4]["id"],
+                "id": str(uuid.uuid4()), "org_id": org_id, "outlet_id": created_outlets[4]["id"],
                 "type": "lease_loi", "status": "active",
                 "document_filename": "palladium-chennai-lease.pdf",
                 "lessor_name": "Forum Synergy Realty", "lessee_name": "Tan Coffee Pvt Ltd",
@@ -508,7 +509,7 @@ def seed_demo_data():
                 "extracted_data": {"parties": {"lessor_name": "Forum Synergy Realty", "lessee_name": "Tan Coffee Pvt Ltd", "brand_name": "Tan Coffee"}, "premises": {"property_name": "Palladium Chennai", "city": "Chennai"}},
             },
             {
-                "org_id": org_id, "outlet_id": created_outlets[5]["id"],
+                "id": str(uuid.uuid4()), "org_id": org_id, "outlet_id": created_outlets[5]["id"],
                 "type": "lease_loi", "status": "draft",
                 "document_filename": "cyberhub-loi-draft.pdf",
                 "lessor_name": "DLF Assets Ltd", "lessee_name": "Tan Coffee Pvt Ltd",
@@ -565,6 +566,7 @@ def seed_demo_data():
         for outlet_idx, agr_idx, obls in obligation_configs:
             for obl in obls:
                 obl_data = {
+                    "id": str(uuid.uuid4()),
                     "org_id": org_id,
                     "agreement_id": created_agreements[agr_idx]["id"],
                     "outlet_id": created_outlets[outlet_idx]["id"],
@@ -624,6 +626,7 @@ def seed_demo_data():
             outlet_idx = ac.pop("outlet_idx")
             agr_idx = ac.pop("agr_idx")
             alert_data = {
+                "id": str(uuid.uuid4()),
                 "org_id": org_id,
                 "outlet_id": created_outlets[outlet_idx]["id"],
                 "agreement_id": created_agreements[agr_idx]["id"],
@@ -634,6 +637,7 @@ def seed_demo_data():
             all_alerts.append(result.data[0])
 
         supabase.table("activity_log").insert({
+            "id": str(uuid.uuid4()),
             "org_id": org_id,
             "entity_type": "system",
             "action": "seed_demo_data",
@@ -764,7 +768,7 @@ def create_pilot(req: CreatePilotRequest):
         # -------------------------------------------------------
         # 1. Create organization
         # -------------------------------------------------------
-        org_result = supabase.table("organizations").insert({"name": req.client_name}).execute()
+        org_result = supabase.table("organizations").insert({"id": str(uuid.uuid4()), "name": req.client_name}).execute()
         org = org_result.data[0]
         org_id = org["id"]
 
@@ -845,6 +849,7 @@ def create_pilot(req: CreatePilotRequest):
                 area = random.randint(800, 2000)
 
                 outlet_data = {
+                    "id": str(uuid.uuid4()),
                     "org_id": org_id,
                     "name": f"{locality} Outlet",
                     "brand_name": req.brand_name,
@@ -876,9 +881,10 @@ def create_pilot(req: CreatePilotRequest):
 
             # Lease agreement
             lease_data = {
+                "id": str(uuid.uuid4()),
                 "org_id": org_id,
                 "outlet_id": out["id"],
-                "type": "lease_agreement",
+                "type": "lease_loi",
                 "status": "active",
                 "lessor_name": f"Landlord - {out['city']}",
                 "lessee_name": req.client_name,
@@ -901,6 +907,7 @@ def create_pilot(req: CreatePilotRequest):
 
             # License certificate
             license_data = {
+                "id": str(uuid.uuid4()),
                 "org_id": org_id,
                 "outlet_id": out["id"],
                 "type": "license_certificate",
@@ -944,6 +951,7 @@ def create_pilot(req: CreatePilotRequest):
 
             for obl in obligation_configs:
                 obl_data = {
+                    "id": str(uuid.uuid4()),
                     "org_id": org_id,
                     "agreement_id": lease_agr["id"],
                     "outlet_id": out["id"],
@@ -976,6 +984,7 @@ def create_pilot(req: CreatePilotRequest):
             for year, month, status, paid_at in payment_months:
                 due_date = date(year, month, 1)
                 pay_data = {
+                    "id": str(uuid.uuid4()),
                     "org_id": org_id,
                     "outlet_id": out["id"],
                     "agreement_id": lease_agr["id"],
@@ -1004,6 +1013,7 @@ def create_pilot(req: CreatePilotRequest):
             # 60-day alert
             trigger_60 = expiry_date - timedelta(days=60)
             alert_60 = {
+                "id": str(uuid.uuid4()),
                 "org_id": org_id,
                 "outlet_id": out["id"],
                 "agreement_id": lease_agr["id"],
@@ -1022,6 +1032,7 @@ def create_pilot(req: CreatePilotRequest):
             # 30-day alert
             trigger_30 = expiry_date - timedelta(days=30)
             alert_30 = {
+                "id": str(uuid.uuid4()),
                 "org_id": org_id,
                 "outlet_id": out["id"],
                 "agreement_id": lease_agr["id"],
@@ -1039,6 +1050,7 @@ def create_pilot(req: CreatePilotRequest):
 
         # Log the pilot creation for traceability
         supabase.table("activity_log").insert({
+            "id": str(uuid.uuid4()),
             "org_id": org_id,
             "entity_type": "system",
             "action": "create_pilot",
@@ -1459,7 +1471,7 @@ def run_agreement_status_transitions() -> dict:
         expiring = supabase.table("agreements").select("id, outlet_id, org_id").eq("status", "active").lte("lease_expiry_date", threshold_90.isoformat()).gte("lease_expiry_date", today.isoformat()).execute()
         for ag in (expiring.data or []):
             supabase.table("agreements").update({"status": "expiring"}).eq("id", ag["id"]).execute()
-            supabase.table("activity_log").insert({"org_id": ag["org_id"], "entity_type": "agreement", "entity_id": ag["id"], "action": "auto_transition", "details": json.dumps({"from": "active", "to": "expiring"})}).execute()
+            supabase.table("activity_log").insert({"id": str(uuid.uuid4()), "org_id": ag["org_id"], "entity_type": "agreement", "entity_id": ag["id"], "action": "auto_transition", "details": json.dumps({"from": "active", "to": "expiring"})}).execute()
             transitioned["expiring"] += 1
             supabase.table("outlets").update({"status": "up_for_renewal"}).eq("id", ag["outlet_id"]).execute()
             transitioned["outlets_updated"] += 1
@@ -1470,7 +1482,7 @@ def run_agreement_status_transitions() -> dict:
         expired = supabase.table("agreements").select("id, outlet_id, org_id").in_("status", ["active", "expiring"]).lt("lease_expiry_date", today.isoformat()).execute()
         for ag in (expired.data or []):
             supabase.table("agreements").update({"status": "expired"}).eq("id", ag["id"]).execute()
-            supabase.table("activity_log").insert({"org_id": ag["org_id"], "entity_type": "agreement", "entity_id": ag["id"], "action": "auto_transition", "details": json.dumps({"from": "active/expiring", "to": "expired"})}).execute()
+            supabase.table("activity_log").insert({"id": str(uuid.uuid4()), "org_id": ag["org_id"], "entity_type": "agreement", "entity_id": ag["id"], "action": "auto_transition", "details": json.dumps({"from": "active/expiring", "to": "expired"})}).execute()
             transitioned["expired"] += 1
     except Exception as e:
         print(f"[CRON] Error transitioning expired: {e}")
@@ -1519,7 +1531,7 @@ def run_alert_engine() -> dict:
                         existing = supabase.table("alerts").select("id").eq("agreement_id", ag["id"]).eq("type", "lease_expiry").eq("trigger_date", today.isoformat()).execute()
                         if not existing.data:
                             supabase.table("alerts").insert({
-                                "org_id": org_id, "agreement_id": ag["id"], "outlet_id": ag.get("outlet_id"),
+                                "id": str(uuid.uuid4()), "org_id": org_id, "agreement_id": ag["id"], "outlet_id": ag.get("outlet_id"),
                                 "type": "lease_expiry", "severity": "high" if lead <= 30 else "medium",
                                 "title": f"Lease expiring in {lead} days",
                                 "description": f"Agreement lease expires on {expiry}",
@@ -1542,7 +1554,7 @@ def run_alert_engine() -> dict:
                         existing = supabase.table("alerts").select("id").eq("agreement_id", ob.get("agreement_id")).eq("type", "rent_due").eq("trigger_date", today.isoformat()).execute()
                         if not existing.data:
                             supabase.table("alerts").insert({
-                                "org_id": org_id, "agreement_id": ob.get("agreement_id"), "outlet_id": ob.get("outlet_id"),
+                                "id": str(uuid.uuid4()), "org_id": org_id, "agreement_id": ob.get("agreement_id"), "outlet_id": ob.get("outlet_id"),
                                 "type": "rent_due", "severity": "medium" if lead > 1 else "high",
                                 "title": f"Rent due in {lead} day{'s' if lead > 1 else ''}",
                                 "description": f"{ob.get('type', 'Payment')} of {ob.get('amount', 'N/A')} due on {due}",
@@ -1715,6 +1727,7 @@ def cron_escalation_calculator():
             new_amount = round(ob["amount"] * (1 + esc_pct / 100), 2)
             supabase.table("obligations").update({"amount": new_amount}).eq("id", ob["id"]).execute()
             supabase.table("activity_log").insert({
+                "id": str(uuid.uuid4()),
                 "org_id": agreement.data.get("org_id"),
                 "entity_type": "obligation",
                 "entity_id": ob["id"],
@@ -1802,6 +1815,7 @@ def submit_feedback(
         agr_id = None  # Not a valid UUID — skip FK reference
 
     feedback_data = {
+        "id": str(uuid.uuid4()),
         "field_name": req.field_name,
         "original_value": req.original_value,
         "corrected_value": req.corrected_value,
@@ -1829,7 +1843,7 @@ def list_feedback(
     org_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=500),
 ):
     """List feedback entries, optionally filtered by org and status."""
     query = supabase.table("feedback").select("*", count="exact")

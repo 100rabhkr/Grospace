@@ -24,37 +24,37 @@ const ACTION_CONFIG: Record<
   status_changed: {
     icon: ArrowRight,
     label: "Status Changed",
-    color: "bg-blue-100 text-blue-700",
+    color: "bg-blue-50 text-blue-700",
   },
   revenue_updated: {
     icon: IndianRupee,
     label: "Revenue Updated",
-    color: "bg-emerald-100 text-emerald-700",
+    color: "bg-emerald-50 text-emerald-700",
   },
   confirm_and_activate: {
     icon: FileCheck,
     label: "Agreement Activated",
-    color: "bg-purple-100 text-purple-700",
+    color: "bg-emerald-50 text-emerald-700",
   },
   fields_edited: {
     icon: Pencil,
     label: "Fields Edited",
-    color: "bg-amber-100 text-amber-700",
+    color: "bg-amber-50 text-amber-700",
   },
   reminder_created: {
     icon: Bell,
     label: "Reminder Created",
-    color: "bg-pink-100 text-pink-700",
+    color: "bg-blue-50 text-blue-700",
   },
   reminder_updated: {
     icon: Bell,
     label: "Reminder Updated",
-    color: "bg-pink-100 text-pink-700",
+    color: "bg-blue-50 text-blue-700",
   },
   deal_stage_changed: {
     icon: ArrowRight,
     label: "Deal Stage Changed",
-    color: "bg-indigo-100 text-indigo-700",
+    color: "bg-amber-50 text-amber-700",
   },
 };
 
@@ -85,7 +85,7 @@ function renderDetail(action: string, details: Record<string, unknown>) {
       return (
         <span>
           {formatStatusLabel(details.old_status as string)}{" "}
-          <span className="text-neutral-400 mx-1">&rarr;</span>{" "}
+          <span className="text-muted-foreground mx-1">&rarr;</span>{" "}
           {formatStatusLabel(details.new_status as string)}
         </span>
       );
@@ -101,7 +101,7 @@ function renderDetail(action: string, details: Record<string, unknown>) {
       return (
         <span>
           {fmt(details.old_revenue)}{" "}
-          <span className="text-neutral-400 mx-1">&rarr;</span>{" "}
+          <span className="text-muted-foreground mx-1">&rarr;</span>{" "}
           {fmt(details.new_revenue)}
         </span>
       );
@@ -109,8 +109,8 @@ function renderDetail(action: string, details: Record<string, unknown>) {
     case "confirm_and_activate":
       return (
         <span>
-          {details.filename as string} &mdash; {details.obligations_created as number} obligations,{" "}
-          {details.alerts_created as number} alerts
+          {details.filename as string} &mdash; {details.obligations_created as number} events,{" "}
+          {details.alerts_created as number} reminders
         </span>
       );
     case "fields_edited": {
@@ -127,7 +127,7 @@ function renderDetail(action: string, details: Record<string, unknown>) {
       return (
         <span>
           {formatStatusLabel(details.old_stage as string)}{" "}
-          <span className="text-neutral-400 mx-1">&rarr;</span>{" "}
+          <span className="text-muted-foreground mx-1">&rarr;</span>{" "}
           {formatStatusLabel(details.new_stage as string)}
         </span>
       );
@@ -139,7 +139,7 @@ function renderDetail(action: string, details: Record<string, unknown>) {
 export function Timeline({ items }: { items: TimelineItem[] }) {
   if (!items || items.length === 0) {
     return (
-      <p className="text-sm text-neutral-500 py-4 text-center">
+      <p className="text-sm text-muted-foreground py-4 text-center">
         No activity recorded yet.
       </p>
     );
@@ -155,7 +155,7 @@ export function Timeline({ items }: { items: TimelineItem[] }) {
           const config = ACTION_CONFIG[item.action] || {
             icon: Activity,
             label: item.action.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
-            color: "bg-neutral-100 text-neutral-700",
+            color: "bg-slate-100 text-slate-700",
           };
           const Icon = config.icon;
 
@@ -172,15 +172,15 @@ export function Timeline({ items }: { items: TimelineItem[] }) {
               <div className="flex-1 min-w-0 pb-1">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-sm font-medium">{config.label}</span>
-                  <span className="text-xs text-neutral-400">
+                  <span className="text-xs text-muted-foreground">
                     {formatTimelineDate(item.created_at)} at{" "}
                     {formatTimelineTime(item.created_at)}
                   </span>
                 </div>
-                <div className="text-sm text-neutral-600 mt-0.5">
+                <div className="text-sm text-foreground mt-0.5">
                   {renderDetail(item.action, item.details)}
                 </div>
-                <p className="text-xs text-neutral-400 mt-0.5">
+                <p className="text-xs text-muted-foreground mt-0.5">
                   by {item.user_name}
                 </p>
               </div>

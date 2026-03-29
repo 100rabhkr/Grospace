@@ -105,17 +105,17 @@ function statusLabel(status: string): string {
 }
 
 function statusColor(status: string): string {
-  if (!status) return "bg-[#f4f6f9] text-[#4a5568]";
+  if (!status) return "bg-muted text-muted-foreground";
   const map: Record<string, string> = {
     active: "bg-emerald-50 text-emerald-700",
     operational: "bg-emerald-50 text-emerald-700",
-    fit_out: "bg-blue-50 text-blue-700",
+    fit_out: "bg-amber-50 text-amber-700",
     expiring: "bg-amber-50 text-amber-700",
-    expired: "bg-red-50 text-red-700",
-    closed: "bg-[#f4f6f9] text-[#6b7280]",
-    draft: "bg-[#f4f6f9] text-[#4a5568]",
+    expired: "bg-rose-50 text-rose-700",
+    closed: "bg-muted text-muted-foreground",
+    draft: "bg-muted text-muted-foreground",
   };
-  return map[status] || "bg-[#f4f6f9] text-[#4a5568]";
+  return map[status] || "bg-muted text-muted-foreground";
 }
 
 function formatCurrency(amount: number): string {
@@ -143,7 +143,7 @@ function getRentToRevenue(rent: number | undefined, revenue: number | null | und
 function RentToRevenueBadge({ ratio }: { ratio: number | null }) {
   if (ratio === null) {
     return (
-      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium bg-[#f4f6f9] text-[#9ca3af]">
+      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium bg-muted text-muted-foreground">
         N/A
       </span>
     );
@@ -153,7 +153,7 @@ function RentToRevenueBadge({ ratio }: { ratio: number | null }) {
       ? "bg-emerald-50 text-emerald-700 border-emerald-200"
       : ratio < 18
       ? "bg-amber-50 text-amber-700 border-amber-200"
-      : "bg-red-50 text-red-700 border-red-200";
+      : "bg-rose-50 text-rose-700 border-rose-200";
   const label =
     ratio < 12
       ? "Healthy"
@@ -246,10 +246,10 @@ export default function OutletsPage() {
   // ---------------------------------------------------------------------------
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#fafbfd] flex items-center justify-center">
+      <div className="min-h-screen bg-card flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <Loader2 className="h-8 w-8 animate-spin text-[#9ca3af]" />
-          <p className="text-sm text-[#6b7280]">Loading outlets...</p>
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">Loading outlets...</p>
         </div>
       </div>
     );
@@ -260,11 +260,11 @@ export default function OutletsPage() {
   // ---------------------------------------------------------------------------
   if (error) {
     return (
-      <div className="min-h-screen bg-[#fafbfd] flex items-center justify-center">
+      <div className="min-h-screen bg-card flex items-center justify-center">
         <div className="flex flex-col items-center gap-3 text-center max-w-md">
-          <AlertTriangle className="h-10 w-10 text-red-400" />
-          <p className="text-lg font-medium text-[#132337]">Failed to load outlets</p>
-          <p className="text-sm text-[#6b7280]">{error}</p>
+          <AlertTriangle className="h-10 w-10 text-rose-500" />
+          <p className="text-lg font-medium text-foreground">Failed to load outlets</p>
+          <p className="text-sm text-muted-foreground">{error}</p>
           <Button variant="outline" onClick={() => window.location.reload()}>
             Try Again
           </Button>
@@ -283,12 +283,12 @@ export default function OutletsPage() {
         <PageHeader title="Outlets">
           <Badge
             variant="secondary"
-            className="bg-[#f4f6f9] text-[#132337] font-medium"
+            className="bg-muted text-foreground font-medium"
           >
             {filteredOutlets.length} of {outlets.length}
           </Badge>
           <Link href="/agreements/upload">
-            <Button className="bg-[#132337] text-white hover:bg-[#1e3a5f]">
+            <Button className="bg-foreground text-white hover:bg-foreground/90">
               <Plus className="h-4 w-4 mr-1" />
               Add Outlet
             </Button>
@@ -299,18 +299,18 @@ export default function OutletsPage() {
         <div className="flex flex-col lg:flex-row items-start lg:items-center gap-3 mb-6">
           {/* Search */}
           <div className="relative w-full lg:w-72">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#9ca3af]" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Search outlets..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 bg-[#fafbfd] border-[#e4e8ef] text-black placeholder:text-[#9ca3af]"
+              className="pl-9 bg-card border-border text-foreground placeholder:text-muted-foreground"
             />
           </div>
 
           {/* City Dropdown */}
           <Select value={cityFilter} onValueChange={setCityFilter}>
-            <SelectTrigger className="w-full lg:w-44 bg-[#fafbfd] border-[#e4e8ef] text-black">
+            <SelectTrigger className="w-full lg:w-44 bg-card border-border text-foreground">
               <SelectValue placeholder="All Cities" />
             </SelectTrigger>
             <SelectContent>
@@ -325,7 +325,7 @@ export default function OutletsPage() {
 
           {/* Status Dropdown */}
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-full lg:w-44 bg-[#fafbfd] border-[#e4e8ef] text-black">
+            <SelectTrigger className="w-full lg:w-44 bg-card border-border text-foreground">
               <SelectValue placeholder="All Statuses" />
             </SelectTrigger>
             <SelectContent>
@@ -340,7 +340,7 @@ export default function OutletsPage() {
 
           {/* Property Type Dropdown */}
           <Select value={propertyTypeFilter} onValueChange={setPropertyTypeFilter}>
-            <SelectTrigger className="w-full lg:w-44 bg-[#fafbfd] border-[#e4e8ef] text-black">
+            <SelectTrigger className="w-full lg:w-44 bg-card border-border text-foreground">
               <SelectValue placeholder="All Types" />
             </SelectTrigger>
             <SelectContent>
@@ -355,7 +355,7 @@ export default function OutletsPage() {
 
           {/* Franchise Model Dropdown */}
           <Select value={franchiseModelFilter} onValueChange={setFranchiseModelFilter}>
-            <SelectTrigger className="w-full lg:w-44 bg-[#fafbfd] border-[#e4e8ef] text-black">
+            <SelectTrigger className="w-full lg:w-44 bg-card border-border text-foreground">
               <SelectValue placeholder="All Models" />
             </SelectTrigger>
             <SelectContent>
@@ -369,15 +369,15 @@ export default function OutletsPage() {
           </Select>
 
           {/* View Toggle */}
-          <div className="flex items-center gap-1 ml-auto border border-[#e4e8ef] rounded-md p-0.5">
+          <div className="flex items-center gap-1 ml-auto border border-border rounded-md p-0.5">
             <Button
               variant={viewMode === "card" ? "default" : "ghost"}
               size="icon"
               onClick={() => setViewMode("card")}
               className={
                 viewMode === "card"
-                  ? "bg-[#132337] text-white hover:bg-[#1e3a5f] h-8 w-8"
-                  : "text-[#6b7280] hover:text-black h-8 w-8"
+                  ? "bg-foreground text-white hover:bg-foreground/90 h-8 w-8"
+                  : "text-muted-foreground hover:text-foreground h-8 w-8"
               }
             >
               <LayoutGrid className="h-4 w-4" />
@@ -388,8 +388,8 @@ export default function OutletsPage() {
               onClick={() => setViewMode("table")}
               className={
                 viewMode === "table"
-                  ? "bg-[#132337] text-white hover:bg-[#1e3a5f] h-8 w-8"
-                  : "text-[#6b7280] hover:text-black h-8 w-8"
+                  ? "bg-foreground text-white hover:bg-foreground/90 h-8 w-8"
+                  : "text-muted-foreground hover:text-foreground h-8 w-8"
               }
             >
               <List className="h-4 w-4" />
@@ -400,11 +400,11 @@ export default function OutletsPage() {
         {/* Empty State */}
         {outlets.length === 0 && (
           <div className="flex flex-col items-center justify-center py-20 text-center">
-            <Store className="h-12 w-12 text-[#d1d5db] mb-4" />
-            <p className="text-lg font-medium text-[#4a5568] mb-1">
+            <Store className="h-12 w-12 text-muted-foreground mb-4" />
+            <p className="text-lg font-medium text-muted-foreground mb-1">
               No outlets yet
             </p>
-            <p className="text-sm text-[#9ca3af]">
+            <p className="text-sm text-muted-foreground">
               Outlets will appear here once created via agreement upload.
             </p>
           </div>
@@ -413,11 +413,11 @@ export default function OutletsPage() {
         {/* No results for filters */}
         {outlets.length > 0 && filteredOutlets.length === 0 && (
           <div className="flex flex-col items-center justify-center py-20 text-center">
-            <Store className="h-12 w-12 text-[#d1d5db] mb-4" />
-            <p className="text-lg font-medium text-[#4a5568] mb-1">
+            <Store className="h-12 w-12 text-muted-foreground mb-4" />
+            <p className="text-lg font-medium text-muted-foreground mb-1">
               No outlets found
             </p>
-            <p className="text-sm text-[#9ca3af]">
+            <p className="text-sm text-muted-foreground">
               Try adjusting your search or filter criteria.
             </p>
           </div>
@@ -430,10 +430,10 @@ export default function OutletsPage() {
               const primaryAgreement = outlet.agreements?.[0] || null;
               return (
                 <Link key={outlet.id} href={`/outlets/${outlet.id}`}>
-                  <Card className="bg-[#fafbfd] border border-[#e4e8ef] hover:border-[#c9cfd9] hover:shadow-md transition-all duration-200 cursor-pointer h-full">
+                  <Card className="bg-card border border-border hover:border-border hover:shadow-md transition-all duration-200 cursor-pointer h-full">
                     <CardHeader className="pb-3">
                       <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-medium text-[#6b7280] bg-[#f4f6f9] border border-[#e4e8ef] rounded px-2 py-0.5">
+                        <span className="text-xs font-medium text-muted-foreground bg-muted border border-border rounded px-2 py-0.5">
                           {outlet.brand_name}
                         </span>
                         <Badge
@@ -443,11 +443,11 @@ export default function OutletsPage() {
                         </Badge>
                       </div>
                       <div className="flex items-center gap-2">
-                        <h3 className="text-base font-semibold text-black leading-tight">
+                        <h3 className="text-base font-semibold text-foreground leading-tight">
                           {outlet.name}
                         </h3>
                         {outlet.site_code && (
-                          <span className="font-mono text-[10px] bg-[#f4f6f9] text-[#6b7280] px-1.5 py-0.5 rounded">
+                          <span className="font-mono text-[10px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded">
                             {outlet.site_code}
                           </span>
                         )}
@@ -455,16 +455,16 @@ export default function OutletsPage() {
                     </CardHeader>
                     <CardContent className="pt-0 space-y-3">
                       {/* Location */}
-                      <div className="flex items-center gap-1.5 text-sm text-[#4a5568]">
-                        <MapPin className="h-3.5 w-3.5 text-[#9ca3af] flex-shrink-0" />
+                      <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                        <MapPin className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
                         <span>
                           {outlet.city}, {outlet.address}
                         </span>
                       </div>
 
                       {/* Property Type */}
-                      <div className="flex items-center gap-1.5 text-sm text-[#4a5568]">
-                        <Building2 className="h-3.5 w-3.5 text-[#9ca3af] flex-shrink-0" />
+                      <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                        <Building2 className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
                         <span>
                           {propertyTypeLabel(outlet.property_type)}
                           {outlet.floor ? ` -- ${outlet.floor}` : ""}
@@ -472,43 +472,43 @@ export default function OutletsPage() {
                       </div>
 
                       {/* Metrics */}
-                      <div className="border-t border-[#e4e8ef] pt-3 mt-3">
+                      <div className="border-t border-border pt-3 mt-3">
                         <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                           <div>
-                            <p className="text-xs text-[#9ca3af] font-medium uppercase tracking-wide">
+                            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
                               Area
                             </p>
-                            <p className="text-sm font-semibold text-black">
+                            <p className="text-sm font-semibold text-foreground">
                               {outlet.super_area_sqft
                                 ? outlet.super_area_sqft.toLocaleString("en-IN") + " sqft"
                                 : "--"}
                             </p>
                           </div>
                           <div>
-                            <p className="text-xs text-[#9ca3af] font-medium uppercase tracking-wide">
+                            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
                               Model
                             </p>
-                            <p className="text-sm font-semibold text-black">
+                            <p className="text-sm font-semibold text-foreground">
                               {franchiseModelLabel(outlet.franchise_model)}
                             </p>
                           </div>
                           {primaryAgreement && (
                             <>
                               <div>
-                                <p className="text-xs text-[#9ca3af] font-medium uppercase tracking-wide">
+                                <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
                                   Monthly Rent
                                 </p>
-                                <p className="text-sm font-semibold text-black">
+                                <p className="text-sm font-semibold text-foreground">
                                   {primaryAgreement.monthly_rent > 0
                                     ? formatCurrency(primaryAgreement.monthly_rent)
                                     : "--"}
                                 </p>
                               </div>
                               <div>
-                                <p className="text-xs text-[#9ca3af] font-medium uppercase tracking-wide">
+                                <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
                                   Lease Expiry
                                 </p>
-                                <p className="text-sm font-semibold text-black">
+                                <p className="text-sm font-semibold text-foreground">
                                   {formatDate(primaryAgreement.lease_expiry_date)}
                                 </p>
                               </div>
@@ -516,7 +516,7 @@ export default function OutletsPage() {
                           )}
                           {/* Rent-to-Revenue Ratio */}
                           <div>
-                            <p className="text-xs text-[#9ca3af] font-medium uppercase tracking-wide">
+                            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
                               Rent/Revenue
                             </p>
                             <div className="mt-0.5">
@@ -530,10 +530,10 @@ export default function OutletsPage() {
                           </div>
                           {primaryAgreement && primaryAgreement.risk_flags && primaryAgreement.risk_flags.length > 0 && (
                             <div>
-                              <p className="text-xs text-[#9ca3af] font-medium uppercase tracking-wide">
+                              <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
                                 Risk Flags
                               </p>
-                              <Badge variant="outline" className="mt-0.5 bg-red-50 text-red-700 border-red-200 text-xs">
+                              <Badge variant="outline" className="mt-0.5 bg-rose-50 text-rose-700 border-rose-200 text-xs">
                                 {primaryAgreement.risk_flags.length} flag{primaryAgreement.risk_flags.length !== 1 ? "s" : ""}
                               </Badge>
                             </div>
@@ -550,41 +550,41 @@ export default function OutletsPage() {
 
         {/* Table View */}
         {viewMode === "table" && filteredOutlets.length > 0 && (
-          <div className="border border-[#e4e8ef] rounded-lg overflow-hidden">
+          <div className="border border-border rounded-lg overflow-hidden">
             <Table>
               <TableHeader>
-                <TableRow className="bg-[#f4f6f9] hover:bg-[#f4f6f9]">
-                  <TableHead className="text-xs font-semibold text-[#6b7280] uppercase tracking-wide">
+                <TableRow className="bg-muted hover:bg-muted">
+                  <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                     Outlet Name
                   </TableHead>
-                  <TableHead className="text-xs font-semibold text-[#6b7280] uppercase tracking-wide">
+                  <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                     Site Code
                   </TableHead>
-                  <TableHead className="text-xs font-semibold text-[#6b7280] uppercase tracking-wide">
+                  <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                     City
                   </TableHead>
-                  <TableHead className="text-xs font-semibold text-[#6b7280] uppercase tracking-wide">
+                  <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                     Property Type
                   </TableHead>
-                  <TableHead className="text-xs font-semibold text-[#6b7280] uppercase tracking-wide">
+                  <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                     Status
                   </TableHead>
-                  <TableHead className="text-xs font-semibold text-[#6b7280] uppercase tracking-wide">
+                  <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                     Franchise Model
                   </TableHead>
-                  <TableHead className="text-xs font-semibold text-[#6b7280] uppercase tracking-wide text-right">
+                  <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wide text-right">
                     Area (sqft)
                   </TableHead>
-                  <TableHead className="text-xs font-semibold text-[#6b7280] uppercase tracking-wide text-right">
+                  <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wide text-right">
                     Monthly Rent
                   </TableHead>
-                  <TableHead className="text-xs font-semibold text-[#6b7280] uppercase tracking-wide">
+                  <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                     Lease Expiry
                   </TableHead>
-                  <TableHead className="text-xs font-semibold text-[#6b7280] uppercase tracking-wide text-center">
+                  <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wide text-center">
                     Rent/Revenue
                   </TableHead>
-                  <TableHead className="text-xs font-semibold text-[#6b7280] uppercase tracking-wide text-center">
+                  <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wide text-center">
                     Risk Flags
                   </TableHead>
                 </TableRow>
@@ -595,29 +595,29 @@ export default function OutletsPage() {
                   return (
                     <TableRow
                       key={outlet.id}
-                      className="hover:bg-[#f4f6f9] transition-colors cursor-pointer"
+                      className="hover:bg-muted transition-colors cursor-pointer"
                     >
                       <TableCell>
                         <Link
                           href={`/outlets/${outlet.id}`}
-                          className="text-sm font-medium text-black hover:underline"
+                          className="text-sm font-medium text-foreground hover:underline"
                         >
                           {outlet.name}
                         </Link>
                       </TableCell>
                       <TableCell>
                         {outlet.site_code ? (
-                          <span className="font-mono text-xs bg-[#f4f6f9] text-[#6b7280] px-1.5 py-0.5 rounded">
+                          <span className="font-mono text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded">
                             {outlet.site_code}
                           </span>
                         ) : (
-                          <span className="text-xs text-[#d1d5db]">—</span>
+                          <span className="text-xs text-muted-foreground">—</span>
                         )}
                       </TableCell>
-                      <TableCell className="text-sm text-[#4a5568]">
+                      <TableCell className="text-sm text-muted-foreground">
                         {outlet.city}
                       </TableCell>
-                      <TableCell className="text-sm text-[#4a5568]">
+                      <TableCell className="text-sm text-muted-foreground">
                         {propertyTypeLabel(outlet.property_type)}
                       </TableCell>
                       <TableCell>
@@ -627,20 +627,20 @@ export default function OutletsPage() {
                           {statusLabel(outlet.status)}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-sm text-[#4a5568]">
+                      <TableCell className="text-sm text-muted-foreground">
                         {franchiseModelLabel(outlet.franchise_model)}
                       </TableCell>
-                      <TableCell className="text-sm text-black font-medium text-right">
+                      <TableCell className="text-sm text-foreground font-medium text-right">
                         {outlet.super_area_sqft
                           ? outlet.super_area_sqft.toLocaleString("en-IN")
                           : "--"}
                       </TableCell>
-                      <TableCell className="text-sm text-black font-medium text-right">
+                      <TableCell className="text-sm text-foreground font-medium text-right">
                         {primaryAgreement && primaryAgreement.monthly_rent > 0
                           ? formatCurrency(primaryAgreement.monthly_rent)
                           : "--"}
                       </TableCell>
-                      <TableCell className="text-sm text-[#4a5568]">
+                      <TableCell className="text-sm text-muted-foreground">
                         {primaryAgreement
                           ? formatDate(primaryAgreement.lease_expiry_date)
                           : "--"}
@@ -655,11 +655,11 @@ export default function OutletsPage() {
                       </TableCell>
                       <TableCell className="text-center">
                         {primaryAgreement && primaryAgreement.risk_flags && primaryAgreement.risk_flags.length > 0 ? (
-                          <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200 text-xs">
+                          <Badge variant="outline" className="bg-rose-50 text-rose-700 border-rose-200 text-xs">
                             {primaryAgreement.risk_flags.length}
                           </Badge>
                         ) : (
-                          <span className="text-sm text-[#9ca3af]">--</span>
+                          <span className="text-sm text-muted-foreground">--</span>
                         )}
                       </TableCell>
                     </TableRow>

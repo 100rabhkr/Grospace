@@ -86,31 +86,31 @@ function statusLabel(s: string): string {
 
 function statusColor(status: string): string {
   const map: Record<string, string> = {
-    pipeline: "bg-[#f4f6f9] text-[#132337]",
-    fit_out: "bg-[#f4f6f9] text-[#132337]",
-    operational: "bg-emerald-100 text-emerald-800",
-    up_for_renewal: "bg-amber-100 text-amber-800",
-    renewed: "bg-green-100 text-green-800",
-    closed: "bg-red-100 text-red-800",
+    pipeline: "bg-muted text-foreground",
+    fit_out: "bg-muted text-foreground",
+    operational: "bg-emerald-50 text-emerald-700",
+    up_for_renewal: "bg-amber-50 text-amber-700",
+    renewed: "bg-emerald-50 text-emerald-700",
+    closed: "bg-rose-50 text-rose-700",
   };
-  return map[status] || "bg-[#f4f6f9] text-[#132337]";
+  return map[status] || "bg-muted text-foreground";
 }
 
 function agreementStatusColor(status: string): string {
   const map: Record<string, string> = {
-    active: "bg-emerald-100 text-emerald-800",
-    draft: "bg-[#f4f6f9] text-[#132337]",
-    pending: "bg-amber-100 text-amber-800",
-    expired: "bg-red-100 text-red-800",
-    terminated: "bg-red-100 text-red-800",
-    renewed: "bg-green-100 text-green-800",
+    active: "bg-emerald-50 text-emerald-700",
+    draft: "bg-muted text-foreground",
+    pending: "bg-amber-50 text-amber-700",
+    expired: "bg-rose-50 text-rose-700",
+    terminated: "bg-rose-50 text-rose-700",
+    renewed: "bg-emerald-50 text-emerald-700",
   };
-  return map[status] || "bg-[#f4f6f9] text-[#132337]";
+  return map[status] || "bg-muted text-foreground";
 }
 
 function daysToExpiryColor(days: number | null): string {
-  if (days === null) return "text-neutral-400";
-  if (days < 90) return "text-red-700 bg-red-50";
+  if (days === null) return "text-muted-foreground";
+  if (days < 90) return "text-rose-700 bg-rose-50";
   if (days <= 180) return "text-amber-700 bg-amber-50";
   return "text-emerald-700 bg-emerald-50";
 }
@@ -229,7 +229,7 @@ export default function ReportsPage() {
 
   function SortIcon({ field }: { field: SortField }) {
     if (sortField !== field) return <ArrowUpDown className="h-3 w-3 ml-1 text-neutral-300" />;
-    return sortDirection === "asc" ? <ArrowUp className="h-3 w-3 ml-1 text-black" /> : <ArrowDown className="h-3 w-3 ml-1 text-black" />;
+    return sortDirection === "asc" ? <ArrowUp className="h-3 w-3 ml-1 text-foreground" /> : <ArrowDown className="h-3 w-3 ml-1 text-foreground" />;
   }
 
   // ---------- CSV Export ----------
@@ -243,23 +243,28 @@ export default function ReportsPage() {
       "Rent-to-Revenue %", "Risk Flags", "Overdue Amount",
     ];
 
+    const csvEscape = (v: unknown) => {
+      const s = String(v ?? "N/A");
+      return `"${s.replace(/"/g, '""')}"`;
+    };
+
     const rows = filteredData.map((r) => [
-      `"${r.outlet_name}"`, `"${r.brand}"`, `"${r.city}"`, `"${r.state}"`,
-      `"${statusLabel(r.property_type)}"`, r.franchise_model,
-      `"${statusLabel(r.outlet_status)}"`,
-      `"${statusLabel(r.agreement_status || "")}"`,
-      r.monthly_rent, r.monthly_cam, r.total_outflow,
-      r.super_area,
-      r.rent_per_sqft,
-      r.security_deposit ?? "N/A",
-      r.lease_expiry || "N/A",
-      r.days_to_expiry !== null ? r.days_to_expiry : "N/A",
-      r.revenue ?? "N/A",
-      r.rent_to_revenue !== null ? r.rent_to_revenue.toFixed(1) : "N/A",
-      r.risk_flags_count, r.overdue_amount,
+      csvEscape(r.outlet_name), csvEscape(r.brand), csvEscape(r.city), csvEscape(r.state),
+      csvEscape(statusLabel(r.property_type)), csvEscape(r.franchise_model),
+      csvEscape(statusLabel(r.outlet_status)),
+      csvEscape(statusLabel(r.agreement_status || "")),
+      csvEscape(r.monthly_rent), csvEscape(r.monthly_cam), csvEscape(r.total_outflow),
+      csvEscape(r.super_area),
+      csvEscape(r.rent_per_sqft),
+      csvEscape(r.security_deposit ?? "N/A"),
+      csvEscape(r.lease_expiry || "N/A"),
+      csvEscape(r.days_to_expiry !== null ? r.days_to_expiry : "N/A"),
+      csvEscape(r.revenue ?? "N/A"),
+      csvEscape(r.rent_to_revenue !== null ? r.rent_to_revenue.toFixed(1) : "N/A"),
+      csvEscape(r.risk_flags_count), csvEscape(r.overdue_amount),
     ]);
 
-    const csvContent = [headers.join(","), ...rows.map((row) => row.join(","))].join("\n");
+    const csvContent = [headers.map((h) => `"${h}"`).join(","), ...rows.map((row) => row.join(","))].join("\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -421,7 +426,7 @@ export default function ReportsPage() {
 
       {/* Error State */}
       {error && (
-        <div className="flex items-center gap-3 p-4 rounded-lg border border-red-200 bg-red-50 text-red-800">
+        <div className="flex items-center gap-3 p-4 rounded-lg border border-rose-200 bg-rose-50 text-rose-700">
           <AlertTriangle className="h-5 w-5 flex-shrink-0" />
           <div className="flex-1">
             <p className="text-sm font-medium">Failed to load report data</p>
@@ -527,10 +532,10 @@ export default function ReportsPage() {
 
           {/* Aggregates bar */}
           <div className="flex items-center gap-6 mt-4 pt-4 border-t text-xs text-muted-foreground">
-            <span>Total Rent: <strong className="text-black">{formatCurrency(totalRent)}</strong></span>
-            <span>Total Outflow: <strong className="text-black">{formatCurrency(totalOutflow)}</strong></span>
-            <span>Overdue: <strong className={totalOverdue > 0 ? "text-red-700" : "text-black"}>{formatCurrency(totalOverdue)}</strong></span>
-            <span>Risk Flags: <strong className={totalRisk > 0 ? "text-amber-700" : "text-black"}>{totalRisk}</strong></span>
+            <span>Total Rent: <strong className="text-foreground">{formatCurrency(totalRent)}</strong></span>
+            <span>Total Outflow: <strong className="text-foreground">{formatCurrency(totalOutflow)}</strong></span>
+            <span>Overdue: <strong className={totalOverdue > 0 ? "text-rose-600" : "text-foreground"}>{formatCurrency(totalOverdue)}</strong></span>
+            <span>Risk Flags: <strong className={totalRisk > 0 ? "text-rose-600" : "text-foreground"}>{totalRisk}</strong></span>
           </div>
         </CardContent>
       </Card>
@@ -539,7 +544,7 @@ export default function ReportsPage() {
       {loading && (
         <Card>
           <CardContent className="py-16 text-center">
-            <Loader2 className="h-8 w-8 animate-spin text-neutral-400 mx-auto mb-3" />
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mx-auto mb-3" />
             <p className="text-sm text-muted-foreground">Loading report data...</p>
           </CardContent>
         </Card>
@@ -552,7 +557,7 @@ export default function ReportsPage() {
             <div className="overflow-x-auto">
               <Table id="reports-table">
                 <TableHeader>
-                  <TableRow className="bg-[#f4f6f9]">
+                  <TableRow className="bg-muted">
                     <TableHead className="cursor-pointer select-none whitespace-nowrap min-w-[180px]" onClick={() => handleSort("outlet_name")}>
                       <span className="flex items-center">Outlet Name<SortIcon field="outlet_name" /></span>
                     </TableHead>
@@ -638,7 +643,7 @@ export default function ReportsPage() {
                           {row.agreement_status ? (
                             <Badge className={`${agreementStatusColor(row.agreement_status)} border-0 text-[11px]`}>{statusLabel(row.agreement_status)}</Badge>
                           ) : (
-                            <span className="text-neutral-400 text-xs">--</span>
+                            <span className="text-muted-foreground text-xs">--</span>
                           )}
                         </TableCell>
                         <TableCell className="text-right whitespace-nowrap tabular-nums">
@@ -668,12 +673,12 @@ export default function ReportsPage() {
                               {row.days_to_expiry}
                             </span>
                           ) : (
-                            <span className="text-neutral-400">--</span>
+                            <span className="text-muted-foreground">--</span>
                           )}
                         </TableCell>
                         <TableCell className="text-right whitespace-nowrap">
                           {row.risk_flags_count > 0 ? (
-                            <span className="inline-flex items-center gap-1 text-amber-700">
+                            <span className="inline-flex items-center gap-1 text-rose-600">
                               <AlertTriangle className="h-3.5 w-3.5" />
                               <span className="text-xs font-medium">{row.risk_flags_count}</span>
                             </span>
@@ -686,16 +691,16 @@ export default function ReportsPage() {
                         </TableCell>
                         <TableCell className="text-right whitespace-nowrap">
                           {row.rent_to_revenue !== null ? (
-                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium tabular-nums ${row.rent_to_revenue < 12 ? "text-emerald-700 bg-emerald-50" : row.rent_to_revenue <= 18 ? "text-amber-700 bg-amber-50" : "text-red-700 bg-red-50"}`}>
+                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium tabular-nums ${row.rent_to_revenue < 12 ? "text-emerald-700 bg-emerald-50" : row.rent_to_revenue <= 18 ? "text-amber-700 bg-amber-50" : "text-rose-700 bg-rose-50"}`}>
                               {row.rent_to_revenue.toFixed(1)}%
                             </span>
                           ) : (
-                            <span className="text-neutral-400">--</span>
+                            <span className="text-muted-foreground">--</span>
                           )}
                         </TableCell>
                         <TableCell className="text-right whitespace-nowrap tabular-nums">
                           {row.overdue_amount > 0 ? (
-                            <span className="text-red-700 font-medium text-xs">{formatCurrency(row.overdue_amount)}</span>
+                            <span className="text-rose-600 font-medium text-xs">{formatCurrency(row.overdue_amount)}</span>
                           ) : (
                             <span className="text-neutral-300 text-xs">--</span>
                           )}

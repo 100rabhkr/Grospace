@@ -78,13 +78,13 @@ function formatDate(dateStr: string): string {
 
 function statusColor(status: string): string {
   const map: Record<string, string> = {
-    upcoming: "bg-blue-100 text-blue-800",
-    due: "bg-amber-100 text-amber-800",
-    paid: "bg-emerald-100 text-emerald-800",
-    overdue: "bg-red-100 text-red-800",
-    partially_paid: "bg-orange-100 text-orange-800",
+    upcoming: "bg-blue-50 text-blue-600",
+    due: "bg-amber-50 text-amber-700",
+    paid: "bg-emerald-50 text-emerald-700",
+    overdue: "bg-rose-50 text-rose-700",
+    partially_paid: "bg-amber-50 text-amber-700",
   };
-  return map[status] || "bg-[#f4f6f9] text-[#132337]";
+  return map[status] || "bg-muted text-foreground";
 }
 
 function statusLabel(s: string): string {
@@ -350,7 +350,7 @@ export default function PaymentsPage() {
 
       {/* Error */}
       {error && (
-        <div className="flex items-center gap-3 p-4 rounded-lg border border-red-200 bg-red-50 text-red-800">
+        <div className="flex items-center gap-3 p-4 rounded-lg border border-rose-200 bg-rose-50 text-rose-700">
           <AlertTriangle className="h-5 w-5 flex-shrink-0" />
           <p className="text-sm flex-1">{error}</p>
           <Button variant="outline" size="sm" onClick={() => setError(null)}>
@@ -377,7 +377,7 @@ export default function PaymentsPage() {
           <Card>
             <CardContent className="pt-6">
               <p className="text-xs text-muted-foreground uppercase tracking-wide">Overdue</p>
-              <p className={`text-2xl font-semibold mt-1 ${totalOverdue > 0 ? "text-red-700" : ""}`}>
+              <p className={`text-2xl font-semibold mt-1 ${totalOverdue > 0 ? "text-rose-600" : ""}`}>
                 {formatCurrency(totalOverdue)}
               </p>
             </CardContent>
@@ -385,7 +385,7 @@ export default function PaymentsPage() {
           <Card>
             <CardContent className="pt-6">
               <p className="text-xs text-muted-foreground uppercase tracking-wide">Upcoming</p>
-              <p className="text-2xl font-semibold text-[#132337] mt-1">{upcomingCount}</p>
+              <p className="text-2xl font-semibold text-foreground mt-1">{upcomingCount}</p>
             </CardContent>
           </Card>
         </div>
@@ -408,7 +408,7 @@ export default function PaymentsPage() {
             </Select>
 
             <Select value={typeFilter} onValueChange={setTypeFilter}>
-              <SelectTrigger><SelectValue placeholder="Obligation Type" /></SelectTrigger>
+              <SelectTrigger><SelectValue placeholder="Event Type" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Types</SelectItem>
                 {uniqueTypes.map((t) => (
@@ -440,7 +440,7 @@ export default function PaymentsPage() {
       {loading && (
         <Card>
           <CardContent className="py-16 text-center">
-            <Loader2 className="h-8 w-8 animate-spin text-neutral-400 mx-auto mb-3" />
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mx-auto mb-3" />
             <p className="text-sm text-muted-foreground">Loading payments...</p>
           </CardContent>
         </Card>
@@ -453,7 +453,7 @@ export default function PaymentsPage() {
             <Wallet className="h-12 w-12 text-neutral-300 mx-auto mb-4" />
             <h2 className="text-lg font-semibold mb-1">No payment records yet</h2>
             <p className="text-sm text-muted-foreground mb-4">
-              Click &quot;Generate Payments&quot; to create payment records from your active obligations.
+              Click &quot;Generate Payments&quot; to create payment records from your active events.
             </p>
             <Button onClick={handleGenerate} disabled={generating}>
               {generating ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2" />}
@@ -470,7 +470,7 @@ export default function PaymentsPage() {
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
-                  <TableRow className="bg-[#f4f6f9]">
+                  <TableRow className="bg-muted">
                     <TableHead className="whitespace-nowrap">Outlet</TableHead>
                     <TableHead className="whitespace-nowrap">Type</TableHead>
                     <TableHead className="whitespace-nowrap">Period</TableHead>
@@ -554,7 +554,7 @@ export default function PaymentsPage() {
                           </div>
                         )}
                         {payment.status === "paid" && (
-                          <span className="text-emerald-600 text-xs font-medium">
+                          <span className="text-emerald-700 text-xs font-medium">
                             <CheckCircle2 className="h-3.5 w-3.5 inline mr-1" />
                             Paid
                           </span>

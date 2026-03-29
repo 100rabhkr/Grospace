@@ -55,7 +55,7 @@ export function HealthScoreGauge({
             cy={center}
             r={radius}
             fill="none"
-            stroke="#e4e8ef"
+            stroke="#ebebeb"
             strokeWidth={config.stroke}
             strokeDasharray={`${arcLength} ${circumference}`}
             strokeLinecap="round"
@@ -75,7 +75,7 @@ export function HealthScoreGauge({
         </svg>
         {/* Score text in center */}
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className={`${config.fontSize} font-bold text-[#132337] leading-none`}>
+          <span className={`${config.fontSize} font-bold text-foreground leading-none`}>
             {clampedScore}
           </span>
           <span
@@ -87,7 +87,7 @@ export function HealthScoreGauge({
         </div>
       </div>
       {showLabel && (
-        <span className={`${config.labelSize} font-medium text-neutral-500`}>
+        <span className={`${config.labelSize} font-medium text-muted-foreground`}>
           Lease Health
         </span>
       )}

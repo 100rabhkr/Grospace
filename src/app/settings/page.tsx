@@ -41,7 +41,6 @@ import {
   Building2,
   Eye,
   Database,
-  Plus,
   AlertTriangle,
   MapPin,
   Store,
@@ -67,8 +66,8 @@ import {
   rejectSignupRequest,
   listOrganizations,
   createOrganization,
-  seedDemoData,
-  removeSeedData,
+  uploadTemplate,
+  deleteTemplate,
 } from "@/lib/api";
 
 // -------------------------------------------------------------------
@@ -121,6 +120,16 @@ type OrgOption = {
   name: string;
 };
 
+type TemplateItem = {
+  id: string;
+  name: string;
+  description: string;
+  file_url: string;
+  storage_path: string;
+  uploaded_at: string;
+  size: number;
+};
+
 type NotifRoute = { email: boolean; whatsapp: boolean };
 
 const DEFAULT_ALERT_PREFS: AlertPreference[] = [
@@ -146,9 +155,9 @@ function getInitials(name: string): string {
 }
 
 const roleLabels: Record<string, { label: string; className: string }> = {
-  platform_admin: { label: "Platform Admin", className: "bg-[#132337] text-white" },
-  org_admin: { label: "Org Admin", className: "bg-[#f4f6f9] text-[#132337]" },
-  org_member: { label: "Org Member", className: "bg-[#f4f6f9] text-[#132337]" },
+  platform_admin: { label: "Platform Admin", className: "bg-foreground text-white" },
+  org_admin: { label: "Org Admin", className: "bg-muted text-foreground" },
+  org_member: { label: "Org Member", className: "bg-muted text-foreground" },
 };
 
 function roleBadge(role: string) {
@@ -158,8 +167,8 @@ function roleBadge(role: string) {
 
 function statusBadge(status: string) {
   const config: Record<string, { label: string; className: string }> = {
-    active: { label: "Active", className: "bg-emerald-100 text-emerald-800" },
-    invited: { label: "Invited", className: "bg-amber-100 text-amber-800" },
+    active: { label: "Active", className: "bg-emerald-50 text-emerald-700" },
+    invited: { label: "Invited", className: "bg-amber-50 text-amber-700" },
   };
   const c = config[status] || config.active;
   return (
@@ -221,9 +230,6 @@ export default function SettingsPage() {
   const [accountSaving, setAccountSaving] = useState(false);
 
   // Data management
-  const [seedLoading, setSeedLoading] = useState(false);
-  const [removeLoading, setRemoveLoading] = useState(false);
-  const [seedResult, setSeedResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   // Pending approvals state
   const [signupRequests, setSignupRequests] = useState<SignupRequest[]>([]);
@@ -237,6 +243,13 @@ export default function SettingsPage() {
     newOrgName: string;
     processing: boolean;
   }>>({});
+
+  // Templates state
+  const [templates, setTemplates] = useState<TemplateItem[]>([]);
+  const [templateUploading, setTemplateUploading] = useState(false);
+  const [templateDescription, setTemplateDescription] = useState("");
+  const [showTemplateUpload, setShowTemplateUpload] = useState(false);
+  const [selectedTemplateFile, setSelectedTemplateFile] = useState<File | null>(null);
 
   const orgId = user?.orgId;
 
@@ -642,14 +655,78 @@ export default function SettingsPage() {
     });
   }
 
+  // Load templates from localStorage
+  useEffect(() => {
+    if (!orgId) return;
+    try {
+      const stored = localStorage.getItem(`grospace_templates_${orgId}`);
+      if (stored) {
+        setTemplates(JSON.parse(stored));
+      }
+    } catch {
+      // silently handle
+    }
+  }, [orgId]);
+
+  function saveTemplatesToStorage(updated: TemplateItem[]) {
+    if (!orgId) return;
+    setTemplates(updated);
+    try {
+      localStorage.setItem(`grospace_templates_${orgId}`, JSON.stringify(updated));
+    } catch {
+      // silently handle
+    }
+  }
+
+  async function handleTemplateUpload() {
+    if (!orgId || !selectedTemplateFile) return;
+    setTemplateUploading(true);
+    try {
+      const result = await uploadTemplate(orgId, selectedTemplateFile);
+      const newTemplate: TemplateItem = {
+        id: `tpl_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        name: selectedTemplateFile.name,
+        description: templateDescription,
+        file_url: result.url,
+        storage_path: result.path,
+        uploaded_at: new Date().toISOString(),
+        size: selectedTemplateFile.size,
+      };
+      saveTemplatesToStorage([newTemplate, ...templates]);
+      setSelectedTemplateFile(null);
+      setTemplateDescription("");
+      setShowTemplateUpload(false);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to upload template");
+    } finally {
+      setTemplateUploading(false);
+    }
+  }
+
+  async function handleTemplateDelete(template: TemplateItem) {
+    if (!confirm(`Delete template "${template.name}"?`)) return;
+    try {
+      await deleteTemplate(template.storage_path);
+    } catch {
+      // File may already be deleted from storage, continue removing from list
+    }
+    saveTemplatesToStorage(templates.filter((t) => t.id !== template.id));
+  }
+
+  function formatFileSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Page Header */}
-      <PageHeader title="Settings" description="Manage your organization, team, alerts, and account preferences" />
+      <PageHeader title="Settings" description="Manage your organization, team, reminders, and account preferences" />
 
       {/* Tabs */}
       <Tabs defaultValue="organization" className="w-full">
-        <TabsList className="grid w-full max-w-3xl grid-cols-3 sm:grid-cols-6">
+        <TabsList className="grid w-full max-w-4xl grid-cols-4 sm:grid-cols-7">
           <TabsTrigger value="organization" className="gap-1.5 text-xs sm:text-sm">
             <Settings className="w-3.5 h-3.5 hidden sm:inline-block" />
             Organization
@@ -662,14 +739,18 @@ export default function SettingsPage() {
             <Clock className="w-3.5 h-3.5 hidden sm:inline-block" />
             Approvals
             {signupRequests.length > 0 && (
-              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+              <span className="absolute -top-1 -right-1 bg-rose-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
                 {signupRequests.length}
               </span>
             )}
           </TabsTrigger>
+          <TabsTrigger value="templates" className="gap-1.5 text-xs sm:text-sm">
+            <FileText className="w-3.5 h-3.5 hidden sm:inline-block" />
+            Templates
+          </TabsTrigger>
           <TabsTrigger value="alerts" className="gap-1.5 text-xs sm:text-sm">
             <Bell className="w-3.5 h-3.5 hidden sm:inline-block" />
-            Alert Preferences
+            Reminder Preferences
           </TabsTrigger>
           <TabsTrigger value="account" className="gap-1.5 text-xs sm:text-sm">
             <User className="w-3.5 h-3.5 hidden sm:inline-block" />
@@ -691,7 +772,7 @@ export default function SettingsPage() {
             </CardHeader>
             <CardContent className="space-y-6">
               {loadingOrg ? (
-                <div className="flex items-center gap-2 text-neutral-400 py-4">
+                <div className="flex items-center gap-2 text-muted-foreground py-4">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   <span className="text-sm">Loading organization...</span>
                 </div>
@@ -712,15 +793,15 @@ export default function SettingsPage() {
                   <div className="grid gap-2 max-w-md">
                     <Label>Organization Logo</Label>
                     <div className="flex items-center gap-4">
-                      <div className="w-20 h-20 rounded-lg border-2 border-dashed border-[#e4e8ef] bg-[#f4f6f9] flex items-center justify-center">
-                        <Upload className="w-6 h-6 text-neutral-400" />
+                      <div className="w-20 h-20 rounded-lg border-2 border-dashed border-border bg-muted flex items-center justify-center">
+                        <Upload className="w-6 h-6 text-muted-foreground" />
                       </div>
                       <div className="flex flex-col gap-1.5">
                         <Button variant="outline" size="sm" className="gap-1.5">
                           <Upload className="w-3.5 h-3.5" />
                           Upload Logo
                         </Button>
-                        <p className="text-xs text-neutral-400">
+                        <p className="text-xs text-muted-foreground">
                           PNG or SVG, max 2 MB. Recommended 256x256px.
                         </p>
                       </div>
@@ -731,9 +812,9 @@ export default function SettingsPage() {
 
                   {/* Created date */}
                   <div className="flex items-center gap-2 max-w-md">
-                    <Calendar className="w-4 h-4 text-neutral-400" />
+                    <Calendar className="w-4 h-4 text-muted-foreground" />
                     <div>
-                      <Label className="text-neutral-500">Created</Label>
+                      <Label className="text-muted-foreground">Created</Label>
                       <p className="text-sm">{formatCreatedDate(orgCreatedAt)}</p>
                     </div>
                   </div>
@@ -753,7 +834,7 @@ export default function SettingsPage() {
                       {orgSaved ? "Saved" : orgSaving ? "Saving..." : "Save Changes"}
                     </Button>
                     {orgSaved && (
-                      <span className="text-sm text-emerald-600 font-medium">
+                      <span className="text-sm text-neutral-700 font-medium">
                         Changes saved successfully
                       </span>
                     )}
@@ -772,7 +853,7 @@ export default function SettingsPage() {
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-base font-semibold">Team & Roles</h2>
-              <p className="text-sm text-neutral-500 mt-0.5">
+              <p className="text-sm text-muted-foreground mt-0.5">
                 {loadingMembers
                   ? "Loading..."
                   : `${teamMembers.length} member${teamMembers.length !== 1 ? "s" : ""} in your organization`}
@@ -798,30 +879,30 @@ export default function SettingsPage() {
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div className="rounded-lg border border-red-200 bg-red-50/50 p-3">
+                  <div className="rounded-lg border border-neutral-300 bg-neutral-50/50 p-3">
                     <div className="flex items-center gap-2 mb-1">
-                      <Badge className="bg-red-100 text-red-800 border-red-200 text-[10px]">System Admin</Badge>
+                      <Badge className="bg-neutral-50 text-neutral-900 border-neutral-300 text-[10px]">System Admin</Badge>
                     </div>
-                    <p className="text-xs text-neutral-600">Full system access across all organizations</p>
-                    <p className="text-xs text-neutral-400 mt-1">
+                    <p className="text-xs text-foreground">Full system access across all organizations</p>
+                    <p className="text-xs text-muted-foreground mt-1">
                       {teamMembers.filter((m) => m.role === "platform_admin").length} member{teamMembers.filter((m) => m.role === "platform_admin").length !== 1 ? "s" : ""}
                     </p>
                   </div>
-                  <div className="rounded-lg border border-[#e4e8ef] bg-[#f4f6f9]/50 p-3">
+                  <div className="rounded-lg border border-border bg-muted/50 p-3">
                     <div className="flex items-center gap-2 mb-1">
-                      <Badge className="bg-[#f4f6f9] text-[#132337] border-[#e4e8ef] text-[10px]">Admin</Badge>
+                      <Badge className="bg-muted text-foreground border-border text-[10px]">Admin</Badge>
                     </div>
-                    <p className="text-xs text-neutral-600">Full access within organization, team management</p>
-                    <p className="text-xs text-neutral-400 mt-1">
+                    <p className="text-xs text-foreground">Full access within organization, team management</p>
+                    <p className="text-xs text-muted-foreground mt-1">
                       {teamMembers.filter((m) => m.role === "org_admin").length} member{teamMembers.filter((m) => m.role === "org_admin").length !== 1 ? "s" : ""}
                     </p>
                   </div>
-                  <div className="rounded-lg border border-[#e4e8ef] bg-[#f4f6f9]/50 p-3">
+                  <div className="rounded-lg border border-border bg-muted/50 p-3">
                     <div className="flex items-center gap-2 mb-1">
-                      <Badge className="bg-[#f4f6f9] text-[#132337] border-[#e4e8ef] text-[10px]">Member</Badge>
+                      <Badge className="bg-muted text-foreground border-border text-[10px]">Member</Badge>
                     </div>
-                    <p className="text-xs text-neutral-600">Standard view access, limited actions</p>
-                    <p className="text-xs text-neutral-400 mt-1">
+                    <p className="text-xs text-foreground">Standard view access, limited actions</p>
+                    <p className="text-xs text-muted-foreground mt-1">
                       {teamMembers.filter((m) => m.role === "org_member").length} member{teamMembers.filter((m) => m.role === "org_member").length !== 1 ? "s" : ""}
                     </p>
                   </div>
@@ -843,7 +924,7 @@ export default function SettingsPage() {
                       Email Address
                     </Label>
                     <div className="relative">
-                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
+                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                       <Input
                         id="invite-email"
                         type="email"
@@ -897,7 +978,7 @@ export default function SettingsPage() {
           <Card>
             <CardContent className="p-0">
               {loadingMembers ? (
-                <div className="flex items-center gap-2 text-neutral-400 py-8 justify-center">
+                <div className="flex items-center gap-2 text-muted-foreground py-8 justify-center">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   <span className="text-sm">Loading team members...</span>
                 </div>
@@ -905,20 +986,20 @@ export default function SettingsPage() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="border-b border-[#e4e8ef] bg-[#f4f6f9]/80">
-                        <th className="text-left font-medium text-neutral-500 px-4 py-3">
+                      <tr className="border-b border-border bg-muted/80">
+                        <th className="text-left font-medium text-muted-foreground px-4 py-3">
                           Name
                         </th>
-                        <th className="text-left font-medium text-neutral-500 px-4 py-3">
+                        <th className="text-left font-medium text-muted-foreground px-4 py-3">
                           Email
                         </th>
-                        <th className="text-left font-medium text-neutral-500 px-4 py-3">
+                        <th className="text-left font-medium text-muted-foreground px-4 py-3">
                           Role
                         </th>
-                        <th className="text-left font-medium text-neutral-500 px-4 py-3">
+                        <th className="text-left font-medium text-muted-foreground px-4 py-3">
                           Status
                         </th>
-                        <th className="text-right font-medium text-neutral-500 px-4 py-3">
+                        <th className="text-right font-medium text-muted-foreground px-4 py-3">
                           Actions
                         </th>
                       </tr>
@@ -927,11 +1008,11 @@ export default function SettingsPage() {
                       {teamMembers.map((member) => (
                         <tr
                           key={member.id}
-                          className="border-b border-[#e4e8ef] last:border-0 hover:bg-[#f4f6f9]/50 transition-colors"
+                          className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors"
                         >
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-2.5">
-                              <div className="w-8 h-8 rounded-full bg-[#132337] flex items-center justify-center shrink-0">
+                              <div className="w-8 h-8 rounded-full bg-foreground flex items-center justify-center shrink-0">
                                 <span className="text-white text-[10px] font-semibold">
                                   {getInitials(member.full_name || member.email)}
                                 </span>
@@ -941,7 +1022,7 @@ export default function SettingsPage() {
                               </span>
                             </div>
                           </td>
-                          <td className="px-4 py-3 text-neutral-600">
+                          <td className="px-4 py-3 text-foreground">
                             {member.email}
                           </td>
                           <td className="px-4 py-3">{roleBadge(member.role)}</td>
@@ -953,7 +1034,7 @@ export default function SettingsPage() {
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-7 w-7 p-0 text-neutral-400 hover:text-red-600"
+                                className="h-7 w-7 p-0 text-muted-foreground hover:text-neutral-900"
                                 title="Remove member"
                                 onClick={() => handleRemoveMember(member.id)}
                               >
@@ -965,7 +1046,7 @@ export default function SettingsPage() {
                       ))}
                       {teamMembers.length === 0 && (
                         <tr>
-                          <td colSpan={5} className="px-4 py-8 text-center text-neutral-400 text-sm">
+                          <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground text-sm">
                             No team members found. Invite someone to get started.
                           </td>
                         </tr>
@@ -1004,7 +1085,7 @@ export default function SettingsPage() {
                 <div className={`mb-4 px-4 py-3 rounded-lg text-sm flex items-center gap-2 ${
                   approvalFeedback.type === "success"
                     ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                    : "bg-red-50 text-red-700 border border-red-200"
+                    : "bg-rose-50 text-rose-700 border border-rose-200"
                 }`}>
                   {approvalFeedback.type === "success" ? (
                     <CheckCircle className="h-4 w-4 shrink-0" />
@@ -1015,12 +1096,12 @@ export default function SettingsPage() {
                 </div>
               )}
               {loadingRequests ? (
-                <div className="flex items-center gap-2 text-neutral-400 py-8 justify-center">
+                <div className="flex items-center gap-2 text-muted-foreground py-8 justify-center">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   <span className="text-sm">Loading requests...</span>
                 </div>
               ) : signupRequests.length === 0 ? (
-                <div className="text-center py-12 text-neutral-400">
+                <div className="text-center py-12 text-muted-foreground">
                   <CheckCircle className="h-10 w-10 mx-auto mb-3 opacity-40" />
                   <p className="text-sm font-medium">No pending requests</p>
                   <p className="text-xs mt-1">New sign-up requests will appear here for approval</p>
@@ -1069,7 +1150,7 @@ export default function SettingsPage() {
                               </span>
                             </div>
                           </div>
-                          <Badge variant="secondary" className="bg-amber-100 text-amber-800">Pending</Badge>
+                          <Badge variant="secondary" className="bg-amber-50 text-amber-700">Pending</Badge>
                         </div>
 
                         {/* Approval controls */}
@@ -1141,7 +1222,7 @@ export default function SettingsPage() {
                             size="sm"
                             onClick={() => handleApprove(req.id)}
                             disabled={state.processing || (!state.orgId || (state.orgId === "__new__" && !state.newOrgName.trim()))}
-                            className="gap-1.5 bg-emerald-600 hover:bg-emerald-700"
+                            className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
                           >
                             {state.processing ? (
                               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1155,7 +1236,7 @@ export default function SettingsPage() {
                             variant="outline"
                             onClick={() => handleReject(req.id)}
                             disabled={state.processing}
-                            className="gap-1.5 text-red-600 hover:text-red-700 hover:bg-red-50"
+                            className="gap-1.5 text-rose-600 hover:text-rose-700 hover:bg-rose-50"
                           >
                             <XCircle className="h-3.5 w-3.5" />
                             Reject
@@ -1171,21 +1252,98 @@ export default function SettingsPage() {
         </TabsContent>
 
         {/* ============================================================= */}
+        {/* Templates Tab                                                  */}
+        {/* ============================================================= */}
+        <TabsContent value="templates" className="mt-6 space-y-4">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base">Agreement Templates</CardTitle>
+                <label>
+                  <input
+                    type="file"
+                    accept=".pdf,.docx"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        setShowTemplateUpload(true);
+                        // Store selected file for upload
+                        setSelectedTemplateFile(file);
+                      }
+                      e.target.value = "";
+                    }}
+                  />
+                  <Button variant="outline" size="sm" className="gap-1.5" asChild>
+                    <span><Upload className="h-3.5 w-3.5" /> Upload Template</span>
+                  </Button>
+                </label>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {showTemplateUpload && (
+                <div className="mb-4 p-4 rounded-lg border border-border bg-muted/30 space-y-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Description</Label>
+                    <Input
+                      placeholder="e.g. Standard Lease Agreement — Mall"
+                      value={templateDescription}
+                      onChange={(e) => setTemplateDescription(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" disabled={templateUploading} onClick={handleTemplateUpload}>
+                      {templateUploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                      Upload
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => setShowTemplateUpload(false)}>Cancel</Button>
+                  </div>
+                </div>
+              )}
+              {templates.length === 0 ? (
+                <div className="text-center py-8">
+                  <FileText className="h-8 w-8 text-muted-foreground/30 mx-auto mb-3" />
+                  <p className="text-sm text-muted-foreground">No templates uploaded yet.</p>
+                  <p className="text-xs text-muted-foreground/60 mt-1">Upload your first standard agreement template.</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {templates.map((t) => (
+                    <div key={t.id} className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-muted/30 transition-colors">
+                      <div className="flex items-center gap-3">
+                        <FileText className="h-4 w-4 text-muted-foreground" />
+                        <div>
+                          <p className="text-sm font-medium">{t.name}</p>
+                          <p className="text-xs text-muted-foreground">{t.description || "No description"} &middot; {formatFileSize(t.size)} &middot; {new Date(t.uploaded_at).toLocaleDateString()}</p>
+                        </div>
+                      </div>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => handleTemplateDelete(t)}>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ============================================================= */}
         {/* Alert Preferences Tab                                          */}
         {/* ============================================================= */}
         <TabsContent value="alerts" className="mt-6 space-y-4">
           {/* Alert Lead Times */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Alert Lead Times</CardTitle>
-              <p className="text-sm text-neutral-500 mt-1">
-                Configure how many days in advance each alert type should be
+              <CardTitle className="text-base">Reminder Lead Times</CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">
+                Configure how many days in advance each reminder type should be
                 triggered
               </p>
             </CardHeader>
             <CardContent className="space-y-0">
               {loadingPrefs ? (
-                <div className="flex items-center gap-2 text-neutral-400 py-4">
+                <div className="flex items-center gap-2 text-muted-foreground py-4">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   <span className="text-sm">Loading preferences...</span>
                 </div>
@@ -1210,7 +1368,7 @@ export default function SettingsPage() {
                           }
                           className="w-20 h-9 text-center text-sm"
                         />
-                        <span className="text-sm text-neutral-500 w-20">
+                        <span className="text-sm text-muted-foreground w-20">
                           days before
                         </span>
                       </div>
@@ -1226,17 +1384,17 @@ export default function SettingsPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Email Digest</CardTitle>
-              <p className="text-sm text-neutral-500 mt-1">
-                Receive a daily summary of upcoming obligations and alerts
+              <p className="text-sm text-muted-foreground mt-1">
+                Receive a daily summary of upcoming events and reminders
               </p>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <Mail className="w-4 h-4 text-neutral-500" />
+                  <Mail className="w-4 h-4 text-muted-foreground" />
                   <div>
                     <p className="text-sm font-medium">Daily Email Digest</p>
-                    <p className="text-xs text-neutral-500">
+                    <p className="text-xs text-muted-foreground">
                       {emailDigestEnabled
                         ? "You will receive a daily summary email"
                         : "Email digest is currently disabled"}
@@ -1264,8 +1422,8 @@ export default function SettingsPage() {
               {alertsSaved ? "Saved" : alertsSaving ? "Saving..." : "Save Preferences"}
             </Button>
             {alertsSaved && (
-              <span className="text-sm text-emerald-600 font-medium">
-                Alert preferences saved successfully
+              <span className="text-sm text-neutral-700 font-medium">
+                Reminder preferences saved successfully
               </span>
             )}
           </div>
@@ -1279,13 +1437,13 @@ export default function SettingsPage() {
                 <MessageCircle className="w-4 h-4" />
                 Notification Routing
               </CardTitle>
-              <p className="text-sm text-neutral-500 mt-1">
-                Choose how each alert type is delivered. WhatsApp integration via MSG91 coming soon.
+              <p className="text-sm text-muted-foreground mt-1">
+                Choose how each reminder type is delivered. WhatsApp integration via MSG91 coming soon.
               </p>
             </CardHeader>
             <CardContent className="space-y-6">
               {loadingNotif ? (
-                <div className="flex items-center gap-2 text-neutral-400 py-4">
+                <div className="flex items-center gap-2 text-muted-foreground py-4">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   <span className="text-sm">Loading routing preferences...</span>
                 </div>
@@ -1297,8 +1455,8 @@ export default function SettingsPage() {
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="text-sm">High Severity Alerts</p>
-                          <p className="text-xs text-neutral-400">Defaults for high priority alerts</p>
+                          <p className="text-sm">High Severity Reminders</p>
+                          <p className="text-xs text-muted-foreground">Defaults for high priority reminders</p>
                         </div>
                         <div className="flex items-center gap-4">
                           <div className="flex items-center gap-2">
@@ -1306,14 +1464,14 @@ export default function SettingsPage() {
                               checked={defaultHighSeverity.email}
                               onCheckedChange={(v) => setDefaultHighSeverity((p) => ({ ...p, email: v }))}
                             />
-                            <span className="text-xs text-neutral-500">Email</span>
+                            <span className="text-xs text-muted-foreground">Email</span>
                           </div>
                         </div>
                       </div>
                       <div className="flex items-center justify-between">
                         <div>
-                          <p className="text-sm">Normal Alerts</p>
-                          <p className="text-xs text-neutral-400">Defaults for medium/low alerts</p>
+                          <p className="text-sm">Normal Reminders</p>
+                          <p className="text-xs text-muted-foreground">Defaults for medium/low reminders</p>
                         </div>
                         <div className="flex items-center gap-4">
                           <div className="flex items-center gap-2">
@@ -1321,7 +1479,7 @@ export default function SettingsPage() {
                               checked={defaultNormal.email}
                               onCheckedChange={(v) => setDefaultNormal((p) => ({ ...p, email: v }))}
                             />
-                            <span className="text-xs text-neutral-500">Email</span>
+                            <span className="text-xs text-muted-foreground">Email</span>
                           </div>
                         </div>
                       </div>
@@ -1335,10 +1493,10 @@ export default function SettingsPage() {
                     <p className="text-sm font-medium mb-3">Per-Type Overrides</p>
                     <div className="space-y-0">
                       {/* Header */}
-                      <div className="flex items-center justify-between py-2 px-2 bg-[#f4f6f9] rounded-t-md border border-[#e4e8ef]">
-                        <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">Alert Type</span>
+                      <div className="flex items-center justify-between py-2 px-2 bg-muted rounded-t-md border border-border">
+                        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Reminder Type</span>
                         <div className="flex items-center gap-6">
-                          <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wide w-14 text-center">Email</span>
+                          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide w-14 text-center">Email</span>
                         </div>
                       </div>
                       {NOTIFICATION_ALERT_TYPES.map((at, idx) => {
@@ -1346,7 +1504,7 @@ export default function SettingsPage() {
                         return (
                           <div
                             key={at.key}
-                            className={`flex items-center justify-between py-2.5 px-2 border-x border-[#e4e8ef] ${
+                            className={`flex items-center justify-between py-2.5 px-2 border-x border-border ${
                               idx === NOTIFICATION_ALERT_TYPES.length - 1 ? "border-b rounded-b-md" : "border-b"
                             }`}
                           >
@@ -1378,7 +1536,7 @@ export default function SettingsPage() {
                       {notifSaved ? "Saved" : notifSaving ? "Saving..." : "Save Routing"}
                     </Button>
                     {notifSaved && (
-                      <span className="text-sm text-emerald-600 font-medium">
+                      <span className="text-sm text-neutral-700 font-medium">
                         Notification routing saved successfully
                       </span>
                     )}
@@ -1401,7 +1559,7 @@ export default function SettingsPage() {
             </CardHeader>
             <CardContent className="space-y-6">
               {loadingProfile ? (
-                <div className="flex items-center gap-2 text-neutral-400 py-4">
+                <div className="flex items-center gap-2 text-muted-foreground py-4">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   <span className="text-sm">Loading profile...</span>
                 </div>
@@ -1423,7 +1581,7 @@ export default function SettingsPage() {
                       Email
                       <Badge
                         variant="secondary"
-                        className="text-[10px] py-0 px-1.5 bg-[#f4f6f9] text-[#132337]"
+                        className="text-[10px] py-0 px-1.5 bg-muted text-foreground"
                       >
                         Read-only
                       </Badge>
@@ -1432,7 +1590,7 @@ export default function SettingsPage() {
                       id="account-email"
                       value={accountEmail}
                       disabled
-                      className="bg-[#f4f6f9] text-neutral-500 cursor-not-allowed"
+                      className="bg-muted text-muted-foreground cursor-not-allowed"
                     />
                   </div>
 
@@ -1442,12 +1600,12 @@ export default function SettingsPage() {
                       Role
                       <Badge
                         variant="secondary"
-                        className="text-[10px] py-0 px-1.5 bg-[#f4f6f9] text-[#132337]"
+                        className="text-[10px] py-0 px-1.5 bg-muted text-foreground"
                       >
                         Read-only
                       </Badge>
                     </Label>
-                    <div className="flex items-center gap-2 h-9 px-3 rounded-md border border-[#e4e8ef] bg-[#f4f6f9] text-sm text-neutral-500">
+                    <div className="flex items-center gap-2 h-9 px-3 rounded-md border border-border bg-muted text-sm text-muted-foreground">
                       <Shield className="w-3.5 h-3.5" />
                       {roleLabels[accountRole]?.label || "Member"}
                     </div>
@@ -1500,7 +1658,7 @@ export default function SettingsPage() {
                 {newPassword &&
                   confirmPassword &&
                   newPassword !== confirmPassword && (
-                    <p className="text-xs text-red-600">
+                    <p className="text-xs text-rose-600">
                       Passwords do not match
                     </p>
                   )}
@@ -1521,7 +1679,7 @@ export default function SettingsPage() {
               {accountSaved ? "Saved" : accountSaving ? "Saving..." : "Save Changes"}
             </Button>
             {accountSaved && (
-              <span className="text-sm text-emerald-600 font-medium">
+              <span className="text-sm text-neutral-700 font-medium">
                 Account updated successfully
               </span>
             )}
@@ -1532,115 +1690,34 @@ export default function SettingsPage() {
         {/* Data Management Tab                                            */}
         {/* ============================================================= */}
         <TabsContent value="data" className="mt-6 space-y-4">
+          {/* Support & Ops (#110) */}
           <Card>
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
-                <Database className="w-4 h-4" />
-                Demo Data Management
+                <Mail className="w-4 h-4" />
+                Support & Operations
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-6">
-              <p className="text-sm text-muted-foreground">
-                Seed realistic demo data to explore the platform, or remove it when you&apos;re done. Only demo data is affected — your real data always stays safe.
-              </p>
-
+            <CardContent className="space-y-4">
               <div className="grid sm:grid-cols-2 gap-4">
-                {/* Add Seed Data */}
-                <div className="border rounded-lg p-4 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <div className="h-8 w-8 rounded-full bg-emerald-100 flex items-center justify-center">
-                      <Plus className="h-4 w-4 text-emerald-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium">Add Demo Data</p>
-                      <p className="text-xs text-muted-foreground">6 outlets, agreements, obligations & alerts</p>
-                    </div>
-                  </div>
-                  <Button
-                    variant="outline"
-                    className="w-full gap-1.5 border-emerald-200 text-emerald-700 hover:bg-emerald-50"
-                    disabled={seedLoading}
-                    onClick={async () => {
-                      setSeedLoading(true);
-                      setSeedResult(null);
-                      try {
-                        const res = await seedDemoData();
-                        setSeedResult({ type: "success", message: res.message || "Demo data added!" });
-                      } catch {
-                        setSeedResult({ type: "error", message: "Failed to seed data. Try again." });
-                      } finally {
-                        setSeedLoading(false);
-                      }
-                    }}
-                  >
-                    {seedLoading ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Plus className="h-3.5 w-3.5" />
-                    )}
-                    {seedLoading ? "Seeding..." : "Seed Demo Data"}
-                  </Button>
+                <div className="p-4 rounded-lg border border-border space-y-1">
+                  <p className="label-micro">Support Email</p>
+                  <p className="text-sm font-medium">tech@grospace.in</p>
+                  <p className="text-xs text-muted-foreground/60">For technical issues and platform support</p>
                 </div>
-
-                {/* Remove Seed Data */}
-                <div className="border rounded-lg p-4 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <div className="h-8 w-8 rounded-full bg-red-100 flex items-center justify-center">
-                      <Trash2 className="h-4 w-4 text-red-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium">Remove Demo Data</p>
-                      <p className="text-xs text-muted-foreground">Only removes seeded data, real data stays</p>
-                    </div>
-                  </div>
-                  <Button
-                    variant="outline"
-                    className="w-full gap-1.5 border-red-200 text-red-700 hover:bg-red-50"
-                    disabled={removeLoading}
-                    onClick={async () => {
-                      if (!confirm("Remove all demo data? Your real data will NOT be affected.")) return;
-                      setRemoveLoading(true);
-                      setSeedResult(null);
-                      try {
-                        const res = await removeSeedData();
-                        setSeedResult({ type: "success", message: res.message || "Demo data removed!" });
-                      } catch {
-                        setSeedResult({ type: "error", message: "Failed to remove data. Try again." });
-                      } finally {
-                        setRemoveLoading(false);
-                      }
-                    }}
-                  >
-                    {removeLoading ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Trash2 className="h-3.5 w-3.5" />
-                    )}
-                    {removeLoading ? "Removing..." : "Remove Demo Data"}
-                  </Button>
+                <div className="p-4 rounded-lg border border-border space-y-1">
+                  <p className="label-micro">Status Updates</p>
+                  <p className="text-sm font-medium">Weekly — Every Friday</p>
+                  <p className="text-xs text-muted-foreground/60">Sprint notes sent to all stakeholders</p>
                 </div>
               </div>
-
-              {seedResult && (
-                <div className={`flex items-center gap-2 p-3 rounded-lg text-sm ${
-                  seedResult.type === "success" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"
-                }`}>
-                  {seedResult.type === "success" ? (
-                    <CheckCircle className="h-4 w-4 flex-shrink-0" />
-                  ) : (
-                    <AlertTriangle className="h-4 w-4 flex-shrink-0" />
-                  )}
-                  {seedResult.message}
+              <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
+                <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-muted-foreground">Scope Document</p>
+                  <p className="text-xs text-muted-foreground/60">Module-wise scope bible — coming soon</p>
                 </div>
-              )}
-
-              <Separator />
-
-              <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 text-amber-800">
-                <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
-                <p className="text-xs">
-                  <strong>Note:</strong> Seeding multiple times will create duplicate demo entries. Remove existing demo data first before re-seeding.
-                </p>
+                <Button variant="outline" size="sm" disabled className="text-xs opacity-50">View</Button>
               </div>
             </CardContent>
           </Card>

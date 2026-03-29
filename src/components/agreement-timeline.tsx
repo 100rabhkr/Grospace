@@ -21,24 +21,24 @@ function formatTimelineDate(dateStr: string): string {
 
 /** Color scheme: past = green, current/active = blue, upcoming = amber, warning (expiring soon) = red-orange */
 const dotBgClasses: Record<string, string> = {
-  past: "bg-emerald-500",
+  past: "bg-emerald-400",
   current: "bg-blue-500",
-  future: "bg-amber-500",
-  warning: "bg-red-500",
+  future: "bg-amber-400",
+  warning: "bg-rose-500",
 };
 
 const labelClasses: Record<string, string> = {
   past: "text-emerald-700",
   current: "text-blue-700 font-semibold",
   future: "text-amber-700",
-  warning: "text-red-600 font-semibold",
+  warning: "text-rose-700 font-semibold",
 };
 
 const segmentColors: Record<string, string> = {
-  past: "#bbf7d0",      // green-200
-  current: "#bfdbfe",   // blue-200
+  past: "#6ee7b7",      // emerald-300
+  current: "#93c5fd",   // blue-300
   future: "#fde68a",    // amber-200
-  warning: "#fecaca",   // red-200
+  warning: "#fecaca",   // rose-200
 };
 
 export default function AgreementTimeline({ dates }: AgreementTimelineProps) {
@@ -113,10 +113,10 @@ export default function AgreementTimeline({ dates }: AgreementTimelineProps) {
   });
 
   const legendItems = [
-    { color: "bg-emerald-500", label: "Past" },
+    { color: "bg-emerald-400", label: "Past" },
     { color: "bg-blue-500", label: "Current" },
-    { color: "bg-amber-500", label: "Upcoming" },
-    { color: "bg-red-500", label: "Expiring Soon" },
+    { color: "bg-amber-400", label: "Upcoming" },
+    { color: "bg-rose-500", label: "Expiring Soon" },
   ];
 
   return (
@@ -126,12 +126,12 @@ export default function AgreementTimeline({ dates }: AgreementTimelineProps) {
         {legendItems.map((item) => (
           <div key={item.label} className="flex items-center gap-1.5">
             <span className={`inline-block w-2.5 h-2.5 rounded-full ${item.color}`} />
-            <span className="text-[10px] text-neutral-500">{item.label}</span>
+            <span className="text-[10px] text-muted-foreground">{item.label}</span>
           </div>
         ))}
         <div className="flex items-center gap-1.5">
           <span className="inline-block w-3 h-0.5 bg-black/60 rounded" />
-          <span className="text-[10px] text-neutral-500">Today</span>
+          <span className="text-[10px] text-muted-foreground">Today</span>
         </div>
       </div>
 
@@ -165,7 +165,7 @@ export default function AgreementTimeline({ dates }: AgreementTimelineProps) {
               top: "42px",
               left: `${PAD}%`,
               width: `${todayPct - PAD}%`,
-              background: "linear-gradient(90deg, #86efac 0%, #22c55e 60%, #3b82f6 100%)",
+              background: "linear-gradient(90deg, #d4d4d4 0%, #a3a3a3 60%, #525252 100%)",
               opacity: 0.5,
             }}
           />
@@ -197,7 +197,7 @@ export default function AgreementTimeline({ dates }: AgreementTimelineProps) {
               />
             </div>
             <span
-              className="text-[9px] font-semibold text-neutral-600 mt-0.5 whitespace-nowrap"
+              className="text-[9px] font-semibold text-foreground mt-0.5 whitespace-nowrap"
               style={{ letterSpacing: "0.05em" }}
             >
               TODAY
@@ -228,7 +228,7 @@ export default function AgreementTimeline({ dates }: AgreementTimelineProps) {
                     <p className={`text-[10px] leading-tight whitespace-nowrap ${textColor}`}>
                       {item.label}
                     </p>
-                    <p className="text-[9px] text-neutral-400 whitespace-nowrap">
+                    <p className="text-[9px] text-muted-foreground whitespace-nowrap">
                       {formatTimelineDate(item.date)}
                     </p>
                   </div>
@@ -252,7 +252,7 @@ export default function AgreementTimeline({ dates }: AgreementTimelineProps) {
                     <p className={`text-[10px] leading-tight whitespace-nowrap ${textColor}`}>
                       {item.label}
                     </p>
-                    <p className="text-[9px] text-neutral-400 whitespace-nowrap">
+                    <p className="text-[9px] text-muted-foreground whitespace-nowrap">
                       {formatTimelineDate(item.date)}
                     </p>
                   </div>

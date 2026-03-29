@@ -61,9 +61,9 @@ function statusColor(status: string): string {
     case "fit_out": return "#f59e0b";
     case "closed": return "#ef4444";
     case "under_construction": return "#3b82f6";
-    case "up_for_renewal": return "#f59e0b";
-    case "pipeline": return "#8b5cf6";
-    default: return "#a3a3a3";
+    case "up_for_renewal": return "#f97316";
+    case "pipeline": return "#94a3b8";
+    default: return "#94a3b8";
   }
 }
 
@@ -121,8 +121,8 @@ export default function MapViewPage() {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="flex flex-col items-center gap-3">
-          <Loader2 className="h-8 w-8 animate-spin text-[#132337]/50" />
-          <p className="text-sm font-medium text-neutral-500">Loading map data...</p>
+          <Loader2 className="h-8 w-8 animate-spin text-foreground/50" />
+          <p className="text-sm font-medium text-muted-foreground">Loading map data...</p>
         </div>
       </div>
     );
@@ -131,16 +131,16 @@ export default function MapViewPage() {
   return (
     <div className="flex h-full overflow-hidden animate-fade-in">
       {/* ─── Always-Visible Left Panel ─── */}
-      <div className="w-[340px] xl:w-[380px] shrink-0 border-r border-[#e4e8ef] bg-white overflow-y-auto">
+      <div className="w-[340px] xl:w-[380px] shrink-0 border-r border-border bg-card overflow-y-auto">
         {/* Panel Header */}
-        <div className="bg-white border-b border-[#e4e8ef] px-5 pt-4 pb-4">
+        <div className="bg-card border-b border-border px-5 pt-4 pb-4">
           <div className="flex items-center gap-2.5 mb-4">
-            <div className="w-9 h-9 rounded-xl bg-[#132337] flex items-center justify-center">
+            <div className="w-9 h-9 rounded-xl bg-foreground flex items-center justify-center">
               <MapPin className="h-4 w-4 text-white" />
             </div>
             <div>
-              <h1 className="text-base font-semibold tracking-tight text-[#132337]">Map View</h1>
-              <p className="text-[11px] text-neutral-400">
+              <h1 className="text-base font-semibold tracking-tight text-foreground">Map View</h1>
+              <p className="text-[11px] text-muted-foreground">
                 {totalOutlets} outlets across {totalCities} {totalCities === 1 ? "city" : "cities"}
               </p>
             </div>
@@ -148,41 +148,41 @@ export default function MapViewPage() {
               variant="outline"
               className="ml-auto text-[10px] gap-1 text-emerald-700 border-emerald-200 bg-emerald-50"
             >
-              <Activity className="h-3 w-3" />
+              <Activity className="h-3 w-3 text-emerald-500" />
               Live
             </Badge>
           </div>
 
           {/* Primary Stats — 2x2 grid */}
           <div className="grid grid-cols-2 gap-2.5">
-            <div className="rounded-xl bg-[#f4f6f9] border border-[#e4e8ef] p-3">
+            <div className="rounded-xl bg-muted border border-border p-3">
               <div className="flex items-center gap-1.5 mb-1">
-                <Store className="h-3.5 w-3.5 text-neutral-400" />
-                <span className="text-[10px] text-neutral-500 font-medium">Total Outlets</span>
+                <Store className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="text-[10px] text-muted-foreground font-medium">Total Outlets</span>
               </div>
-              <p className="text-2xl font-bold text-[#132337] tabular-nums">{totalOutlets}</p>
+              <p className="text-2xl font-bold text-foreground tabular-nums">{totalOutlets}</p>
             </div>
-            <div className="rounded-xl bg-[#f4f6f9] border border-[#e4e8ef] p-3">
+            <div className="rounded-xl bg-muted border border-border p-3">
               <div className="flex items-center gap-1.5 mb-1">
-                <FileCheck className="h-3.5 w-3.5 text-neutral-400" />
-                <span className="text-[10px] text-neutral-500 font-medium">Agreements</span>
+                <FileCheck className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="text-[10px] text-muted-foreground font-medium">Agreements</span>
               </div>
-              <p className="text-2xl font-bold text-[#132337] tabular-nums">{stats?.active_agreements ?? 0}</p>
-              <p className="text-[9px] text-neutral-400">of {stats?.total_agreements ?? 0} total</p>
+              <p className="text-2xl font-bold text-foreground tabular-nums">{stats?.active_agreements ?? 0}</p>
+              <p className="text-[9px] text-muted-foreground">of {stats?.total_agreements ?? 0} total</p>
             </div>
-            <div className="rounded-xl bg-[#f4f6f9] border border-[#e4e8ef] p-3">
+            <div className="rounded-xl bg-muted border border-border p-3">
               <div className="flex items-center gap-1.5 mb-1">
-                <IndianRupee className="h-3.5 w-3.5 text-neutral-400" />
-                <span className="text-[10px] text-neutral-500 font-medium">Monthly Rent</span>
+                <IndianRupee className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="text-[10px] text-muted-foreground font-medium">Monthly Rent</span>
               </div>
-              <p className="text-lg font-bold text-[#132337] tabular-nums">{formatINR(stats?.total_monthly_rent ?? 0)}</p>
+              <p className="text-lg font-bold text-foreground tabular-nums font-mono">{formatINR(stats?.total_monthly_rent ?? 0)}</p>
             </div>
-            <div className="rounded-xl bg-[#f4f6f9] border border-[#e4e8ef] p-3">
+            <div className="rounded-xl bg-muted border border-border p-3">
               <div className="flex items-center gap-1.5 mb-1">
-                <Bell className={`h-3.5 w-3.5 ${(stats?.pending_alerts ?? 0) > 0 ? "text-amber-500" : "text-neutral-400"}`} />
-                <span className="text-[10px] text-neutral-500 font-medium">Alerts</span>
+                <Bell className={`h-3.5 w-3.5 ${(stats?.pending_alerts ?? 0) > 0 ? "text-amber-500" : "text-muted-foreground"}`} />
+                <span className="text-[10px] text-muted-foreground font-medium">Reminders</span>
               </div>
-              <p className={`text-2xl font-bold tabular-nums ${(stats?.pending_alerts ?? 0) > 0 ? "text-amber-600" : "text-[#132337]"}`}>
+              <p className={`text-2xl font-bold tabular-nums ${(stats?.pending_alerts ?? 0) > 0 ? "text-amber-600" : "text-foreground"}`}>
                 {stats?.pending_alerts ?? 0}
               </p>
             </div>
@@ -192,58 +192,58 @@ export default function MapViewPage() {
         <div className="px-5 py-4 space-y-5">
           {/* ── Quick Insights ── */}
           <div>
-            <h3 className="text-[10px] font-semibold uppercase tracking-wider text-neutral-400 mb-2">
+            <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
               Quick Insights
             </h3>
             <div className="space-y-2">
-              <div className="flex items-center gap-3 p-3 rounded-xl bg-emerald-50/60 border border-emerald-100">
+              <div className="flex items-center gap-3 p-3 rounded-xl bg-emerald-50/50 border border-emerald-200/60">
                 <div className="w-9 h-9 rounded-lg bg-emerald-100 flex items-center justify-center flex-shrink-0">
                   <Percent className="h-4 w-4 text-emerald-600" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-[11px] text-neutral-500 font-medium">Operational Rate</p>
+                  <p className="text-[11px] text-muted-foreground font-medium">Operational Rate</p>
                   <p className="text-lg font-bold text-emerald-700">{operationalPct}%</p>
                 </div>
                 <span className="text-[10px] text-emerald-600 font-medium">{operationalCount}/{totalOutlets}</span>
               </div>
-              <div className="flex items-center gap-3 p-3 rounded-xl bg-[#f4f6f9] border border-[#e4e8ef]">
-                <div className="w-9 h-9 rounded-lg bg-[#132337]/10 flex items-center justify-center flex-shrink-0">
-                  <IndianRupee className="h-4 w-4 text-[#132337]" />
+              <div className="flex items-center gap-3 p-3 rounded-xl bg-muted border border-border">
+                <div className="w-9 h-9 rounded-lg bg-foreground/10 flex items-center justify-center flex-shrink-0">
+                  <IndianRupee className="h-4 w-4 text-foreground" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-[11px] text-neutral-500 font-medium">Avg Rent / Outlet</p>
-                  <p className="text-lg font-bold text-[#132337]">{formatINR(avgRentPerOutlet)}</p>
+                  <p className="text-[11px] text-muted-foreground font-medium">Avg Rent / Outlet</p>
+                  <p className="text-lg font-bold text-foreground font-mono">{formatINR(avgRentPerOutlet)}</p>
                 </div>
               </div>
               {topCity && (
-                <div className="flex items-center gap-3 p-3 rounded-xl bg-[#f4f6f9] border border-[#e4e8ef]">
-                  <div className="w-9 h-9 rounded-lg bg-[#132337]/10 flex items-center justify-center flex-shrink-0">
-                    <Building2 className="h-4 w-4 text-[#132337]" />
+                <div className="flex items-center gap-3 p-3 rounded-xl bg-muted border border-border">
+                  <div className="w-9 h-9 rounded-lg bg-foreground/10 flex items-center justify-center flex-shrink-0">
+                    <Building2 className="h-4 w-4 text-foreground" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-[11px] text-neutral-500 font-medium">Top City</p>
-                    <p className="text-sm font-bold text-[#132337]">{topCity.city}</p>
+                    <p className="text-[11px] text-muted-foreground font-medium">Top City</p>
+                    <p className="text-sm font-bold text-foreground">{topCity.city}</p>
                   </div>
-                  <span className="text-xs font-bold text-[#132337] tabular-nums">{topCity.count} outlets</span>
+                  <span className="text-xs font-bold text-foreground tabular-nums">{topCity.count} outlets</span>
                 </div>
               )}
-              <div className="flex items-center gap-3 p-3 rounded-xl bg-[#f4f6f9] border border-[#e4e8ef]">
-                <div className="w-9 h-9 rounded-lg bg-[#132337]/10 flex items-center justify-center flex-shrink-0">
-                  <BarChart3 className="h-4 w-4 text-[#132337]" />
+              <div className="flex items-center gap-3 p-3 rounded-xl bg-muted border border-border">
+                <div className="w-9 h-9 rounded-lg bg-foreground/10 flex items-center justify-center flex-shrink-0">
+                  <BarChart3 className="h-4 w-4 text-foreground" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-[11px] text-neutral-500 font-medium">Total Outflow</p>
-                  <p className="text-lg font-bold text-[#132337]">{formatINR(stats?.total_monthly_outflow ?? 0)}</p>
+                  <p className="text-[11px] text-muted-foreground font-medium">Total Outflow</p>
+                  <p className="text-lg font-bold text-foreground font-mono">{formatINR(stats?.total_monthly_outflow ?? 0)}</p>
                 </div>
-                <span className="text-[9px] text-neutral-400 font-medium">per month</span>
+                <span className="text-[9px] text-muted-foreground font-medium">per month</span>
               </div>
             </div>
           </div>
 
           {/* ── Risk Summary ── */}
           <div>
-            <h3 className="text-[10px] font-semibold uppercase tracking-wider text-neutral-400 mb-2">
-              Risk & Alerts
+            <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+              Risk & Reminders
             </h3>
             <div className="grid grid-cols-3 gap-2">
               {[
@@ -254,21 +254,21 @@ export default function MapViewPage() {
                 <div
                   key={item.label}
                   className={`rounded-xl p-2.5 text-center border ${
-                    item.danger ? "bg-red-50/60 border-red-100" : "bg-[#f4f6f9] border-[#e4e8ef]"
+                    item.danger ? "bg-rose-50/50 border-rose-200/60" : "bg-muted border-border"
                   }`}
                 >
-                  <item.icon className={`h-4 w-4 mx-auto mb-1 ${item.danger ? "text-red-500" : "text-neutral-400"}`} />
-                  <p className={`text-xl font-bold tabular-nums ${item.danger ? "text-red-600" : "text-[#132337]"}`}>
+                  <item.icon className={`h-4 w-4 mx-auto mb-1 ${item.danger ? "text-rose-500" : "text-muted-foreground"}`} />
+                  <p className={`text-xl font-bold tabular-nums ${item.danger ? "text-rose-700" : "text-foreground"}`}>
                     {item.value}
                   </p>
-                  <p className="text-[8px] text-neutral-400 font-semibold uppercase tracking-wider">{item.label}</p>
+                  <p className="text-[8px] text-muted-foreground font-semibold uppercase tracking-wider">{item.label}</p>
                 </div>
               ))}
             </div>
             {(stats?.overdue_amount ?? 0) > 0 && (
-              <div className="mt-2 p-2.5 rounded-xl bg-red-50/60 border border-red-100 flex items-center gap-2">
-                <IndianRupee className="h-3.5 w-3.5 text-red-500 flex-shrink-0" />
-                <span className="text-[11px] text-red-600 font-medium">
+              <div className="mt-2 p-2.5 rounded-xl bg-rose-50/50 border border-rose-200/60 flex items-center gap-2">
+                <IndianRupee className="h-3.5 w-3.5 text-rose-600 flex-shrink-0" />
+                <span className="text-[11px] text-rose-700 font-medium">
                   {formatINR(stats?.overdue_amount ?? 0)} overdue amount
                 </span>
               </div>
@@ -279,12 +279,12 @@ export default function MapViewPage() {
           {mapCluster && (
             <div>
               <div className="flex items-center justify-between mb-2">
-                <h3 className="text-[10px] font-semibold uppercase tracking-wider text-neutral-400">
+                <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   {mapCluster.label} — {mapCluster.count} outlets
                 </h3>
                 <button
                   onClick={() => setMapCluster(null)}
-                  className="text-[10px] text-neutral-400 hover:text-neutral-600 font-medium"
+                  className="text-[10px] text-muted-foreground hover:text-foreground font-medium"
                 >
                   Clear
                 </button>
@@ -297,25 +297,25 @@ export default function MapViewPage() {
                       <Link
                         key={i}
                         href={outlet.id ? `/outlets/${outlet.id}` : "#"}
-                        className="group flex items-center gap-2.5 py-2 px-3 rounded-xl bg-[#f4f6f9] hover:bg-[#edf0f4] transition-all"
+                        className="group flex items-center gap-2.5 py-2 px-3 rounded-xl bg-muted hover:bg-[#edf0f4] transition-all"
                       >
                         <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: sColor }} />
                         <div className="min-w-0 flex-1">
-                          <p className="text-[11px] font-medium text-[#132337] truncate">{outlet.name}</p>
-                          <p className="text-[9px] text-neutral-400 capitalize">{outlet.status?.replace(/_/g, " ")}</p>
+                          <p className="text-[11px] font-medium text-foreground truncate">{outlet.name}</p>
+                          <p className="text-[9px] text-muted-foreground capitalize">{outlet.status?.replace(/_/g, " ")}</p>
                         </div>
                         {outlet.rent ? (
-                          <span className="text-[10px] font-semibold text-neutral-500 tabular-nums flex-shrink-0">
+                          <span className="text-[10px] font-semibold text-muted-foreground tabular-nums flex-shrink-0">
                             {formatINR(outlet.rent)}
                           </span>
                         ) : null}
-                        <ChevronRight className="h-3 w-3 text-neutral-300 group-hover:text-neutral-500 transition-colors flex-shrink-0" />
+                        <ChevronRight className="h-3 w-3 text-neutral-300 group-hover:text-muted-foreground transition-colors flex-shrink-0" />
                       </Link>
                     );
                   })}
                 </div>
               ) : (
-                <p className="text-[11px] text-neutral-400 px-3 py-2 rounded-xl bg-[#f4f6f9]">
+                <p className="text-[11px] text-muted-foreground px-3 py-2 rounded-xl bg-muted">
                   {mapCluster.count} outlets in this area
                 </p>
               )}
@@ -324,7 +324,7 @@ export default function MapViewPage() {
 
           {/* ── Outlets by City ── */}
           <div>
-            <h3 className="text-[10px] font-semibold uppercase tracking-wider text-neutral-400 mb-2">
+            <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
               By City
             </h3>
             <div className="space-y-2.5">
@@ -333,13 +333,13 @@ export default function MapViewPage() {
                 return (
                   <div key={city}>
                     <div className="flex items-center justify-between mb-0.5">
-                      <span className="text-[11px] font-medium text-neutral-600">{city}</span>
-                      <span className="text-[11px] font-bold text-[#132337] tabular-nums">{count}</span>
+                      <span className="text-[13px] font-medium text-foreground">{city}</span>
+                      <span className="text-[13px] font-semibold text-foreground tabular-nums font-mono">{count}</span>
                     </div>
-                    <div className="h-1.5 w-full rounded-full bg-[#132337]/6 overflow-hidden">
+                    <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
                       <div
-                        className="h-full rounded-full bg-[#132337] transition-all duration-700 ease-out"
-                        style={{ width: `${pct}%`, opacity: 0.15 + (pct / 100) * 0.85 }}
+                        className="h-full rounded-full bg-slate-400 transition-all duration-700 ease-out"
+                        style={{ width: `${pct}%` }}
                       />
                     </div>
                   </div>
@@ -350,7 +350,7 @@ export default function MapViewPage() {
 
           {/* ── Outlets by Status ── */}
           <div>
-            <h3 className="text-[10px] font-semibold uppercase tracking-wider text-neutral-400 mb-2">
+            <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
               By Status
             </h3>
             <div className="space-y-1.5">
@@ -359,7 +359,7 @@ export default function MapViewPage() {
                 const pct = total > 0 ? Math.round((count / total) * 100) : 0;
                 const color = statusColor(status);
                 return (
-                  <div key={status} className="flex items-center gap-2.5 p-2.5 rounded-xl bg-[#f4f6f9] hover:bg-[#edf0f4] transition-all">
+                  <div key={status} className="flex items-center gap-2.5 p-2.5 rounded-xl bg-muted hover:bg-[#edf0f4] transition-all">
                     <div
                       className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
                       style={{ backgroundColor: `${color}15`, border: `1px solid ${color}30` }}
@@ -368,10 +368,10 @@ export default function MapViewPage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between mb-0.5">
-                        <span className="text-[11px] font-medium text-neutral-700">{statusLabel(status)}</span>
-                        <span className="text-[9px] font-semibold text-neutral-400">{pct}%</span>
+                        <span className="text-[12px] font-medium text-foreground">{statusLabel(status)}</span>
+                        <span className="text-[9px] font-semibold text-muted-foreground">{pct}%</span>
                       </div>
-                      <div className="h-1 w-full rounded-full bg-[#132337]/6 overflow-hidden">
+                      <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
                         <div
                           className="h-full rounded-full transition-all duration-700"
                           style={{ width: `${pct}%`, backgroundColor: color }}
@@ -387,7 +387,7 @@ export default function MapViewPage() {
           {/* ── Rent Distribution by City ── */}
           {stats?.outlet_details_by_city && (
             <div>
-              <h3 className="text-[10px] font-semibold uppercase tracking-wider text-neutral-400 mb-2">
+              <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
                 Rent by City
               </h3>
               <div className="space-y-2">
@@ -398,19 +398,19 @@ export default function MapViewPage() {
                   const totalRent = stats.total_monthly_rent || 1;
                   const pct = Math.round((cityRent / totalRent) * 100);
                   return (
-                    <div key={city} className="flex items-center gap-2.5 p-2 rounded-lg bg-[#f4f6f9]">
+                    <div key={city} className="flex items-center gap-2.5 p-2 rounded-lg bg-muted">
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between mb-0.5">
-                          <span className="text-[11px] font-medium text-neutral-600">{city}</span>
-                          <span className="text-[11px] font-bold text-[#132337] tabular-nums">{formatINR(cityRent)}</span>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-[13px] font-medium text-foreground">{city}</span>
+                          <span className="text-[13px] font-semibold text-foreground tabular-nums font-mono">{formatINR(cityRent)}</span>
                         </div>
-                        <div className="h-1 w-full rounded-full bg-[#132337]/6 overflow-hidden">
+                        <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
                           <div
-                            className="h-full rounded-full bg-[#3b82f6] transition-all duration-700"
+                            className="h-full rounded-full bg-slate-400 transition-all duration-700"
                             style={{ width: `${pct}%` }}
                           />
                         </div>
-                        <p className="text-[8px] text-neutral-400 mt-0.5">{pct}% of total rent</p>
+                        <p className="text-[9px] text-muted-foreground mt-0.5">{pct}% of total rent</p>
                       </div>
                     </div>
                   );
@@ -427,7 +427,7 @@ export default function MapViewPage() {
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
               <MapPin className="h-10 w-10 text-neutral-300 mx-auto mb-3" />
-              <p className="text-sm text-neutral-400 font-medium">No outlet location data yet</p>
+              <p className="text-sm text-muted-foreground font-medium">No outlet location data yet</p>
               <p className="text-xs text-neutral-300 mt-1">Add outlets with city data to see them on the map</p>
             </div>
           </div>

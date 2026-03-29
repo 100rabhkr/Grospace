@@ -98,10 +98,10 @@ export default function OrganizationsPage() {
   // ---------------------------------------------------------------------------
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#fafbfd] flex items-center justify-center">
+      <div className="min-h-screen bg-card flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <Loader2 className="h-8 w-8 animate-spin text-neutral-400" />
-          <p className="text-sm text-neutral-500">Loading organizations...</p>
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">Loading organizations...</p>
         </div>
       </div>
     );
@@ -112,13 +112,13 @@ export default function OrganizationsPage() {
   // ---------------------------------------------------------------------------
   if (error) {
     return (
-      <div className="min-h-screen bg-[#fafbfd] flex items-center justify-center">
+      <div className="min-h-screen bg-card flex items-center justify-center">
         <div className="flex flex-col items-center gap-3 text-center max-w-md">
-          <AlertTriangle className="h-10 w-10 text-red-400" />
-          <p className="text-lg font-medium text-neutral-800">
+          <AlertTriangle className="h-10 w-10 text-rose-500" />
+          <p className="text-lg font-medium text-foreground">
             Failed to load organizations
           </p>
-          <p className="text-sm text-neutral-500">{error}</p>
+          <p className="text-sm text-muted-foreground">{error}</p>
           <Button variant="outline" onClick={() => fetchOrganizations()}>
             Try Again
           </Button>
@@ -131,7 +131,7 @@ export default function OrganizationsPage() {
   // Render
   // ---------------------------------------------------------------------------
   return (
-    <div className="min-h-screen bg-[#fafbfd]">
+    <div className="min-h-screen bg-card">
       <div className="max-w-7xl mx-auto px-6 py-8 space-y-8">
         {/* ----------------------------------------------------------------- */}
         {/* Page Header                                                        */}
@@ -139,13 +139,13 @@ export default function OrganizationsPage() {
         <PageHeader title="Organizations" description="Manage all registered organizations">
           <Badge
             variant="secondary"
-            className="bg-[#f4f6f9] text-[#132337] text-xs"
+            className="bg-muted text-foreground text-xs"
           >
             {organizations.length}
           </Badge>
           <Button
             onClick={() => setShowCreateForm(!showCreateForm)}
-            className="gap-1.5 bg-[#132337] text-white hover:bg-[#1e3550]"
+            className="gap-1.5 bg-foreground text-white hover:bg-[#1e3550]"
           >
             <Plus className="w-4 h-4" />
             Create Organization
@@ -156,16 +156,16 @@ export default function OrganizationsPage() {
         {/* Create Organization Form                                           */}
         {/* ----------------------------------------------------------------- */}
         {showCreateForm && (
-          <Card className="border border-[#e4e8ef]">
+          <Card className="border border-border">
             <CardContent className="p-5">
-              <p className="text-sm font-semibold text-black mb-4">
+              <p className="text-sm font-semibold text-foreground mb-4">
                 New Organization
               </p>
               <div className="flex items-end gap-4">
                 <div className="flex-1">
                   <label
                     htmlFor="new-org-name"
-                    className="block text-xs font-medium text-neutral-600 mb-1.5"
+                    className="block text-xs font-medium text-foreground mb-1.5"
                   >
                     Organization Name
                   </label>
@@ -174,7 +174,7 @@ export default function OrganizationsPage() {
                     value={newOrgName}
                     onChange={(e) => setNewOrgName(e.target.value)}
                     placeholder="e.g. Chaayos, Third Wave Coffee"
-                    className="bg-[#fafbfd] border-[#e4e8ef]"
+                    className="bg-card border-border"
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && newOrgName.trim()) {
                         handleCreateOrg();
@@ -185,7 +185,7 @@ export default function OrganizationsPage() {
                 <Button
                   onClick={handleCreateOrg}
                   disabled={!newOrgName.trim() || creating}
-                  className="gap-1.5 bg-[#132337] text-white hover:bg-[#1e3550]"
+                  className="gap-1.5 bg-foreground text-white hover:bg-[#1e3550]"
                 >
                   {creating ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -196,7 +196,7 @@ export default function OrganizationsPage() {
                 </Button>
               </div>
               {createError && (
-                <p className="text-sm text-red-600 mt-2">{createError}</p>
+                <p className="text-sm text-rose-600 mt-2">{createError}</p>
               )}
             </CardContent>
           </Card>
@@ -207,12 +207,12 @@ export default function OrganizationsPage() {
         {/* ----------------------------------------------------------------- */}
         {organizations.length > 0 && (
           <div className="relative max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search organizations..."
-              className="pl-9 h-9 text-sm bg-[#fafbfd] border-[#e4e8ef]"
+              className="pl-9 h-9 text-sm bg-card border-border"
             />
           </div>
         )}
@@ -221,18 +221,18 @@ export default function OrganizationsPage() {
         {/* Empty State - No organizations at all                              */}
         {/* ----------------------------------------------------------------- */}
         {organizations.length === 0 && (
-          <Card className="border border-[#e4e8ef]">
+          <Card className="border border-border">
             <CardContent className="py-16 text-center">
               <Building2 className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
               <p className="text-lg font-medium text-neutral-700 mb-1">
                 No organizations yet
               </p>
-              <p className="text-sm text-neutral-500 mb-4">
+              <p className="text-sm text-muted-foreground mb-4">
                 Create your first organization to get started.
               </p>
               <Button
                 onClick={() => setShowCreateForm(true)}
-                className="gap-1.5 bg-[#132337] text-white hover:bg-[#1e3550]"
+                className="gap-1.5 bg-foreground text-white hover:bg-[#1e3550]"
               >
                 <Plus className="w-4 h-4" />
                 Create Organization
@@ -245,10 +245,10 @@ export default function OrganizationsPage() {
         {/* Empty State - No search results                                    */}
         {/* ----------------------------------------------------------------- */}
         {organizations.length > 0 && filteredOrgs.length === 0 && (
-          <Card className="border border-[#e4e8ef]">
+          <Card className="border border-border">
             <CardContent className="py-16 text-center">
               <Building2 className="w-12 h-12 text-neutral-300 mx-auto mb-3" />
-              <p className="text-sm text-neutral-500">
+              <p className="text-sm text-muted-foreground">
                 No organizations found matching your search.
               </p>
             </CardContent>
@@ -266,21 +266,21 @@ export default function OrganizationsPage() {
               return (
                 <Card
                   key={org.id}
-                  className="border border-[#e4e8ef] hover:shadow-lg transition-shadow group"
+                  className="border border-border hover:shadow-lg transition-shadow group"
                 >
                   <CardContent className="p-5">
                     {/* Org Identity */}
                     <div className="flex items-center gap-3 mb-4">
-                      <div className="w-11 h-11 rounded-full bg-[#132337] flex items-center justify-center shrink-0">
+                      <div className="w-11 h-11 rounded-full bg-foreground flex items-center justify-center shrink-0">
                         <span className="text-white text-lg font-bold">
                           {initial}
                         </span>
                       </div>
                       <div className="min-w-0">
-                        <h3 className="text-lg font-bold text-black leading-tight truncate">
+                        <h3 className="text-lg font-bold text-foreground leading-tight truncate">
                           {org.name}
                         </h3>
-                        <div className="flex items-center gap-1.5 mt-1 text-xs text-neutral-500">
+                        <div className="flex items-center gap-1.5 mt-1 text-xs text-muted-foreground">
                           <Calendar className="w-3 h-3 shrink-0" />
                           <span>Created {formatDate(org.created_at)}</span>
                         </div>
@@ -291,7 +291,7 @@ export default function OrganizationsPage() {
                     <Link href={`/organizations/${org.id}`}>
                       <Button
                         variant="outline"
-                        className="w-full gap-1.5 text-sm border-[#e4e8ef] text-black hover:bg-[#132337] hover:text-white hover:border-[#132337] transition-colors"
+                        className="w-full gap-1.5 text-sm border-border text-foreground hover:bg-foreground hover:text-white hover:border-foreground transition-colors"
                       >
                         View Details
                         <ChevronRight className="w-4 h-4" />

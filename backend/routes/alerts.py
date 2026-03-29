@@ -2,6 +2,7 @@
 Alerts CRUD, notification, reminder endpoints.
 """
 
+import uuid
 from typing import Optional
 from datetime import datetime, date, timedelta
 
@@ -21,7 +22,7 @@ router = APIRouter(prefix="/api", tags=["alerts"])
 @router.get("/alerts", dependencies=[Depends(require_permission("view_alerts"))])
 def list_alerts(
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=100),
+    page_size: int = Query(50, ge=1, le=500),
 ):
     """List all alerts (paginated)."""
     offset = (page - 1) * page_size
@@ -119,6 +120,7 @@ def create_reminder(
         raise HTTPException(status_code=400, detail="Could not determine organization")
 
     alert_data: dict = {
+        "id": str(uuid.uuid4()),
         "org_id": org_id,
         "type": "custom",
         "title": req.title,

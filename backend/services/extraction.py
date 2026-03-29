@@ -5,6 +5,7 @@ AI extraction logic: schemas, Gemini calls, document processing, risk detection.
 import os
 import re
 import json
+import uuid
 import httpx
 import fitz  # PyMuPDF
 from io import BytesIO
@@ -31,73 +32,74 @@ from services.email_service import dispatch_notification
 
 LEASE_EXTRACTION_SCHEMA = {
     "parties": {
-        "lessor_name": "string",
-        "lessor_address": "string",
-        "lessee_name": "string",
-        "lessee_address": "string",
-        "lessee_cin": "string",
-        "leasing_consultant": "string",
-        "brand_name": "string",
+        "lessor_name": "string — full legal name of the property owner / licensor / landlord",
+        "lessor_address": "string — registered address of the lessor as stated in the document",
+        "lessee_name": "string — full legal name of the tenant / licensee / occupant",
+        "lessee_address": "string — registered address of the lessee as stated in the document",
+        "lessee_cin": "string — Corporate Identification Number (CIN) of the lessee company, if mentioned",
+        "leasing_consultant": "string — name of the broker / leasing consultant / agent, if any",
+        "brand_name": "string — brand or trade name under which the lessee will operate at the premises",
     },
     "premises": {
-        "property_name": "string",
-        "full_address": "string",
-        "locality": "string (neighbourhood/area name, e.g. Rajouri Garden, Koramangala, Connaught Place)",
-        "city": "string",
-        "state": "string",
-        "pincode": "string",
+        "property_name": "string — name of the mall, building, or commercial complex",
+        "full_address": "string — complete street address including landmark, locality, city, state, pincode",
+        "locality": "string — neighbourhood/area name, e.g. Rajouri Garden, Koramangala, Connaught Place",
+        "city": "string — city name (e.g. Mumbai, Delhi, Bengaluru)",
+        "state": "string — Indian state name (e.g. Maharashtra, Karnataka)",
+        "pincode": "string — 6-digit Indian PIN code",
         "property_type": "enum: mall/high_street/cloud_kitchen/metro/transit/cyber_park/hospital/college",
-        "floor": "string",
-        "unit_number": "string",
-        "super_area_sqft": "number",
-        "covered_area_sqft": "number",
-        "carpet_area_sqft": "number",
-        "loading_factor": "string",
+        "floor": "string — floor number or level (e.g. 'Ground Floor', '2nd Floor', 'Lower Ground')",
+        "unit_number": "string — shop/unit/suite number within the property",
+        "super_area_sqft": "number — total super built-up area in square feet (includes common areas)",
+        "covered_area_sqft": "number — covered/built-up area in square feet",
+        "carpet_area_sqft": "number — usable carpet area in square feet (excludes walls, common areas)",
+        "loading_factor": "string — loading factor percentage or ratio (super area / carpet area)",
     },
     "lease_term": {
-        "loi_date": "date",
-        "lease_term_years": "number",
-        "lease_term_structure": "string",
-        "renewal_terms": "string",
-        "lock_in_months": "number",
-        "notice_period_months": "number",
-        "fit_out_period_days": "number",
-        "fit_out_rent_free": "boolean",
-        "lease_commencement_date": "date/formula",
-        "rent_commencement_date": "date/formula",
-        "lease_expiry_date": "date/calculated",
+        "loi_date": "date — date of the Letter of Intent, in YYYY-MM-DD format",
+        "lease_term_years": "number — total lease duration in years",
+        "lease_term_structure": "string — description of the term structure (e.g. '9 years = 3+3+3')",
+        "renewal_terms": "string — renewal clause summary including renewal period and conditions",
+        "lock_in_months": "number — lock-in period in MONTHS (convert from years if needed: 3 years = 36 months). Commonly stated in months in Indian leases.",
+        "notice_period_months": "number — notice period required before exit, in months",
+        "fit_out_period_days": "number — fit-out/build-out period in days",
+        "fit_out_rent_free": "boolean — whether fit-out period is rent-free (true/false)",
+        "lease_commencement_date": "date/formula — lease start date or formula (e.g. '60 days from handover')",
+        "rent_commencement_date": "date/formula — date when rent payments begin (may differ from lease commencement)",
+        "lease_expiry_date": "date/calculated — lease end date, calculated from commencement + term if not explicit",
     },
     "rent": {
         "rent_model": "enum: fixed/revenue_share/hybrid_mglr/percentage_only",
-        "rent_schedule": "json array of yearly rent details",
-        "escalation_percentage": "number",
-        "escalation_frequency_years": "number",
-        "escalation_basis": "string",
-        "mglr_payment_day": "number",
-        "revenue_reconciliation_day": "number",
+        "rent_schedule": "json array of yearly rent details — look for rent amounts in both words and figures (e.g. 'Rs. 2,85,000/- (Rupees Two Lakhs Eighty Five Thousand Only)')",
+        "escalation_percentage": "number — annual/periodic rent escalation percentage (typically 5-15% in India)",
+        "escalation_frequency_years": "number — how often escalation applies (e.g. every 1, 2, or 3 years)",
+        "escalation_basis": "string — basis for escalation (e.g. 'fixed percentage', 'CPI-linked', 'market rate')",
+        "mglr_payment_day": "number — day of the month when MGLR/rent is due",
+        "revenue_reconciliation_day": "number — day of the month for revenue share reconciliation",
     },
     "charges": {
-        "cam_rate_per_sqft": "number",
-        "cam_area_basis": "enum: super_area/covered_area",
-        "cam_monthly": "number",
-        "cam_escalation_pct": "number",
-        "hvac_rate_per_sqft": "number",
-        "electricity_load_kw": "number",
-        "electricity_metering": "enum: prepaid/actual/sub_meter",
-        "operating_hours": "string",
+        "cam_rate_per_sqft": "number — Common Area Maintenance charge per square foot per month",
+        "cam_area_basis": "enum: super_area/covered_area — which area measurement CAM is calculated on",
+        "cam_monthly": "number — total monthly CAM amount in INR",
+        "cam_escalation_pct": "number — annual CAM escalation percentage",
+        "hvac_rate_per_sqft": "number — HVAC / air-conditioning charge per square foot",
+        "electricity_load_kw": "number — sanctioned electricity load in kilowatts",
+        "electricity_metering": "enum: prepaid/actual/sub_meter — how electricity is billed",
+        "operating_hours": "string — permitted operating hours (e.g. '10 AM to 10 PM')",
+        "gst_percentage": "number — GST rate applicable on rent/CAM (typically 18% in India for commercial leases)",
     },
     "deposits": {
-        "security_deposit_amount": "number",
-        "security_deposit_months": "number",
-        "security_deposit_basis": "string",
-        "security_deposit_refund_days": "number",
-        "cam_deposit_amount": "number",
-        "utility_deposit_per_kw": "number",
+        "security_deposit_amount": "number — total security deposit amount in INR",
+        "security_deposit_months": "number — security deposit expressed as number of months of rent",
+        "security_deposit_basis": "string — how deposit is calculated (e.g. 'equivalent to 6 months rent')",
+        "security_deposit_refund_days": "number — number of days for deposit refund after lease termination",
+        "cam_deposit_amount": "number — separate CAM deposit amount, if any",
+        "utility_deposit_per_kw": "number — utility/electricity deposit per KW of sanctioned load",
     },
     "legal": {
-        "usage_restriction": "string",
-        "brand_change_allowed": "boolean",
-        "structural_alterations_allowed": "boolean",
+        "usage_restriction": "string — permitted use of premises (e.g. 'restaurant', 'retail', 'QSR')",
+        "brand_change_allowed": "boolean — whether the lessee can change the operating brand",
+        "structural_alterations_allowed": "boolean — whether structural modifications are permitted",
         "subletting_allowed": "boolean",
         "signage_approval_required": "boolean",
         "jurisdiction_city": "string",
@@ -559,6 +561,89 @@ def _validate_and_clean_fields(result: dict, text: str) -> dict:
     return result
 
 
+def _post_extraction_validation(extraction: dict, confidence: dict, doc_type: str) -> dict:
+    """Run post-extraction validation checks on the extracted data.
+
+    Checks:
+    - Required fields are present and non-empty
+    - Rent values are > 0 when present
+    - Date fields are valid ISO dates
+    - Fields with confidence < 0.5 (i.e. 'low' or 'not_found') are flagged as needs_review
+
+    Returns a dict with:
+    - 'valid': bool — whether the extraction passes basic validation
+    - 'needs_review_fields': list of field names with low confidence that need manual review
+    - 'validation_errors': list of human-readable error strings
+    """
+    needs_review_fields = []
+    validation_errors = []
+
+    # --- Mark low-confidence fields as needs_review ---
+    for field_key, conf_level in confidence.items():
+        if conf_level in ("low", "not_found"):
+            needs_review_fields.append(field_key)
+
+    # --- Required fields check (for lease/LOI documents) ---
+    if doc_type in ("lease_loi", "franchise_agreement"):
+        required_fields = {
+            "lessor_name": "parties",
+            "lessee_name": "parties",
+            "city": "premises",
+            "lease_commencement_date": "lease_term",
+        }
+        for field, section in required_fields.items():
+            section_data = extraction.get(section, {})
+            if isinstance(section_data, dict):
+                val = section_data.get(field)
+                if val is None or val == "" or val == "not_found" or val == "N/A":
+                    validation_errors.append(f"Required field '{field}' is missing from the document.")
+                    if field not in needs_review_fields:
+                        needs_review_fields.append(field)
+
+    # --- Rent validation: check rent > 0 ---
+    rent_section = extraction.get("rent", {})
+    if isinstance(rent_section, dict):
+        rent_schedule = rent_section.get("rent_schedule")
+        if isinstance(rent_schedule, list) and len(rent_schedule) > 0:
+            first_entry = rent_schedule[0]
+            if isinstance(first_entry, dict):
+                rent_val = (
+                    first_entry.get("mglr_monthly")
+                    or first_entry.get("monthly_rent")
+                    or first_entry.get("rent")
+                )
+                if rent_val is not None:
+                    try:
+                        if float(rent_val) <= 0:
+                            validation_errors.append("Monthly rent is 0 or negative — please verify.")
+                    except (ValueError, TypeError):
+                        pass
+
+    # --- Date validation: check dates are valid ISO ---
+    date_fields_to_check = [
+        ("lease_term", "lease_commencement_date"),
+        ("lease_term", "lease_expiry_date"),
+        ("lease_term", "rent_commencement_date"),
+    ]
+    for section, field in date_fields_to_check:
+        section_data = extraction.get(section, {})
+        if isinstance(section_data, dict):
+            val = section_data.get(field)
+            if val and isinstance(val, str):
+                if not re.match(r"^\d{4}-\d{2}-\d{2}$", val):
+                    # Not a strict error since formulas are valid, but flag if it looks like a bad date
+                    if re.search(r"\d", val) and not any(kw in val.lower() for kw in ("days", "from", "after", "upon", "within")):
+                        validation_errors.append(f"Date field '{field}' has non-standard format: '{val}'. Please verify.")
+                        if field not in needs_review_fields:
+                            needs_review_fields.append(field)
+
+    return {
+        "valid": len(validation_errors) == 0,
+        "needs_review_fields": needs_review_fields,
+        "validation_errors": validation_errors,
+    }
+
+
 # ============================================
 # EXTRACTION
 # ============================================
@@ -627,6 +712,14 @@ async def extract_structured_data(text: str, doc_type: str) -> dict:
         "- 'Security Deposit equivalent to 6 months rent' = 6 * monthly_rent\n"
         "- 'Lock-in period of 3 years from rent commencement date'\n"
         "- 'Fit-out period of 60 days from handover, rent-free'\n\n"
+        "HANDLING COMMON INDIAN LEASE FORMATS:\n"
+        "- Look for rent amounts stated in BOTH words and figures — e.g. 'Rs. 2,85,000/- (Rupees Two Lakhs Eighty Five Thousand Only per month)'. "
+        "If words and figures conflict, prefer the figure.\n"
+        "- GST is typically 18% in India for commercial lease rentals. Look for 'GST @18%', 'plus applicable GST', 'exclusive of GST'.\n"
+        "- Lock-in period is commonly stated in months (e.g. '36 months') or years (e.g. '3 years'). Always convert to MONTHS.\n"
+        "- Indian lease agreements often have rent stated as 'per month' OR 'per annum' — read carefully and always return MONTHLY values.\n"
+        "- Stamp duty and registration clauses are common — note which party bears the cost.\n"
+        "- 'Leave and License' agreements (common in Maharashtra) use 'Licensor/Licensee' instead of 'Lessor/Lessee'.\n\n"
         "Return valid JSON matching this schema:\n"
         f"{json.dumps(schema, indent=2)}\n\n"
         f"DOCUMENT TEXT:\n{text}"
@@ -748,10 +841,14 @@ async def extract_structured_data_vision(images: list, doc_type: str) -> dict:
         "- MGLR = Minimum Guaranteed License/Lease Revenue (fixed rent floor in hybrid deals)\n"
         "- CAM = Common Area Maintenance charges\n"
         "- Fit-out period = rent-free period for tenant buildout\n"
-        "- Lock-in = period during which tenant cannot exit\n"
+        "- Lock-in = period during which tenant cannot exit (commonly stated in months in India)\n"
         "- Revenue share / hybrid model = MGLR + % of revenue above threshold\n"
         "- Leave and License = type of commercial lease (common in Maharashtra)\n"
-        "- Licensee/Licensor = same as Lessee/Lessor in L&L agreements\n\n"
+        "- Licensee/Licensor = same as Lessee/Lessor in L&L agreements\n"
+        "- GST is typically 18% in India for commercial leases\n\n"
+        "IMPORTANT: Look for rent amounts in both words and figures. "
+        "Lock-in period is commonly stated in months. "
+        "If amounts appear in both words and numerals, prefer the numeral.\n\n"
         f"Extract fields for this {doc_type_label}.\n"
         f"Schema:\n{json.dumps(schema, indent=2)}"
     )
@@ -1309,6 +1406,13 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
         if extraction and doc_type in ("lease_loi", "franchise_agreement"):
             _derive_missing_fields(extraction, confidence)
 
+        # --- Step 4.7: Post-extraction validation ---
+        validation_result = _post_extraction_validation(extraction, confidence, doc_type)
+        if validation_result["needs_review_fields"]:
+            print(f"[PROCESS] Fields needing review: {validation_result['needs_review_fields']}")
+        if validation_result["validation_errors"]:
+            print(f"[PROCESS] Validation issues: {validation_result['validation_errors']}")
+
         # --- Step 5: Detect risk flags ---
         if doc_type == "lease_loi":
             try:
@@ -1326,6 +1430,11 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
         error_message = f"Processing error: {str(e)}"
         extraction_method = "failed"
 
+    # Build validation info (may not exist if process failed before that step)
+    validation_info = locals().get("validation_result", {
+        "valid": False, "needs_review_fields": [], "validation_errors": ["Extraction did not complete."]
+    })
+
     return {
         "status": "success" if extraction_method != "failed" else "partial",
         "document_type": doc_type,
@@ -1337,6 +1446,8 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
         "extraction_method": extraction_method,
         "error": error_message,
         "document_text": text if text and len(text.strip()) >= 100 else None,
+        "needs_review_fields": validation_info.get("needs_review_fields", []),
+        "validation_errors": validation_info.get("validation_errors", []),
     }
 
 
@@ -1398,6 +1509,7 @@ def get_or_create_demo_org() -> str:
         return result.data[0]["id"]
 
     new_org = supabase.table("organizations").insert({
+        "id": str(uuid.uuid4()),
         "name": "GroSpace Demo",
     }).execute()
     return new_org.data[0]["id"]
@@ -1450,6 +1562,7 @@ def build_outlet_data(extraction: dict, org_id: str) -> dict:
     site_code = generate_site_code(city, locality, org_id)
 
     outlet_data = {
+        "id": str(uuid.uuid4()),
         "org_id": org_id,
         "name": get_val(premises.get("property_name")) or get_val(parties.get("brand_name")) or "New Outlet",
         "brand_name": get_val(parties.get("brand_name")),
@@ -1503,6 +1616,7 @@ def build_agreement_data(extraction: dict, doc_type: str, risk_flags: list, conf
         rm = None
 
     agreement_data = {
+        "id": str(uuid.uuid4()),
         "org_id": org_id,
         "type": doc_type,
         "status": "active",
@@ -1638,7 +1752,9 @@ def build_obligations_data(extraction: dict, org_id: str) -> list:
             "start_date": lease_comm or start_date, "is_active": True,
         })
 
-    # Clean None values from each obligation
+    # Add IDs and clean None values from each obligation
+    for obl in obligations:
+        obl["id"] = str(uuid.uuid4())
     return [{k: v for k, v in obl.items() if v is not None} for obl in obligations]
 
 
@@ -1725,6 +1841,9 @@ def build_alerts_data(extraction: dict, org_id: str) -> list:
         except (ValueError, TypeError):
             pass
 
+    # Add IDs to each alert
+    for alert in alerts:
+        alert["id"] = str(uuid.uuid4())
     return alerts
 
 
@@ -1753,6 +1872,7 @@ def create_outlet_from_extraction(extraction: dict, org_id: str) -> str:
     site_code = generate_site_code(city, locality, org_id)
 
     outlet_data = {
+        "id": str(uuid.uuid4()),
         "org_id": org_id,
         "name": get_val(premises.get("property_name")) or get_val(parties.get("brand_name")) or "New Outlet",
         "brand_name": get_val(parties.get("brand_name")),
@@ -1818,6 +1938,7 @@ def create_agreement_record(extraction: dict, doc_type: str, risk_flags: list, c
         rm = None
 
     agreement_data = {
+        "id": str(uuid.uuid4()),
         "org_id": org_id,
         "outlet_id": outlet_id,
         "type": doc_type,
@@ -1972,6 +2093,7 @@ def generate_obligations(extraction: dict, agreement_id: str, outlet_id: str, or
     # Insert obligations, skipping None values
     created = []
     for obl in obligations:
+        obl["id"] = str(uuid.uuid4())
         clean = {k: v for k, v in obl.items() if v is not None}
         result = supabase.table("obligations").insert(clean).execute()
         created.append(result.data[0])
@@ -2070,6 +2192,7 @@ def generate_alerts(extraction: dict, agreement_id: str, outlet_id: str, org_id:
     # Insert alerts and dispatch notifications
     created = []
     for alert in alerts:
+        alert["id"] = str(uuid.uuid4())
         result = supabase.table("alerts").insert(alert).execute()
         inserted = result.data[0]
         created.append(inserted)

@@ -4,6 +4,7 @@ CRUD agreements, confirm-and-activate, save-draft endpoints.
 
 
 import uuid
+import logging
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from starlette.requests import Request
@@ -19,6 +20,8 @@ from services.extraction import (
     get_val, get_num, get_date, get_section,
 )
 from services.sheets_service import write_agreement_to_sheet
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["agreements"])
 
@@ -102,7 +105,7 @@ def test_sheets_write():
 @router.get("/agreements", dependencies=[Depends(require_permission("view_agreements"))])
 def list_agreements(
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=100),
+    page_size: int = Query(50, ge=1, le=500),
 ):
     """List agreements with outlet info (paginated)."""
     offset = (page - 1) * page_size
@@ -210,6 +213,20 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
 
     org_id = req.org_id
     if not org_id:
+        # Try to get org_id from the authenticated user's profile
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.startswith("Bearer "):
+            try:
+                from core.config import supabase as sb
+                token = auth_header.split(" ", 1)[1]
+                user_result = sb.auth.get_user(token)
+                if user_result and user_result.user:
+                    profile = sb.table("profiles").select("org_id").eq("id", user_result.user.id).single().execute()
+                    if profile.data and profile.data.get("org_id"):
+                        org_id = profile.data["org_id"]
+            except Exception:
+                pass
+    if not org_id:
         org_id = get_or_create_demo_org()
 
     # Prepare all data objects upfront
@@ -237,6 +254,7 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
         }
 
     activity_data = {
+        "id": str(uuid.uuid4()),
         "org_id": org_id,
         "entity_type": "agreement",
         "action": "confirm_and_activate",
@@ -293,6 +311,7 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
                 obligations_created = len(obligations)
                 alerts_created = len(alerts)
                 supabase.table("activity_log").insert({
+                    "id": str(uuid.uuid4()),
                     "org_id": org_id, "entity_type": "agreement",
                     "entity_id": agreement_id, "action": "confirm_and_activate",
                     "details": {
@@ -375,6 +394,65 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
         "alerts_created": alerts_created,
         "message": f"Agreement activated. {obligations_created} obligations and {alerts_created} alerts created.",
     }
+
+
+@router.post("/agreements/create-draft", dependencies=[Depends(require_permission("edit_agreements"))])
+def create_draft(body: ConfirmActivateRequest, request: Request):
+    """Create a new draft agreement without creating outlet, obligations, or alerts."""
+    try:
+        org_id = body.org_id
+        if not org_id:
+            # Try to get org_id from authenticated user
+            auth_header = request.headers.get("authorization", "")
+            if auth_header.startswith("Bearer "):
+                try:
+                    token = auth_header.split(" ", 1)[1]
+                    user_result = supabase.auth.get_user(token)
+                    if user_result and user_result.user:
+                        profile = supabase.table("profiles").select("org_id").eq("id", user_result.user.id).single().execute()
+                        if profile.data and profile.data.get("org_id"):
+                            org_id = profile.data["org_id"]
+                except Exception as e:
+                    logger.warning(f"Failed to extract org_id from token: {e}")
+        if not org_id:
+            org_id = get_or_create_demo_org()
+        extraction = body.extraction or {}
+
+        # Create a minimal agreement record in draft status
+        agreement_data = {
+            "id": str(uuid.uuid4()),
+            "org_id": org_id,
+            "type": body.document_type or "lease_loi",
+            "extracted_data": extraction,
+            "risk_flags": [rf.dict() if hasattr(rf, "dict") else rf for rf in (body.risk_flags or [])],
+            "confidence": body.confidence or {},
+            "filename": body.filename or "unknown",
+            "document_text": body.document_text,
+            "document_url": body.document_url,
+            "status": "draft",
+        }
+
+        # Clean None values
+        clean = {k: v for k, v in agreement_data.items() if v is not None}
+        result = supabase.table("agreements").insert(clean).execute()
+
+        agreement_id = result.data[0]["id"] if result.data else clean["id"]
+
+        log_activity(
+            org_id=org_id,
+            action="create_draft",
+            details={"agreement_id": agreement_id, "filename": body.filename},
+        )
+
+        return {
+            "status": "draft_saved",
+            "agreement_id": agreement_id,
+            "message": "Draft saved successfully. You can find it in Agreements with 'Draft' status.",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save draft: {str(e)}")
 
 
 @router.patch("/agreements/{agreement_id}/save-draft", dependencies=[Depends(require_permission("edit_agreements"))])

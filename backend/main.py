@@ -20,6 +20,7 @@ from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from core.config import limiter
+from routes import auth, documents, outlets, agreements, payments, alerts, pipeline, admin, reports, contacts, leasebot, revenue
 
 # ============================================
 # SENTRY MONITORING
@@ -32,11 +33,8 @@ if _sentry_dsn and sentry_sdk:
         environment=os.getenv("RAILWAY_ENVIRONMENT", "development"),
         traces_sample_rate=0.1,
         send_default_pii=False,
-        integrations=[],           # FastAPI integration is auto-discovered
+        integrations=[],
     )
-
-# Import all route modules
-from routes import auth, documents, outlets, agreements, payments, alerts, pipeline, admin, reports, contacts, leasebot, revenue
 
 # ============================================
 # APP SETUP
@@ -74,6 +72,11 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # CORS - restrict to known production and development origins
 _env_origins = os.getenv("ALLOWED_ORIGINS", "")
 _frontend_url = os.getenv("FRONTEND_URL", "")
+# DNS/Subdomain: Set CUSTOM_DOMAIN=https://app.yourdomain.com to allow custom domain access
+# DNS Setup: 1) Add CNAME record pointing your subdomain to your Vercel/Railway deployment
+#            2) Set CUSTOM_DOMAIN env var in Railway/Vercel to the full https URL
+#            3) Update FRONTEND_URL if the custom domain replaces the default
+_custom_domain = os.getenv("CUSTOM_DOMAIN", "")
 _is_production = os.getenv("RAILWAY_ENVIRONMENT", "") == "production" or os.getenv("NODE_ENV", "") == "production"
 
 _dev_origins = [
@@ -88,6 +91,7 @@ ALLOWED_ORIGINS = list(set(filter(None, [
     *(_prod_origins),
     *([] if _is_production else _dev_origins),
     _frontend_url,
+    *([_custom_domain] if _custom_domain.startswith("https://") else []),
     *(_env_origins.split(",") if _env_origins else []),
 ])))
 

@@ -23,6 +23,8 @@ import {
   Users,
   RotateCcw,
   Sparkles,
+  Check,
+  CheckSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -38,7 +40,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { getAgreement, askDocumentQuestion, updateAgreement } from "@/lib/api";
-import { PdfViewer } from "@/components/pdf-viewer";
+import dynamic from "next/dynamic";
+const PdfViewer = dynamic(() => import("@/components/pdf-viewer").then(mod => ({ default: mod.PdfViewer })), { ssr: false, loading: () => <div className="flex items-center justify-center h-64 text-sm text-muted-foreground">Loading PDF viewer...</div> });
 import { EditableField } from "@/components/editable-field";
 import { FeedbackButton } from "@/components/feedback-button";
 import AgreementTimeline from "@/components/agreement-timeline";
@@ -114,8 +117,8 @@ function ConfidenceDot({ level }: { level: Confidence }) {
   const colors: Record<Confidence, string> = {
     high: "bg-emerald-500",
     medium: "bg-amber-500",
-    low: "bg-red-500",
-    not_found: "bg-neutral-300",
+    low: "bg-rose-400",
+    not_found: "bg-slate-300",
   };
   return (
     <span
@@ -244,24 +247,24 @@ function parseField(fieldVal: unknown): {
 }
 
 function statusColor(status: string): string {
-  if (!status) return "bg-[#f4f6f9] text-[#4a5568]";
+  if (!status) return "bg-muted text-[#4a5568]";
   const map: Record<string, string> = {
-    active: "bg-emerald-100 text-emerald-800",
-    expiring: "bg-orange-100 text-orange-800",
-    expired: "bg-red-100 text-red-800",
-    terminated: "bg-red-100 text-red-800",
-    draft: "bg-[#f4f6f9] text-[#4a5568]",
-    renewed: "bg-teal-100 text-teal-800",
-    confirmed: "bg-emerald-100 text-emerald-800",
-    review: "bg-amber-100 text-amber-800",
-    processing: "bg-[#f4f6f9] text-[#132337]",
-    pending: "bg-[#f4f6f9] text-[#4a5568]",
-    failed: "bg-red-100 text-red-800",
-    high: "bg-red-100 text-red-700",
-    medium: "bg-amber-100 text-amber-700",
-    low: "bg-[#f4f6f9] text-[#132337]",
+    active: "bg-emerald-50 text-emerald-700",
+    expiring: "bg-amber-50 text-amber-700",
+    expired: "bg-rose-50 text-rose-700",
+    terminated: "bg-rose-50 text-rose-700",
+    draft: "bg-muted text-[#4a5568]",
+    renewed: "bg-emerald-50 text-emerald-700",
+    confirmed: "bg-emerald-50 text-emerald-700",
+    review: "bg-amber-50 text-amber-700",
+    processing: "bg-muted text-foreground",
+    pending: "bg-muted text-[#4a5568]",
+    failed: "bg-rose-50 text-rose-700",
+    high: "bg-rose-50 text-rose-700",
+    medium: "bg-amber-50 text-amber-700",
+    low: "bg-muted text-foreground",
   };
-  return map[status] || "bg-[#f4f6f9] text-[#4a5568]";
+  return map[status] || "bg-muted text-[#4a5568]";
 }
 
 function statusLabel(status: string): string {
@@ -292,31 +295,31 @@ function DetailSkeleton() {
     <div className="space-y-6">
       {/* Header skeleton */}
       <div className="flex items-start gap-3">
-        <div className="h-9 w-16 bg-[#e4e8ef] rounded animate-pulse" />
+        <div className="h-9 w-16 bg-border rounded animate-pulse" />
         <div className="space-y-2 flex-1">
           <div className="flex gap-2">
-            <div className="h-5 w-20 bg-[#e4e8ef] rounded animate-pulse" />
-            <div className="h-5 w-16 bg-[#e4e8ef] rounded animate-pulse" />
+            <div className="h-5 w-20 bg-border rounded animate-pulse" />
+            <div className="h-5 w-16 bg-border rounded animate-pulse" />
           </div>
-          <div className="h-7 w-64 bg-[#e4e8ef] rounded animate-pulse" />
-          <div className="h-4 w-96 bg-[#e4e8ef] rounded animate-pulse" />
+          <div className="h-7 w-64 bg-border rounded animate-pulse" />
+          <div className="h-4 w-96 bg-border rounded animate-pulse" />
         </div>
       </div>
 
       {/* Tabs skeleton */}
-      <div className="h-10 w-full max-w-2xl bg-[#e4e8ef] rounded animate-pulse" />
+      <div className="h-10 w-full max-w-2xl bg-border rounded animate-pulse" />
 
       {/* Content skeleton */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {Array.from({ length: 6 }).map((_, i) => (
           <Card key={i}>
             <CardContent className="pt-4 pb-3">
-              <div className="h-5 w-32 bg-[#e4e8ef] rounded animate-pulse mb-4" />
+              <div className="h-5 w-32 bg-border rounded animate-pulse mb-4" />
               <div className="space-y-3">
                 {Array.from({ length: 4 }).map((_, j) => (
                   <div key={j}>
-                    <div className="h-3 w-20 bg-[#e4e8ef] rounded animate-pulse mb-1" />
-                    <div className="h-4 w-40 bg-[#e4e8ef] rounded animate-pulse" />
+                    <div className="h-3 w-20 bg-border rounded animate-pulse mb-1" />
+                    <div className="h-4 w-40 bg-border rounded animate-pulse" />
                   </div>
                 ))}
               </div>
@@ -348,6 +351,21 @@ export default function AgreementDetailPage() {
   // Inline editing state
   const [editedFields, setEditedFields] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+
+  // Verification checkboxes state for extracted fields
+  const [verifiedFields, setVerifiedFields] = useState<Set<string>>(new Set());
+
+  function toggleFieldVerified(fieldPath: string) {
+    setVerifiedFields((prev) => {
+      const next = new Set(prev);
+      if (next.has(fieldPath)) {
+        next.delete(fieldPath);
+      } else {
+        next.add(fieldPath);
+      }
+      return next;
+    });
+  }
 
   const hasEdits = Object.keys(editedFields).length > 0;
 
@@ -463,7 +481,7 @@ export default function AgreementDetailPage() {
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center h-[60vh] space-y-4">
-        <AlertTriangle className="h-12 w-12 text-red-400" />
+        <AlertTriangle className="h-12 w-12 text-rose-500" />
         <h2 className="text-lg font-semibold">Failed to load agreement</h2>
         <p className="text-sm text-muted-foreground max-w-md text-center">
           {error}
@@ -602,8 +620,8 @@ export default function AgreementDetailPage() {
                 <Badge
                   className={`${
                     riskFlags.some((f) => f.severity === "high")
-                      ? "bg-red-100 text-red-700"
-                      : "bg-amber-100 text-amber-700"
+                      ? "bg-rose-50 text-rose-700"
+                      : "bg-amber-50 text-amber-700"
                   } border-0 text-xs font-medium gap-1`}
                 >
                   <AlertTriangle className="h-3 w-3" />
@@ -623,15 +641,15 @@ export default function AgreementDetailPage() {
             <p className="text-sm text-muted-foreground mt-0.5">
               {agreement.lessor_name && (
                 <>
-                  <span className="font-medium text-black">Lessor:</span>{" "}
+                  <span className="font-medium text-foreground">Lessor:</span>{" "}
                   {agreement.lessor_name}
                   {" | "}
                 </>
               )}
-              <span className="font-medium text-black">Lessee:</span>{" "}
+              <span className="font-medium text-foreground">Lessee:</span>{" "}
               {agreement.lessee_name || "\u2014"}
               {" | "}
-              <span className="font-medium text-black">Document:</span>{" "}
+              <span className="font-medium text-foreground">Document:</span>{" "}
               {agreement.document_filename}
             </p>
           </div>
@@ -670,7 +688,7 @@ export default function AgreementDetailPage() {
             className="gap-1.5 text-xs sm:text-sm"
           >
             <CalendarClock className="h-3.5 w-3.5 hidden sm:block" />
-            Obligations
+            Events
           </TabsTrigger>
           <TabsTrigger
             value="document"
@@ -681,7 +699,7 @@ export default function AgreementDetailPage() {
           </TabsTrigger>
           <TabsTrigger value="qa" className="gap-1.5 text-xs sm:text-sm">
             <MessageSquare className="h-3.5 w-3.5 hidden sm:block" />
-            GroBot
+            Grow AI
           </TabsTrigger>
         </TabsList>
 
@@ -705,6 +723,34 @@ export default function AgreementDetailPage() {
             </Card>
           ) : (
             <div className="space-y-4">
+              {/* Verification progress */}
+              {(() => {
+                let totalFields = 0;
+                Object.values(extractedData).forEach((section) => {
+                  if (typeof section === "object" && section !== null) {
+                    totalFields += Object.keys(section as Record<string, unknown>).length;
+                  }
+                });
+                return (
+                  <div className="flex items-center gap-3 p-3 rounded-xl border bg-card">
+                    <CheckSquare className="h-4 w-4 text-emerald-600 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-foreground">
+                        {verifiedFields.size} of {totalFields} fields verified
+                      </p>
+                      <div className="w-40 h-1.5 bg-muted rounded-full overflow-hidden mt-1">
+                        <div
+                          className="h-full bg-emerald-500 rounded-full transition-all duration-300"
+                          style={{ width: `${totalFields > 0 ? (verifiedFields.size / totalFields) * 100 : 0}%` }}
+                        />
+                      </div>
+                    </div>
+                    {verifiedFields.size === totalFields && totalFields > 0 && (
+                      <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]">All verified</Badge>
+                    )}
+                  </div>
+                );
+              })()}
               {Object.entries(extractedData).map(
                 ([sectionKey, sectionData]) => {
                   if (
@@ -723,6 +769,26 @@ export default function AgreementDetailPage() {
                   };
                   const Icon = config.icon;
 
+                  // Determine rent model badge for the rent section
+                  const rentModelBadge = sectionKey === "rent" ? (() => {
+                    const section = sectionData as Record<string, unknown>;
+                    const rmField = section.rent_model;
+                    let rm = "";
+                    if (typeof rmField === "string") rm = rmField;
+                    else if (typeof rmField === "object" && rmField !== null && "value" in (rmField as Record<string, unknown>)) {
+                      const v = (rmField as Record<string, unknown>).value;
+                      if (typeof v === "string") rm = v;
+                    }
+                    const labels: Record<string, string> = { fixed: "Fixed", revenue_share: "Revenue Share", hybrid_mglr: "Hybrid MGLR", percentage_only: "Percentage Only" };
+                    const colors: Record<string, string> = { fixed: "bg-blue-50 text-blue-700 border-blue-200", revenue_share: "bg-emerald-50 text-emerald-700 border-emerald-200", hybrid_mglr: "bg-amber-50 text-amber-700 border-amber-200", percentage_only: "bg-slate-50 text-slate-700 border-slate-200" };
+                    if (!rm || rm === "not_found") return null;
+                    return (
+                      <Badge className={`text-[10px] font-medium border ${colors[rm] || "bg-muted text-muted-foreground"}`}>
+                        {labels[rm] || rm.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}
+                      </Badge>
+                    );
+                  })() : null;
+
                   return (
                     <Card key={sectionKey}>
                       <CardContent className="pt-4 pb-4">
@@ -731,7 +797,34 @@ export default function AgreementDetailPage() {
                           <h3 className="text-sm font-semibold">
                             {config.title}
                           </h3>
+                          {rentModelBadge}
                         </div>
+                        {/* Rent section: show GST breakdown hint */}
+                        {sectionKey === "rent" && (() => {
+                          const section = sectionData as Record<string, unknown>;
+                          const rmField = section.rent_model;
+                          let rm = "";
+                          if (typeof rmField === "string") rm = rmField;
+                          else if (typeof rmField === "object" && rmField !== null && "value" in (rmField as Record<string, unknown>)) {
+                            const v = (rmField as Record<string, unknown>).value;
+                            if (typeof v === "string") rm = v;
+                          }
+                          if (rm === "hybrid_mglr") {
+                            return (
+                              <div className="mb-3 p-2.5 rounded-lg bg-blue-50/50 border border-blue-200 text-xs text-blue-700">
+                                <span className="font-medium">Hybrid MGLR:</span> Payable rent = higher of fixed MGLR or revenue share % on actual sales. Escalation applies annually on the base rent.
+                              </div>
+                            );
+                          }
+                          if (rm === "revenue_share") {
+                            return (
+                              <div className="mb-3 p-2.5 rounded-lg bg-blue-50/50 border border-blue-200 text-xs text-blue-700">
+                                <span className="font-medium">Revenue Share:</span> Rent is calculated as a percentage of monthly revenue, subject to any minimum base rent.
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-3">
                           {fields.map(([fieldKey, fieldVal]) => {
                             const { displayVal, confidence } =
@@ -740,13 +833,27 @@ export default function AgreementDetailPage() {
                             const dotKey = `${sectionKey}.${fieldKey}`;
                             const editedVal = editedFields[dotKey];
                             const currentVal = editedVal !== undefined ? editedVal : displayVal;
+                            const isVerified = verifiedFields.has(dotKey);
 
                             return (
-                              <div key={fieldKey} className="min-w-0">
+                              <div key={fieldKey} className={`min-w-0 rounded-lg p-2 -mx-1 transition-colors ${isVerified ? "bg-emerald-50 ring-1 ring-emerald-200" : ""}`}>
                                 <div className="flex items-center gap-1.5 mb-0.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleFieldVerified(dotKey)}
+                                    className={`flex-shrink-0 h-4 w-4 rounded border transition-colors flex items-center justify-center ${
+                                      isVerified
+                                        ? "bg-emerald-500 border-emerald-500 text-white"
+                                        : "border-slate-300 hover:border-slate-400 bg-white"
+                                    }`}
+                                    title={isVerified ? "Mark as unverified" : "Mark as verified"}
+                                  >
+                                    {isVerified && <Check className="h-2.5 w-2.5" />}
+                                  </button>
                                   <ConfidenceDot level={confidence} />
-                                  <p className="text-[11px] text-muted-foreground uppercase tracking-wide">
+                                  <p className={`text-[11px] uppercase tracking-wide ${isVerified ? "text-emerald-700 font-medium" : "text-muted-foreground"}`}>
                                     {formatFieldLabel(fieldKey)}
+                                    {isVerified && <span className="ml-1 normal-case tracking-normal font-normal text-emerald-600">verified</span>}
                                   </p>
                                 </div>
                                 <div className="flex items-center gap-1">
@@ -801,12 +908,12 @@ export default function AgreementDetailPage() {
           {riskFlags.length === 0 ? (
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-16">
-                <ShieldAlert className="h-10 w-10 text-emerald-400 mb-3" />
+                <ShieldAlert className="h-10 w-10 text-emerald-600 mb-3" />
                 <h3 className="text-base font-semibold mb-1">
                   No Risk Flags Detected
                 </h3>
                 <p className="text-sm text-muted-foreground">
-                  GroBot analysis did not detect any risk flags in this
+                  Grow AI analysis did not detect any risk flags in this
                   agreement.
                 </p>
               </CardContent>
@@ -818,8 +925,8 @@ export default function AgreementDetailPage() {
                   key={flag.id || flag.flag_id || idx}
                   className={`border-l-4 ${
                     flag.severity === "high"
-                      ? "border-l-red-500"
-                      : "border-l-amber-500"
+                      ? "border-l-rose-500"
+                      : "border-l-amber-400"
                   }`}
                 >
                   <CardContent className="pt-4 pb-4">
@@ -828,11 +935,11 @@ export default function AgreementDetailPage() {
                         <AlertTriangle
                           className={`h-4 w-4 flex-shrink-0 ${
                             flag.severity === "high"
-                              ? "text-red-600"
+                              ? "text-rose-600"
                               : "text-amber-600"
                           }`}
                         />
-                        <h3 className="text-sm font-semibold text-black">
+                        <h3 className="text-sm font-semibold text-foreground">
                           {flag.name}
                         </h3>
                       </div>
@@ -846,11 +953,11 @@ export default function AgreementDetailPage() {
                       {flag.explanation}
                     </p>
                     {flag.clause_text && (
-                      <div className="bg-[#f4f6f9] border rounded-md p-3">
+                      <div className="bg-muted border rounded-md p-3">
                         <p className="text-xs text-muted-foreground mb-1 font-medium">
                           Referenced Clause
                         </p>
-                        <p className="text-sm text-black italic">
+                        <p className="text-sm text-foreground italic">
                           &ldquo;{flag.clause_text}&rdquo;
                         </p>
                       </div>
@@ -862,17 +969,17 @@ export default function AgreementDetailPage() {
           )}
         </TabsContent>
 
-        {/* Obligations Tab */}
+        {/* Events Tab */}
         <TabsContent value="obligations">
           {obligations.length === 0 ? (
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-16">
                 <CalendarClock className="h-10 w-10 text-[#d1d5db] mb-3" />
                 <h3 className="text-base font-semibold mb-1">
-                  No Obligations Found
+                  No Events Found
                 </h3>
                 <p className="text-sm text-muted-foreground">
-                  No payment obligations have been created for this agreement
+                  No payment events have been created for this agreement
                   yet.
                 </p>
               </CardContent>
@@ -882,7 +989,7 @@ export default function AgreementDetailPage() {
               <div className="rounded-lg overflow-hidden">
                 <Table>
                   <TableHeader>
-                    <TableRow className="bg-[#f4f6f9] hover:bg-[#f4f6f9]">
+                    <TableRow className="bg-muted hover:bg-muted">
                       <TableHead>Type</TableHead>
                       <TableHead>Frequency</TableHead>
                       <TableHead className="text-right">Amount</TableHead>
@@ -928,8 +1035,8 @@ export default function AgreementDetailPage() {
                           <Badge
                             className={`border-0 text-xs font-medium ${
                               obl.is_active
-                                ? "bg-emerald-100 text-emerald-800"
-                                : "bg-[#f4f6f9] text-[#4a5568]"
+                                ? "bg-emerald-50 text-emerald-700"
+                                : "bg-muted text-[#4a5568]"
                             }`}
                           >
                             {obl.is_active ? "Active" : "Inactive"}
@@ -949,7 +1056,7 @@ export default function AgreementDetailPage() {
           <Card>
             <div className="flex items-center justify-between px-4 py-3 border-b">
               <div className="flex items-center gap-2">
-                <FileText className="h-4 w-4 text-red-600" />
+                <FileText className="h-4 w-4 text-neutral-900" />
                 <span className="text-sm font-medium">
                   {agreement.document_filename}
                 </span>
@@ -958,7 +1065,7 @@ export default function AgreementDetailPage() {
                 {agreement.document_filename?.endsWith(".pdf") ? "PDF" : "Document"}
               </Badge>
             </div>
-            <CardContent className="flex-1 p-0 bg-[#f4f6f9] overflow-hidden">
+            <CardContent className="flex-1 p-0 bg-muted overflow-hidden">
               {agreement.document_url ? (
                 <PdfViewer url={agreement.document_url} />
               ) : (
@@ -978,7 +1085,7 @@ export default function AgreementDetailPage() {
           </Card>
         </TabsContent>
 
-        {/* GroBot Tab */}
+        {/* Grow AI Tab */}
         <TabsContent value="qa">
           <Card className="flex flex-col h-[calc(100vh-280px)] sm:h-[calc(100vh-340px)] min-h-[500px]">
             {/* Chat Header */}
@@ -988,7 +1095,7 @@ export default function AgreementDetailPage() {
                 Ask questions about this agreement
               </span>
               <Badge variant="secondary" className="text-xs ml-auto">
-                Powered by GroBot
+                Powered by Grow AI
               </Badge>
               {chatMessages.length > 0 && (
                 <button
@@ -1006,19 +1113,19 @@ export default function AgreementDetailPage() {
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
               {/* Welcome message */}
               <div className="flex items-start gap-3">
-                <div className="h-7 w-7 rounded-full bg-[#132337] flex items-center justify-center flex-shrink-0">
+                <div className="h-7 w-7 rounded-full bg-foreground flex items-center justify-center flex-shrink-0">
                   <Bot className="h-4 w-4 text-white" />
                 </div>
                 <div className="flex-1">
                   <p className="text-xs text-muted-foreground mb-1">
-                    GroBot
+                    Grow AI
                   </p>
-                  <div className="bg-[#f4f6f9] rounded-lg rounded-tl-none p-3 max-w-[85%]">
+                  <div className="bg-muted rounded-lg rounded-tl-none p-3 max-w-[85%]">
                     <p className="text-sm">
                       I have analyzed the agreement for{" "}
                       <span className="font-semibold">{outletName}</span>.
                       You can ask me anything about the lease terms, clauses,
-                      obligations, or any specific provisions in this
+                      events, or any specific provisions in this
                       document.
                     </p>
                   </div>
@@ -1032,13 +1139,13 @@ export default function AgreementDetailPage() {
                     "What are the termination conditions?",
                     "Summarize the escalation terms",
                     "What is the security deposit refund policy?",
-                    "What are the key obligations?",
+                    "What are the key events?",
                   ].map((q) => (
                     <button
                       key={q}
                       onClick={() => handleSendMessage(q)}
                       disabled={chatLoading}
-                      className="text-xs bg-[#fafbfd] border border-[#e4e8ef] rounded-full px-3 py-1.5 text-[#4a5568] hover:bg-[#f4f6f9] hover:border-neutral-300 transition-colors flex items-center gap-1.5"
+                      className="text-xs bg-card border border-border rounded-full px-3 py-1.5 text-[#4a5568] hover:bg-muted hover:border-neutral-300 transition-colors flex items-center gap-1.5"
                     >
                       <Sparkles className="h-3 w-3 text-[#9ca3af]" />
                       {q}
@@ -1051,23 +1158,23 @@ export default function AgreementDetailPage() {
               {chatMessages.map((msg, i) => (
                 <div key={i} className="flex items-start gap-3">
                   {msg.role === "assistant" ? (
-                    <div className="h-7 w-7 rounded-full bg-[#132337] flex items-center justify-center flex-shrink-0">
+                    <div className="h-7 w-7 rounded-full bg-foreground flex items-center justify-center flex-shrink-0">
                       <Bot className="h-4 w-4 text-white" />
                     </div>
                   ) : (
-                    <div className="h-7 w-7 rounded-full bg-[#e4e8ef] flex items-center justify-center flex-shrink-0">
+                    <div className="h-7 w-7 rounded-full bg-border flex items-center justify-center flex-shrink-0">
                       <User className="h-4 w-4 text-[#4a5568]" />
                     </div>
                   )}
                   <div className="flex-1">
                     <p className="text-xs text-muted-foreground mb-1">
-                      {msg.role === "assistant" ? "GroBot" : "You"}
+                      {msg.role === "assistant" ? "Grow AI" : "You"}
                     </p>
                     <div
                       className={`rounded-lg p-3 max-w-[85%] ${
                         msg.role === "assistant"
-                          ? "bg-[#f4f6f9] rounded-tl-none"
-                          : "bg-[#132337] text-white rounded-tr-none ml-auto"
+                          ? "bg-muted rounded-tl-none"
+                          : "bg-foreground text-white rounded-tr-none ml-auto"
                       }`}
                     >
                       {msg.role === "assistant" ? (
@@ -1099,14 +1206,14 @@ export default function AgreementDetailPage() {
               {/* Typing indicator */}
               {chatLoading && (
                 <div className="flex items-start gap-3">
-                  <div className="h-7 w-7 rounded-full bg-[#132337] flex items-center justify-center flex-shrink-0">
+                  <div className="h-7 w-7 rounded-full bg-foreground flex items-center justify-center flex-shrink-0">
                     <Bot className="h-4 w-4 text-white" />
                   </div>
                   <div className="flex-1">
                     <p className="text-xs text-muted-foreground mb-1">
-                      GroBot
+                      Grow AI
                     </p>
-                    <div className="bg-[#f4f6f9] rounded-lg rounded-tl-none p-3 max-w-[85%]">
+                    <div className="bg-muted rounded-lg rounded-tl-none p-3 max-w-[85%]">
                       <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         Analyzing the agreement...

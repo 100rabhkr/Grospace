@@ -114,8 +114,10 @@ limiter = Limiter(key_func=get_remote_address)
 
 def log_activity(org_id: str, user_id: str | None, entity_type: str, entity_id: str, action: str, details: dict | None = None):
     """Insert an activity log entry. Non-blocking — failures are silently ignored."""
+    import uuid
     try:
         supabase.table("activity_log").insert({
+            "id": str(uuid.uuid4()),
             "org_id": org_id,
             "user_id": user_id,
             "entity_type": entity_type,

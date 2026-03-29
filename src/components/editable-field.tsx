@@ -57,7 +57,7 @@ export function EditableField({ value, displayValue, onChange, isNotFound, multi
             }}
             onBlur={confirm}
             rows={4}
-            className="text-sm font-medium leading-snug border border-blue-400 rounded px-1.5 py-0.5 outline-none focus:ring-1 focus:ring-blue-400 w-full min-w-0 bg-white resize-y"
+            className="text-sm font-medium leading-snug border border-blue-400 rounded px-1.5 py-0.5 outline-none focus:ring-1 focus:ring-blue-400 w-full min-w-0 bg-card resize-y"
           />
         ) : (
           <input
@@ -69,7 +69,7 @@ export function EditableField({ value, displayValue, onChange, isNotFound, multi
               if (e.key === "Escape") cancel();
             }}
             onBlur={confirm}
-            className="text-sm font-medium leading-snug border border-blue-400 rounded px-1.5 py-0.5 outline-none focus:ring-1 focus:ring-blue-400 w-full min-w-0 bg-white"
+            className="text-sm font-medium leading-snug border border-blue-400 rounded px-1.5 py-0.5 outline-none focus:ring-1 focus:ring-blue-400 w-full min-w-0 bg-card"
           />
         )}
         <button
@@ -82,7 +82,7 @@ export function EditableField({ value, displayValue, onChange, isNotFound, multi
         <button
           onMouseDown={(e) => e.preventDefault()}
           onClick={cancel}
-          className="text-neutral-400 hover:text-neutral-600 shrink-0 mt-0.5"
+          className="text-muted-foreground hover:text-foreground shrink-0 mt-0.5"
         >
           <X className="h-3.5 w-3.5" />
         </button>
@@ -100,7 +100,7 @@ export function EditableField({ value, displayValue, onChange, isNotFound, multi
     >
       <p
         className={`text-sm font-medium leading-snug flex-1 ${
-          isNotFound ? "text-neutral-400 italic" : "text-black"
+          isNotFound ? "text-muted-foreground italic" : "text-foreground"
         }`}
       >
         {shownValue.includes("\n")

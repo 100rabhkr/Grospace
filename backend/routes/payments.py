@@ -2,6 +2,7 @@
 Payment obligations, mark-paid, bulk-paid endpoints.
 """
 
+import uuid
 from typing import Optional
 from datetime import datetime, date, timedelta
 from dateutil.relativedelta import relativedelta
@@ -27,7 +28,7 @@ def list_payments(
     period_year: Optional[int] = Query(None),
     period_month: Optional[int] = Query(None),
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=100),
+    page_size: int = Query(50, ge=1, le=500),
     user: Optional[CurrentUser] = Depends(get_current_user),
 ):
     """List payment records with optional filters (paginated)."""
@@ -94,7 +95,7 @@ def list_obligations(
     outlet_id: Optional[str] = Query(None),
     active_only: bool = Query(True),
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=100),
+    page_size: int = Query(50, ge=1, le=500),
     user: Optional[CurrentUser] = Depends(get_current_user),
 ):
     """List obligations with optional filters (paginated)."""
@@ -171,6 +172,7 @@ def generate_payment_records(
                 p_status = "upcoming"
 
             payment_data = {
+                "id": str(uuid.uuid4()),
                 "org_id": obl["org_id"],
                 "obligation_id": obl["id"],
                 "outlet_id": obl["outlet_id"],
@@ -326,6 +328,7 @@ def create_obligation(
         raise HTTPException(status_code=400, detail=f"Invalid frequency. Must be one of: {', '.join(valid_frequencies)}")
 
     obl_data = {
+        "id": str(uuid.uuid4()),
         "outlet_id": outlet_id,
         "org_id": org_id,
         "type": req.type,

@@ -3,6 +3,7 @@ Leasebot: public-facing lease analysis tool.
 No auth required for analyze/preview; auth required for full results and conversion.
 """
 
+import os
 import uuid
 import logging
 from typing import Optional
@@ -152,11 +153,13 @@ async def analyze(request: Request, file: UploadFile = File(...)):
 async def get_results(
     token: str,
     authorization: Optional[str] = Header(None),
+    full: Optional[str] = None,
+    request: Request = None,
 ):
     """
     Get analysis results by token.
     - Unauthenticated: returns preview only (health_score, document_type, risk_count, 3 sample fields).
-    - Authenticated: returns full extraction, risk_flags, all fields.
+    - Authenticated or full=true: returns full extraction, risk_flags, all fields.
     """
     # Look up analysis
     result = supabase.table("leasebot_analyses").select("*").eq("token", token).single().execute()
@@ -165,11 +168,16 @@ async def get_results(
 
     analysis = result.data
 
-    # Check authentication
+    # Check authentication via JWT or demo session cookie
     user = get_current_user(authorization)
+    is_demo = False
+    if not user and request:
+        demo_cookie = request.cookies.get("grospace-demo-session")
+        demo_secret = os.getenv("DEMO_SESSION_SECRET", "")
+        is_demo = bool(demo_cookie and demo_secret and demo_cookie == demo_secret)
 
-    if user:
-        # Authenticated: return full data
+    if user or is_demo:
+        # Authenticated or demo user: return full data
         return {
             "token": token,
             "health_score": analysis.get("health_score"),
@@ -179,6 +187,7 @@ async def get_results(
             "created_at": analysis.get("created_at"),
             "converted": analysis.get("converted_at") is not None,
             "agreement_id": analysis.get("agreement_id"),
+            "authenticated": True,
         }
     else:
         # Unauthenticated: return preview only
