@@ -418,15 +418,18 @@ def create_draft(body: ConfirmActivateRequest, request: Request):
             org_id = get_or_create_demo_org()
         extraction = body.extraction or {}
 
-        # Create a placeholder outlet for the draft (required by NOT NULL constraint)
-        from services.extraction import build_outlet_data
-        outlet_data = build_outlet_data(extraction, org_id)
-        outlet_data["status"] = "draft"
-        try:
-            outlet_result = supabase.table("outlets").insert(outlet_data).execute()
-            outlet_id = outlet_result.data[0]["id"] if outlet_result.data else outlet_data.get("id")
-        except Exception:
-            outlet_id = outlet_data.get("id")
+        # Create a minimal placeholder outlet for the draft (outlet_id is NOT NULL in agreements)
+        from services.extraction import get_val, get_section
+        premises = get_section(extraction, "premises")
+        parties = get_section(extraction, "parties")
+        outlet_id = str(uuid.uuid4())
+        minimal_outlet = {
+            "id": outlet_id,
+            "org_id": org_id,
+            "name": get_val(premises.get("property_name")) or get_val(parties.get("brand_name")) or "Draft Outlet",
+            "status": "draft",
+        }
+        supabase.table("outlets").insert(minimal_outlet).execute()
 
         # Create a minimal agreement record in draft status
         agreement_data = {
