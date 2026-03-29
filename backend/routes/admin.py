@@ -32,8 +32,27 @@ router = APIRouter(prefix="/api", tags=["admin"])
 # ============================================
 
 @router.post("/admin/log-usage")
-def log_usage(request: Request):
-    """Log usage event (no-op for now, prevents 404)."""
+async def log_usage(request: Request, user: Optional[CurrentUser] = Depends(get_current_user)):
+    """Log usage event to activity_log table."""
+    body = await request.json() if request else {}
+    action = body.get("action", "unknown")
+    metadata = body.get("metadata")
+
+    try:
+        org_id = user.org_id if user else None
+        user_id = user.id if user else None
+        supabase.table("activity_log").insert({
+            "id": str(uuid.uuid4()),
+            "org_id": org_id,
+            "user_id": user_id,
+            "entity_type": "usage",
+            "entity_id": None,
+            "action": action,
+            "details": metadata,
+        }).execute()
+    except Exception:
+        pass
+
     return {"status": "ok"}
 
 

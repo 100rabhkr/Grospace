@@ -25,6 +25,7 @@ import {
   Sparkles,
   Check,
   CheckSquare,
+  Rocket,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -39,7 +40,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { getAgreement, askDocumentQuestion, updateAgreement } from "@/lib/api";
+import { getAgreement, askDocumentQuestion, updateAgreement, confirmAndActivate } from "@/lib/api";
 import dynamic from "next/dynamic";
 const PdfViewer = dynamic(() => import("@/components/pdf-viewer").then(mod => ({ default: mod.PdfViewer })), { ssr: false, loading: () => <div className="flex items-center justify-center h-64 text-sm text-muted-foreground">Loading PDF viewer...</div> });
 import { EditableField } from "@/components/editable-field";
@@ -348,6 +349,9 @@ export default function AgreementDetailPage() {
   const [qaSessionId, setQaSessionId] = useState<string | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
+  // Activate draft state
+  const [activating, setActivating] = useState(false);
+
   // Inline editing state
   const [editedFields, setEditedFields] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -390,6 +394,30 @@ export default function AgreementDetailPage() {
       alert(err instanceof Error ? err.message : "Failed to save changes");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleActivate() {
+    if (!agreement) return;
+    setActivating(true);
+    try {
+      await confirmAndActivate({
+        extraction: (agreement.extracted_data as Record<string, unknown>) || {},
+        document_type: agreement.type,
+        risk_flags: agreement.risk_flags || [],
+        confidence: {},
+        filename: agreement.document_filename,
+        document_text: null,
+        document_url: agreement.document_url,
+      });
+      // Refresh agreement data after activation
+      const data = await getAgreement(agreementId);
+      setAgreement(data.agreement || null);
+      setObligations(data.obligations || []);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to activate agreement");
+    } finally {
+      setActivating(false);
     }
   }
 
@@ -616,6 +644,21 @@ export default function AgreementDetailPage() {
               >
                 {statusLabel(agreement.status)}
               </Badge>
+              {agreement.status === "draft" && (
+                <Button
+                  size="sm"
+                  className="h-6 gap-1 text-xs"
+                  onClick={handleActivate}
+                  disabled={activating}
+                >
+                  {activating ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Rocket className="h-3 w-3" />
+                  )}
+                  {activating ? "Activating…" : "Activate Agreement"}
+                </Button>
+              )}
               {riskFlags.length > 0 && (
                 <Badge
                   className={`${
