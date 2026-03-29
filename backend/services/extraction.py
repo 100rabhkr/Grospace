@@ -195,10 +195,11 @@ SUPPLEMENTARY_AGREEMENT_SCHEMA = {
 # ============================================
 
 def extract_text_from_pdf(pdf_bytes: bytes) -> str:
-    """Extract text from a PDF using PyMuPDF."""
+    """Extract text from a PDF using PyMuPDF, with page markers for source linking."""
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     text = ""
-    for page in doc:
+    for i, page in enumerate(doc):
+        text += f"\n--- PAGE {i + 1} ---\n"
         text += page.get_text()
     doc.close()
     return text
@@ -683,6 +684,10 @@ async def extract_structured_data(text: str, doc_type: str) -> dict:
         "7. If a field's value is calculated from a formula (e.g., '60 days from handover'), "
         "return the formula as a string rather than guessing a date.\n"
         "8. For each field, also return a confidence score: 'high', 'medium', 'low', or 'not_found'.\n"
+        "8b. SOURCE REFERENCES: For each extracted field, ALSO return 'source_page' (the page number where you found it, "
+        "starting from 1) and 'source_quote' (the exact 10-30 word quote from the document where this value appears). "
+        "Format each field as: {\"value\": <extracted_value>, \"confidence\": \"high|medium|low\", \"source_page\": <int>, "
+        "\"source_quote\": \"<exact text from document>\"}. If you cannot identify the page, omit source_page.\n"
         "9. Cross-verify extracted values — if rent is 2,85,000/month, total outflow should be >= that.\n"
         "10. Pay special attention to: party names (lessor vs lessee), lock-in periods, notice periods.\n"
         "11. EXTRACT ALL FIELDS even if confidence is low — mark as 'low' confidence rather than skipping. "
