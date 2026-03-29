@@ -440,8 +440,10 @@ export default function UploadAgreementPage() {
   // Create object URL for PDF viewer
   const fileUrl = useMemo(() => {
     if (selectedFile) return URL.createObjectURL(selectedFile);
+    // For bulk upload results, use the document_url from the extraction result
+    if (result?.document_url) return result.document_url;
     return null;
-  }, [selectedFile]);
+  }, [selectedFile, result]);
 
   // Cleanup object URL on unmount or file change
   useEffect(() => {
@@ -1213,7 +1215,7 @@ export default function UploadAgreementPage() {
                   </div>
                 </div>
                 <div className="bg-muted overflow-auto" style={{ height: "calc(100vh - 320px)", minHeight: "400px" }}>
-                  {fileUrl && selectedFile?.type === "application/pdf" ? (
+                  {fileUrl && (selectedFile?.type === "application/pdf" || (!selectedFile && result?.filename?.toLowerCase().endsWith(".pdf"))) ? (
                     <iframe
                       src={`${fileUrl}#toolbar=0&view=FitH`}
                       className="border-0"
@@ -1225,7 +1227,7 @@ export default function UploadAgreementPage() {
                         transformOrigin: "top left",
                       }}
                     />
-                  ) : fileUrl && selectedFile?.type?.startsWith("image/") ? (
+                  ) : fileUrl && (selectedFile?.type?.startsWith("image/") || (!selectedFile && /\.(png|jpe?g|webp|gif|bmp|tiff?)$/i.test(result?.filename || ""))) ? (
                     <div className="flex items-center justify-center p-4 h-full">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
