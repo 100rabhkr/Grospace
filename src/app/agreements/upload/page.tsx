@@ -510,6 +510,7 @@ export default function UploadAgreementPage() {
     result?: ExtractionResult;
     error?: string;
   }[]>([]);
+  const [currentBulkJobId, setCurrentBulkJobId] = useState<string | null>(null);
 
   // Poll bulk jobs — use ref to avoid recreating interval on every state change
   const bulkJobsRef = useRef(bulkJobs);
@@ -896,6 +897,7 @@ export default function UploadAgreementPage() {
                           onClick={() => {
                             // Load result into the review step so user can inspect/edit before activating
                             setResult(job.result!);
+                            setCurrentBulkJobId(job.id);
                             setSelectedFile(null);
                             setBulkMode(false);
                             setStep(3);
@@ -1665,6 +1667,10 @@ export default function UploadAgreementPage() {
                         document_url: result.document_url,
                       });
                       setActivationResult(res);
+                      if (currentBulkJobId) {
+                        setBulkJobs(prev => prev.filter(j => j.id !== currentBulkJobId));
+                        setCurrentBulkJobId(null);
+                      }
                       setStep(4);
                     } else {
                       const res = await confirmAndActivate({
@@ -1677,6 +1683,11 @@ export default function UploadAgreementPage() {
                         document_url: result.document_url,
                       });
                       setActivationResult(res);
+                      // Remove activated job from bulk queue
+                      if (currentBulkJobId) {
+                        setBulkJobs(prev => prev.filter(j => j.id !== currentBulkJobId));
+                        setCurrentBulkJobId(null);
+                      }
                       setStep(4);
                     }
                   } catch (err) {
@@ -1747,24 +1758,41 @@ export default function UploadAgreementPage() {
               </Button>}
             </div>
 
-            <Button
-              variant="ghost"
-              className="mt-4 gap-1"
-              onClick={() => {
-                setStep(1);
-                setResult(null);
-                setSelectedFile(null);
-                setActivationResult(null);
-                setError(null);
-                // Return to bulk mode if there are remaining bulk jobs
-                if (bulkJobs.length > 0) {
+            {bulkJobs.filter(j => j.status === "completed" && j.result).length > 0 ? (
+              <Button
+                variant="default"
+                className="mt-4 gap-2 w-full max-w-sm"
+                onClick={() => {
+                  setStep(1);
+                  setResult(null);
+                  setSelectedFile(null);
+                  setActivationResult(null);
+                  setError(null);
                   setBulkMode(true);
-                }
-              }}
-            >
-              <ChevronLeft className="h-4 w-4" />
-              {bulkJobs.length > 0 ? "Back to Queue" : "Upload Another"}
-            </Button>
+                }}
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Back to Queue ({bulkJobs.filter(j => j.status === "completed" && j.result).length} remaining)
+              </Button>
+            ) : (
+              <Button
+                variant="ghost"
+                className="mt-4 gap-1"
+                onClick={() => {
+                  setStep(1);
+                  setResult(null);
+                  setSelectedFile(null);
+                  setActivationResult(null);
+                  setError(null);
+                  if (bulkJobs.length > 0) {
+                    setBulkMode(true);
+                  }
+                }}
+              >
+                <ChevronLeft className="h-4 w-4" />
+                {bulkJobs.length > 0 ? "Back to Queue" : "Upload Another"}
+              </Button>
+            )}
           </CardContent>
         </Card>
       )}
