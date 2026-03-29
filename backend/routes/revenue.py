@@ -4,6 +4,7 @@ Revenue tracking endpoints: monthly revenue per outlet, CSV upload, org-wide sum
 
 import csv
 import io
+import uuid
 from typing import Optional
 from datetime import datetime
 
@@ -61,6 +62,7 @@ def upsert_revenue(
             "id", existing.data[0]["id"]
         ).execute()
     else:
+        clean["id"] = str(uuid.uuid4())
         result = supabase.table("outlet_revenue").insert(clean).execute()
 
     if org_id:
@@ -211,6 +213,7 @@ async def upload_revenue_csv(
             if existing.data:
                 supabase.table("outlet_revenue").update(data).eq("id", existing.data[0]["id"]).execute()
             else:
+                data["id"] = str(uuid.uuid4())
                 supabase.table("outlet_revenue").insert(data).execute()
             imported += 1
         except Exception as e:

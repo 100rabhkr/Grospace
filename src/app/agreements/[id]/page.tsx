@@ -40,7 +40,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { getAgreement, askDocumentQuestion, updateAgreement } from "@/lib/api";
-import { PdfViewer } from "@/components/pdf-viewer";
+import dynamic from "next/dynamic";
+const PdfViewer = dynamic(() => import("@/components/pdf-viewer").then(mod => ({ default: mod.PdfViewer })), { ssr: false, loading: () => <div className="flex items-center justify-center h-64 text-sm text-muted-foreground">Loading PDF viewer...</div> });
 import { EditableField } from "@/components/editable-field";
 import { FeedbackButton } from "@/components/feedback-button";
 import AgreementTimeline from "@/components/agreement-timeline";

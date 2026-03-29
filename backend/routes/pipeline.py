@@ -2,6 +2,7 @@
 Deal pipeline, showcase endpoints.
 """
 
+import uuid
 from typing import Optional
 from datetime import datetime
 
@@ -107,6 +108,7 @@ def create_showcase(req: CreateShowcaseRequest, user: Optional[CurrentUser] = De
         raise HTTPException(status_code=404, detail="Outlet not found")
 
     insert_data: dict = {
+        "id": str(uuid.uuid4()),
         "org_id": outlet.data["org_id"],
         "outlet_id": req.outlet_id,
         "include_financials": req.include_financials,

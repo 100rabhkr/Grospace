@@ -2,6 +2,7 @@
 Payment obligations, mark-paid, bulk-paid endpoints.
 """
 
+import uuid
 from typing import Optional
 from datetime import datetime, date, timedelta
 from dateutil.relativedelta import relativedelta
@@ -171,6 +172,7 @@ def generate_payment_records(
                 p_status = "upcoming"
 
             payment_data = {
+                "id": str(uuid.uuid4()),
                 "org_id": obl["org_id"],
                 "obligation_id": obl["id"],
                 "outlet_id": obl["outlet_id"],
@@ -326,6 +328,7 @@ def create_obligation(
         raise HTTPException(status_code=400, detail=f"Invalid frequency. Must be one of: {', '.join(valid_frequencies)}")
 
     obl_data = {
+        "id": str(uuid.uuid4()),
         "outlet_id": outlet_id,
         "org_id": org_id,
         "type": req.type,

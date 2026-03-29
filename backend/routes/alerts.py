@@ -2,6 +2,7 @@
 Alerts CRUD, notification, reminder endpoints.
 """
 
+import uuid
 from typing import Optional
 from datetime import datetime, date, timedelta
 
@@ -14,6 +15,7 @@ from core.models import (
 )
 from core.dependencies import get_current_user, require_permission
 from services.email_service import dispatch_notification
+from services.whatsapp_service import send_whatsapp_via_msg91
 
 router = APIRouter(prefix="/api", tags=["alerts"])
 
@@ -119,6 +121,7 @@ def create_reminder(
         raise HTTPException(status_code=400, detail="Could not determine organization")
 
     alert_data: dict = {
+        "id": str(uuid.uuid4()),
         "org_id": org_id,
         "type": "custom",
         "title": req.title,

@@ -72,6 +72,11 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # CORS - restrict to known production and development origins
 _env_origins = os.getenv("ALLOWED_ORIGINS", "")
 _frontend_url = os.getenv("FRONTEND_URL", "")
+# DNS/Subdomain: Set CUSTOM_DOMAIN=https://app.yourdomain.com to allow custom domain access
+# DNS Setup: 1) Add CNAME record pointing your subdomain to your Vercel/Railway deployment
+#            2) Set CUSTOM_DOMAIN env var in Railway/Vercel to the full https URL
+#            3) Update FRONTEND_URL if the custom domain replaces the default
+_custom_domain = os.getenv("CUSTOM_DOMAIN", "")
 _is_production = os.getenv("RAILWAY_ENVIRONMENT", "") == "production" or os.getenv("NODE_ENV", "") == "production"
 
 _dev_origins = [
@@ -86,6 +91,7 @@ ALLOWED_ORIGINS = list(set(filter(None, [
     *(_prod_origins),
     *([] if _is_production else _dev_origins),
     _frontend_url,
+    _custom_domain,
     *(_env_origins.split(",") if _env_origins else []),
 ])))
 

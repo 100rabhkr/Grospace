@@ -468,14 +468,18 @@ def delete_document(document_id: str, user: Optional[CurrentUser] = Depends(get_
 # ============================================
 
 @router.post("/upload-and-extract-async", dependencies=[Depends(require_permission("create_agreements"))])
-@limiter.limit("5/minute")
+@limiter.limit("15/minute")
 async def upload_and_extract_async(
     request: Request,
     file: UploadFile = File(...),
     user: Optional[CurrentUser] = Depends(get_current_user),
 ):
-    """Upload a document and extract in background. Returns job_id immediately."""
+    """Upload a document and extract in background. Returns job_id immediately.
+
+    Server-side limit: maximum 10 concurrent processing jobs per user to prevent abuse.
+    """
     MAX_FILE_SIZE = 50 * 1024 * 1024
+    MAX_BULK_FILES = 10  # Must match frontend MAX_BULK_FILES
     ALLOWED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff", ".tif"}
 
     filename = file.filename or "unknown"
@@ -487,6 +491,24 @@ async def upload_and_extract_async(
     file_bytes = await file.read()
     if len(file_bytes) > MAX_FILE_SIZE:
         raise HTTPException(status_code=413, detail="File too large. Maximum is 50MB.")
+
+    # Server-side bulk upload limit: check active processing jobs for this user
+    if user:
+        try:
+            active_jobs = supabase.table("extraction_jobs").select(
+                "id", count="exact"
+            ).eq("status", "processing").eq(
+                "user_id", user.user_id
+            ).execute()
+            if active_jobs.count and active_jobs.count >= MAX_BULK_FILES:
+                raise HTTPException(
+                    status_code=429,
+                    detail=f"Maximum {MAX_BULK_FILES} files per batch. Please wait for current jobs to complete."
+                )
+        except HTTPException:
+            raise
+        except Exception:
+            pass  # Don't block upload if check fails
 
     # Determine org_id
     org_id = user.org_id if user else None

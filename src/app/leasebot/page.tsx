@@ -31,7 +31,7 @@ const processingSteps = [
 function ProcessingAnimation() {
   const [activeStep, setActiveStep] = useState(0);
 
-  useState(() => {
+  useEffect(() => {
     let timeout: NodeJS.Timeout;
     function advance(index: number) {
       if (index >= processingSteps.length) return;
@@ -42,7 +42,7 @@ function ProcessingAnimation() {
     }
     advance(0);
     return () => clearTimeout(timeout);
-  });
+  }, []);
 
   return (
     <Card className="max-w-md mx-auto">
