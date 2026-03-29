@@ -607,7 +607,6 @@ export default function UploadAgreementPage() {
               : j
           )
         );
-        ]);
       }
     });
 
