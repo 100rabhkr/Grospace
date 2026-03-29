@@ -14,14 +14,14 @@ from core.models import (
     ConfirmActivateRequest, UpdateAgreementRequest, SaveDraftRequest,
 )
 from core.dependencies import require_permission
-
-logger = logging.getLogger(__name__)
 from services.extraction import (
     get_or_create_demo_org, create_outlet_from_extraction,
     create_agreement_record, generate_obligations, generate_alerts,
     get_val, get_num, get_date, get_section,
 )
 from services.sheets_service import write_agreement_to_sheet
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["agreements"])
 
