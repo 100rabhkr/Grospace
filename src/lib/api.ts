@@ -667,6 +667,43 @@ export async function markAllPaid(month: string, orgId?: string) {
 }
 
 // ============================================
+// RENT SCHEDULES
+// ============================================
+
+export async function listRentSchedule(agreementId: string) {
+  return apiFetch(`/api/agreements/${agreementId}/rent-schedule`);
+}
+
+export async function addRentScheduleEntry(agreementId: string, entry: {
+  period_label: string;
+  period_start?: string;
+  period_end?: string;
+  base_rent?: number;
+  rent_per_sqft?: number;
+  cam_monthly?: number;
+  gst_pct?: number;
+  revenue_share_pct?: number;
+}) {
+  return apiFetch(`/api/agreements/${agreementId}/rent-schedule`, {
+    method: "POST",
+    body: JSON.stringify(entry),
+  });
+}
+
+export async function updateRentScheduleEntry(entryId: string, updates: Record<string, unknown>) {
+  return apiFetch(`/api/rent-schedule/${entryId}`, {
+    method: "PATCH",
+    body: JSON.stringify(updates),
+  });
+}
+
+export async function deleteRentScheduleEntry(entryId: string) {
+  return apiFetch(`/api/rent-schedule/${entryId}`, {
+    method: "DELETE",
+  });
+}
+
+// ============================================
 // REVENUE CSV UPLOAD
 // ============================================
 
