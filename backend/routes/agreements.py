@@ -427,7 +427,7 @@ def create_draft(body: ConfirmActivateRequest, request: Request):
             "id": outlet_id,
             "org_id": org_id,
             "name": get_val(premises.get("property_name")) or get_val(parties.get("brand_name")) or "Draft Outlet",
-            "status": "draft",
+            "status": "fit_out",
         }
         supabase.table("outlets").insert(minimal_outlet).execute()
 
