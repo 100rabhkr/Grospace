@@ -15,7 +15,6 @@ from core.models import (
 )
 from core.dependencies import get_current_user, require_permission
 from services.email_service import dispatch_notification
-from services.whatsapp_service import send_whatsapp_via_msg91
 
 router = APIRouter(prefix="/api", tags=["alerts"])
 
