@@ -308,6 +308,23 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
                         pass
                 obligations = generate_obligations(req.extraction, agreement_id, outlet_id, org_id)
                 alerts = generate_alerts(req.extraction, agreement_id, outlet_id, org_id)
+
+                # Auto-populate rent schedule from extracted rent_schedule array
+                try:
+                    from routes.rent_schedules import populate_rent_schedule_from_extraction
+                    rent_section = get_section(req.extraction, "rent")
+                    rent_sched = get_val(rent_section.get("rent_schedule")) if rent_section else None
+                    lease_term = get_section(req.extraction, "lease_term")
+                    lc_date = get_val(lease_term.get("lease_commencement_date")) if lease_term else None
+                    le_date = get_val(lease_term.get("lease_expiry_date")) if lease_term else None
+                    if isinstance(rent_sched, list) and len(rent_sched) > 0:
+                        populate_rent_schedule_from_extraction(
+                            agreement_id, org_id, rent_sched,
+                            lease_commencement=lc_date if isinstance(lc_date, str) else None,
+                            lease_expiry=le_date if isinstance(le_date, str) else None,
+                        )
+                except Exception as e:
+                    logger.warning(f"Failed to populate rent schedule: {e}")
                 obligations_created = len(obligations)
                 alerts_created = len(alerts)
                 supabase.table("activity_log").insert({
