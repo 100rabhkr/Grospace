@@ -26,6 +26,7 @@ import {
   Check,
   CheckSquare,
   Rocket,
+  Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -381,6 +382,67 @@ export default function AgreementDetailPage() {
     setEditedFields({});
   }
 
+  /** Export extracted data + risk flags as a downloadable CSV/text summary */
+  function handleExportReview() {
+    if (!agreement) return;
+    const lines: string[] = [];
+    lines.push("DRAFT LEASE REVIEW EXPORT");
+    lines.push(`Agreement ID: ${agreement.id}`);
+    lines.push(`Type: ${agreement.type}`);
+    lines.push(`Status: ${agreement.status}`);
+    lines.push(`Document: ${agreement.document_filename}`);
+    if (agreement.lessor_name) lines.push(`Lessor: ${agreement.lessor_name}`);
+    if (agreement.lessee_name) lines.push(`Lessee: ${agreement.lessee_name}`);
+    if (agreement.brand_name) lines.push(`Brand: ${agreement.brand_name}`);
+    if (agreement.lease_commencement_date) lines.push(`Commencement: ${agreement.lease_commencement_date}`);
+    if (agreement.lease_expiry_date) lines.push(`Expiry: ${agreement.lease_expiry_date}`);
+    if (agreement.monthly_rent != null) lines.push(`Monthly Rent: ${agreement.monthly_rent}`);
+    if (agreement.cam_monthly != null) lines.push(`CAM Monthly: ${agreement.cam_monthly}`);
+    if (agreement.total_monthly_outflow != null) lines.push(`Total Monthly Outflow: ${agreement.total_monthly_outflow}`);
+    if (agreement.security_deposit != null) lines.push(`Security Deposit: ${agreement.security_deposit}`);
+    lines.push("");
+
+    // Extracted data sections
+    const data = agreement.extracted_data;
+    if (data && typeof data === "object") {
+      lines.push("--- EXTRACTED DATA ---");
+      for (const [section, fields] of Object.entries(data)) {
+        if (section === "health_score") continue;
+        if (typeof fields === "object" && fields !== null) {
+          lines.push("");
+          lines.push(`[${section.replace(/_/g, " ").toUpperCase()}]`);
+          for (const [key, val] of Object.entries(fields as Record<string, unknown>)) {
+            const { displayVal } = parseField(val);
+            lines.push(`${formatFieldLabel(key)}: ${displayVal}`);
+          }
+        }
+      }
+      lines.push("");
+    }
+
+    // Risk flags
+    const flags = agreement.risk_flags || [];
+    lines.push("--- RISK FLAGS ---");
+    if (flags.length === 0) {
+      lines.push("No risk flags detected.");
+    } else {
+      for (const flag of flags) {
+        lines.push(`[${flag.severity.toUpperCase()}] ${flag.name}: ${flag.explanation}`);
+        if (flag.clause_text) lines.push(`  Clause: ${flag.clause_text}`);
+      }
+    }
+
+    const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `draft-review-${agreement.id.slice(0, 8)}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
   async function saveEdits() {
     if (!agreement || !hasEdits) return;
     setSaving(true);
@@ -645,19 +707,30 @@ export default function AgreementDetailPage() {
                 {statusLabel(agreement.status)}
               </Badge>
               {agreement.status === "draft" && (
-                <Button
-                  size="sm"
-                  className="h-6 gap-1 text-xs"
-                  onClick={handleActivate}
-                  disabled={activating}
-                >
-                  {activating ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <Rocket className="h-3 w-3" />
-                  )}
-                  {activating ? "Activating…" : "Activate Agreement"}
-                </Button>
+                <>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 gap-1 text-xs"
+                    onClick={handleExportReview}
+                  >
+                    <Download className="h-3 w-3" />
+                    Export Review
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="h-6 gap-1 text-xs"
+                    onClick={handleActivate}
+                    disabled={activating}
+                  >
+                    {activating ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Rocket className="h-3 w-3" />
+                    )}
+                    {activating ? "Activating…" : "Activate Agreement"}
+                  </Button>
+                </>
               )}
               {riskFlags.length > 0 && (
                 <Badge

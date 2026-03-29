@@ -425,7 +425,7 @@ def create_draft(body: ConfirmActivateRequest, request: Request):
             "type": body.document_type or "lease_loi",
             "extracted_data": extraction,
             "risk_flags": [rf.dict() if hasattr(rf, "dict") else rf for rf in (body.risk_flags or [])],
-            "confidence": body.confidence or {},
+            "extraction_confidence": body.confidence or {},
             "filename": body.filename or "unknown",
             "document_text": body.document_text,
             "document_url": body.document_url,

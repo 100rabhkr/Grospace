@@ -64,8 +64,11 @@ function formatFieldLabel(key: string): string {
     .replace("Cin", "CIN")
     .replace("Cam ", "CAM ")
     .replace("Hvac", "HVAC")
-    .replace("Mglr", "MGLR")
-    .replace("Tds", "TDS");
+    .replace("Mglr", "MGLR (Min. Guaranteed Rent)")
+    .replace("Tds", "TDS")
+    .replace("Hybrid Mglr", "Hybrid (Fixed + Revenue Share)")
+    .replace("Revenue Share", "Revenue Share (% of Sales)")
+    .replace("Percentage Only", "Pure Revenue Share");
 }
 
 const sectionConfig: Record<string, { title: string; icon: React.ElementType }> = {
@@ -827,7 +830,7 @@ export default function UploadAgreementPage() {
             <CardContent className="pt-6">
               <h2 className="text-base font-semibold mb-4">Bulk Document Upload</h2>
               <p className="text-sm text-[#6b7280] mb-4">
-                Upload up to {MAX_BULK_FILES} documents at once. Each will be processed independently in the background.
+                Upload up to {MAX_BULK_FILES} lease documents. Each will be processed by AI independently. After processing, review and activate each document individually.
               </p>
               <input
                 type="file"

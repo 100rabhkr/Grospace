@@ -1441,10 +1441,26 @@ OVERDUE PAYMENTS:
 {overdue_json}
 
 
+LEASE RULES REFERENCE (India Commercial Leasing):
+- Lock-in: Brand lock-in should be 1-2 years. Longer creates risk.
+- Termination: Exit with 3-6 month notice. Avoid full lock-in penalty.
+- Force Majeure: Must cover pandemic, lockdown, govt restrictions. Rent waived during non-operational.
+- Rent Commencement: Only after store opening/operational readiness.
+- Fit-out: 30-90 days rent-free for setup.
+- Escalation: Standard 5-7% annually or 15% every 3 years. Above 10% is high.
+- CAM: Require transparency, audit rights, capped increases.
+- Security Deposit: Typically 3-6 months. Above 6 is high.
+- Exclusivity: Prevent leasing to direct competitors.
+- Co-tenancy (malls): Rent relief or exit if anchor tenants leave.
+- Rent Models: Fixed, Step-Up, Revenue Share (PRS), MG + Revenue Share, Hybrid MGLR.
+- Franchise: FOFO, FOCO, COCO, FICO.
+Always flag risks when lease terms deviate from these standards.
+
 Answer the user's question based on this data. Be specific with numbers, outlet names, and dates.
 Format your response in clear, readable text. Use bullet points for lists.
 If the user asks about escalation struggles, focus on which outlets have high escalation rates and what their impact is.
 If asked for recommendations, be actionable and specific.
+When analyzing lease terms, compare them against the LEASE RULES REFERENCE above and flag any deviations.
 
 IMPORTANT: If the user asks a general question about real estate, leasing, F&B operations, commercial property,
 licenses, compliance, or any business topic — answer it using your general knowledge even if the portfolio data

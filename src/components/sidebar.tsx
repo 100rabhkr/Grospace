@@ -17,7 +17,6 @@ import {
   Kanban,
   Bot,
   Map,
-  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -53,7 +52,15 @@ function hasAccess(userRole: UserRole, minRole?: UserRole): boolean {
 const navItems: NavItem[] = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
   { label: "Map View", href: "/map", icon: Map },
-  { label: "Grow AI", href: "/ai-assistant", icon: Bot },
+  {
+    label: "Grow AI",
+    href: "/ai-assistant",
+    icon: Bot,
+    children: [
+      { label: "Chat", href: "/ai-assistant" },
+      { label: "Lease AI", href: "/leasebot" },
+    ],
+  },
   {
     label: "Outlets",
     href: "/outlets",
@@ -74,7 +81,6 @@ const navItems: NavItem[] = [
   { label: "Reminders", href: "/alerts", icon: Bell },
   { label: "Pipeline", href: "/pipeline", icon: Kanban, minRole: "org_admin" },
   { label: "Payments", href: "/payments", icon: Wallet },
-  { label: "Lease AI", href: "/leasebot", icon: Sparkles },
   { label: "Reports", href: "/reports", icon: BarChart3 },
   { label: "Settings", href: "/settings", icon: Settings, minRole: "org_admin" },
 ];
@@ -92,6 +98,7 @@ export function Sidebar() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
     Outlets: true,
     Agreements: true,
+    "Grow AI": true,
   });
 
   const userRole: UserRole = user?.role || "org_member";

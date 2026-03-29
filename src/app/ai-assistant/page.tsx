@@ -27,43 +27,39 @@ interface ChatMessage {
 
 const SUGGESTION_CATEGORIES = [
   {
-    icon: TrendingUp,
-    label: "Portfolio",
+    icon: AlertTriangle,
+    label: "Portfolio Risk Scan",
     questions: [
-      "Give me a complete portfolio overview",
-      "Which outlets have the highest monthly rent?",
-      "What's my total monthly outflow across all outlets?",
-      "Compare rent across all my cities",
+      "Which leases have escalation above 10%?",
+      "Which leases expire in the next 90 days?",
+      "Are there any leases without force majeure clauses?",
     ],
   },
   {
-    icon: AlertTriangle,
-    label: "Risks & Reminders",
+    icon: TrendingUp,
+    label: "Rent Analysis",
     questions: [
-      "Which leases expire in the next 90 days?",
-      "Where am I struggling with escalation?",
-      "Show me all high-risk agreements",
-      "What are my overdue payments?",
+      "What is my total monthly rent exposure?",
+      "Which outlets have the highest rent per sqft?",
+      "Show me outlets with revenue share models",
     ],
   },
   {
     icon: FileText,
-    label: "Agreements",
+    label: "Compliance Check",
     questions: [
-      "Summarize my active lease agreements",
-      "Which outlets have revenue share models?",
-      "What's the average security deposit across outlets?",
-      "Show lock-in periods ending soon",
+      "Which outlets are missing security deposits?",
+      "Are all leases within standard lock-in periods?",
+      "Which agreements have no exclusivity clause?",
     ],
   },
   {
     icon: Lightbulb,
-    label: "Insights",
+    label: "Lease Health",
     questions: [
-      "What recommendations do you have to reduce costs?",
-      "Which outlets should I prioritize for renewal?",
-      "Analyze my deal pipeline progress",
-      "What's my portfolio health score?",
+      "Which agreements have the most risk flags?",
+      "Show me agreements expiring without renewal terms",
+      "Which outlets need rent renegotiation?",
     ],
   },
 ];
