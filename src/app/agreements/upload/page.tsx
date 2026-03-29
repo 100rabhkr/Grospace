@@ -822,18 +822,23 @@ export default function UploadAgreementPage() {
               <p className="text-sm text-[#6b7280] mb-4">
                 Upload up to {MAX_BULK_FILES} documents at once. Each will be processed independently in the background.
               </p>
+              <input
+                type="file"
+                multiple
+                accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tiff,.tif"
+                className="hidden"
+                ref={(el) => { if (el) (el as HTMLInputElement & { _bulk: boolean })._bulk = true; }}
+                id="bulk-file-input"
+                onChange={(e) => {
+                  const files = e.target.files;
+                  if (files && files.length > 0) handleBulkUpload(files);
+                  e.target.value = "";
+                }}
+              />
               <div
                 className="flex flex-col items-center justify-center border-2 border-dashed rounded-xl p-10 cursor-pointer transition-all border-neutral-300 hover:border-neutral-400 hover:bg-muted/50"
                 onClick={() => {
-                  const input = document.createElement("input");
-                  input.type = "file";
-                  input.multiple = true;
-                  input.accept = ".pdf,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tiff,.tif";
-                  input.onchange = (e) => {
-                    const files = (e.target as HTMLInputElement).files;
-                    if (files) handleBulkUpload(files);
-                  };
-                  input.click();
+                  document.getElementById("bulk-file-input")?.click();
                 }}
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={(e) => {
