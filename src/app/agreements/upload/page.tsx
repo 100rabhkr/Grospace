@@ -22,8 +22,6 @@ import {
   ArrowRight,
   ChevronDown,
   ChevronUp,
-  ZoomIn,
-  ZoomOut,
   CheckCircle2,
   Eye,
   HelpCircle,
@@ -41,6 +39,12 @@ import { uploadAndExtract, confirmAndActivate, createDraft, getProcessingEstimat
 import { EditableField } from "@/components/editable-field";
 import { FeedbackButton } from "@/components/feedback-button";
 import { PageHeader } from "@/components/page-header";
+import dynamic from "next/dynamic";
+
+const PdfViewer = dynamic(
+  () => import("@/components/pdf-viewer").then((mod) => ({ default: mod.PdfViewer })),
+  { ssr: false, loading: () => <div className="flex items-center justify-center h-full text-sm text-muted-foreground">Loading PDF viewer...</div> }
+);
 
 type Confidence = "high" | "medium" | "low" | "not_found";
 
@@ -124,25 +128,34 @@ function fieldMatchesFilter(fieldKey: string, filter: FieldFilterMode): boolean 
  *   - number/boolean
  *   - array of objects (e.g. rent_schedule)
  */
-function parseField(fieldVal: unknown): { displayVal: string; confidence: Confidence } {
+type ParsedField = {
+  displayVal: string;
+  confidence: Confidence;
+  sourcePage?: number;
+  sourceQuote?: string;
+};
+
+function parseField(fieldVal: unknown): ParsedField {
   if (fieldVal === null || fieldVal === undefined || fieldVal === "" || fieldVal === "not_found" || fieldVal === "N/A") {
     return { displayVal: "Not found", confidence: "not_found" };
   }
 
-  // Handle { value, confidence } objects from Gemini
+  // Handle { value, confidence, source_page, source_quote } objects from Gemini
   if (typeof fieldVal === "object" && !Array.isArray(fieldVal)) {
     const obj = fieldVal as Record<string, unknown>;
     if ("value" in obj) {
       const conf = (typeof obj.confidence === "string" ? obj.confidence : "high") as Confidence;
+      const sourcePage = typeof obj.source_page === "number" ? obj.source_page : undefined;
+      const sourceQuote = typeof obj.source_quote === "string" ? obj.source_quote : undefined;
       const val = obj.value;
       if (val === null || val === undefined || val === "" || val === "not_found" || val === "N/A") {
-        return { displayVal: "Not found", confidence: "not_found" };
+        return { displayVal: "Not found", confidence: "not_found", sourcePage, sourceQuote };
       }
       if (typeof val === "object") {
-        // Recursively parse arrays/objects (e.g. rent_schedule wrapped in {value, confidence})
-        return { displayVal: parseField(val).displayVal, confidence: conf };
+        const parsed = parseField(val);
+        return { ...parsed, confidence: conf, sourcePage: sourcePage || parsed.sourcePage, sourceQuote: sourceQuote || parsed.sourceQuote };
       }
-      return { displayVal: String(val), confidence: conf };
+      return { displayVal: String(val), confidence: conf, sourcePage, sourceQuote };
     }
     // Generic object without value key — format as key-value pairs
     return {
@@ -402,7 +415,13 @@ export default function UploadAgreementPage() {
 
   // Split-screen review state
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
-  const [pdfZoom, setPdfZoom] = useState(100);
+  const [pdfHighlightPage, setPdfHighlightPage] = useState<number | undefined>();
+  const [pdfHighlightQuote, setPdfHighlightQuote] = useState<string | undefined>();
+
+  const handleSourceClick = (sourcePage?: number, sourceQuote?: string) => {
+    if (sourcePage) setPdfHighlightPage(sourcePage);
+    if (sourceQuote) setPdfHighlightQuote(sourceQuote);
+  };
 
   // Verification checkboxes state (tracks "sectionKey.fieldKey" strings)
   const [verifiedFields, setVerifiedFields] = useState<Set<string>>(new Set());
@@ -1213,42 +1232,21 @@ export default function UploadAgreementPage() {
                       {result.filename}
                     </span>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 w-7 p-0"
-                      onClick={() => setPdfZoom((z) => Math.max(50, z - 25))}
-                      disabled={pdfZoom <= 50}
+                  {pdfHighlightQuote && (
+                    <button
+                      onClick={() => { setPdfHighlightPage(undefined); setPdfHighlightQuote(undefined); }}
+                      className="text-[10px] text-blue-600 hover:text-blue-800 px-2 py-0.5 rounded bg-blue-50 hover:bg-blue-100"
                     >
-                      <ZoomOut className="h-3.5 w-3.5" />
-                    </Button>
-                    <span className="text-xs font-medium text-[#6b7280] w-10 text-center tabular-nums">
-                      {pdfZoom}%
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 w-7 p-0"
-                      onClick={() => setPdfZoom((z) => Math.min(200, z + 25))}
-                      disabled={pdfZoom >= 200}
-                    >
-                      <ZoomIn className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
+                      Clear highlight
+                    </button>
+                  )}
                 </div>
-                <div className="bg-muted overflow-auto" style={{ height: "calc(100vh - 320px)", minHeight: "400px" }}>
+                <div style={{ height: "calc(100vh - 320px)", minHeight: "400px" }}>
                   {fileUrl && (selectedFile?.type === "application/pdf" || (!selectedFile && result?.filename?.toLowerCase().endsWith(".pdf"))) ? (
-                    <iframe
-                      src={`${fileUrl}#toolbar=0&view=FitH`}
-                      className="border-0"
-                      title="Document Preview"
-                      style={{
-                        width: `${pdfZoom}%`,
-                        height: "100%",
-                        minHeight: "100%",
-                        transformOrigin: "top left",
-                      }}
+                    <PdfViewer
+                      url={fileUrl}
+                      activePage={pdfHighlightPage}
+                      highlightQuote={pdfHighlightQuote}
                     />
                   ) : fileUrl && (selectedFile?.type?.startsWith("image/") || (!selectedFile && /\.(png|jpe?g|webp|gif|bmp|tiff?)$/i.test(result?.filename || ""))) ? (
                     <div className="flex items-center justify-center p-4 h-full">
@@ -1258,7 +1256,7 @@ export default function UploadAgreementPage() {
                         alt="Uploaded document"
                         className="max-w-full object-contain"
                         style={{
-                          transform: `scale(${pdfZoom / 100})`,
+                          transform: "scale(1)",
                           transformOrigin: "top center",
                         }}
                       />
@@ -1463,6 +1461,7 @@ export default function UploadAgreementPage() {
 
                             const fieldPath = `${sectionKey}.${fieldKey}`;
                             const isVerified = verifiedFields.has(fieldPath);
+                            const { sourcePage, sourceQuote } = parseField(fieldVal);
 
                             return (
                               <div key={fieldKey} className={`min-w-0 group/field rounded-lg p-2.5 -mx-1 transition-colors ${isNotFound ? "opacity-50" : "hover:bg-muted"} ${isVerified ? "bg-emerald-50 ring-1 ring-emerald-200" : ""}`}>
@@ -1485,6 +1484,17 @@ export default function UploadAgreementPage() {
                                     {formatFieldLabel(fieldKey)}
                                     {isVerified && <span className="ml-1 normal-case tracking-normal font-normal text-emerald-600">verified</span>}
                                   </p>
+                                  {sourcePage && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSourceClick(sourcePage, sourceQuote)}
+                                      className="opacity-0 group-hover/field:opacity-100 transition-opacity text-[10px] text-blue-600 hover:text-blue-800 font-medium flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-blue-50 hover:bg-blue-100"
+                                      title={sourceQuote ? `Source: "${sourceQuote.slice(0, 60)}..."` : `Found on page ${sourcePage}`}
+                                    >
+                                      <FileText className="h-2.5 w-2.5" />
+                                      Pg {sourcePage}
+                                    </button>
+                                  )}
                                   <span className="opacity-0 group-hover/field:opacity-100 transition-opacity">
                                     {getConfidenceBadge(confidence)}
                                   </span>
