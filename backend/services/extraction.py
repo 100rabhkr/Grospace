@@ -47,13 +47,17 @@ LEASE_EXTRACTION_SCHEMA = {
         "city": "string — city name (e.g. Mumbai, Delhi, Bengaluru)",
         "state": "string — Indian state name (e.g. Maharashtra, Karnataka)",
         "pincode": "string — 6-digit Indian PIN code",
-        "property_type": "enum: mall/high_street/cloud_kitchen/metro/transit/cyber_park/hospital/college",
+        "property_type": "enum: mall/high_street/cloud_kitchen/metro/transit/cyber_park/hospital/college/educational_hub",
         "floor": "string — floor number or level (e.g. 'Ground Floor', '2nd Floor', 'Lower Ground')",
         "unit_number": "string — shop/unit/suite number within the property",
         "super_area_sqft": "number — total super built-up area in square feet (includes common areas)",
         "covered_area_sqft": "number — covered/built-up area in square feet",
         "carpet_area_sqft": "number — usable carpet area in square feet (excludes walls, common areas)",
         "loading_factor": "string — loading factor percentage or ratio (super area / carpet area)",
+        "parking_slots": "number — number of parking slots allocated to tenant",
+        "parking_details": "string — parking arrangement details (e.g. 'basement level 2, 4 car slots')",
+        "signage_rights": "string — signage/branding rights description (e.g. 'external facade signage, pylon sign')",
+        "signage_approval_required": "boolean — whether landlord approval needed for signage changes",
     },
     "lease_term": {
         "loi_date": "date — date of the Letter of Intent, in YYYY-MM-DD format",
@@ -87,6 +91,8 @@ LEASE_EXTRACTION_SCHEMA = {
         "electricity_metering": "enum: prepaid/actual/sub_meter — how electricity is billed",
         "operating_hours": "string — permitted operating hours (e.g. '10 AM to 10 PM')",
         "gst_percentage": "number — GST rate applicable on rent/CAM (typically 18% in India for commercial leases)",
+        "marketing_charges_monthly": "number — monthly marketing/promotion charges (mall-specific) in INR",
+        "marketing_charges_per_sqft": "number — marketing charges per sqft if applicable",
     },
     "deposits": {
         "security_deposit_amount": "number — total security deposit amount in INR",
@@ -107,9 +113,18 @@ LEASE_EXTRACTION_SCHEMA = {
         "late_payment_interest_pct": "number",
         "tds_obligations": "boolean",
         "relocation_clause": "boolean",
+        "force_majeure_clause": "boolean — whether force majeure clause exists",
+        "force_majeure_details": "string — force majeure coverage details (pandemic, lockdown, government restrictions)",
+        "exclusivity_clause": "boolean — whether exclusivity/non-compete clause exists for tenant's business category",
+        "exclusivity_details": "string — exclusivity clause details",
+        "co_tenancy_clause": "boolean — whether co-tenancy clause exists (relevant for malls)",
+        "subleasing_allowed": "boolean — whether subleasing/assignment to group entities is permitted",
+        "subleasing_conditions": "string — conditions for subleasing if allowed",
+        "trading_hours": "string — required trading/operating hours (e.g. '10 AM to 10 PM daily')",
+        "title_clear": "boolean — whether landlord has confirmed clear title",
     },
     "franchise": {
-        "franchise_model": "enum: FOFO/FOCO/COCO/direct_lease",
+        "franchise_model": "enum: FOFO/FOCO/COCO/FICO/direct_lease",
         "profit_split": "string",
         "operator_entity": "string",
         "investor_entity": "string",
@@ -1104,6 +1119,115 @@ async def detect_risk_flags_vision(images: list, extraction: dict) -> list:
         return []
 
 
+def _detect_india_specific_risk_flags(extraction: dict) -> list:
+    """Detect India-specific commercial lease risk flags from extracted structured data."""
+    flags = []
+    flag_id_start = 100  # Use 100+ range to avoid collision with AI-generated flag IDs (1-8)
+
+    # Helper to reach into nested sections
+    def _get(section: str, key: str, default=None):
+        val = extraction.get(section, {})
+        if isinstance(val, dict):
+            return val.get(key, default)
+        return default
+
+    # --- 1. No force majeure clause ---
+    force_majeure = _get("legal", "force_majeure_clause")
+    if not force_majeure:
+        flags.append({
+            "flag_id": flag_id_start + 1,
+            "severity": "medium",
+            "explanation": "No force majeure clause found. Rent obligations may continue during pandemics, lockdowns, or government restrictions.",
+            "clause_text": "",
+        })
+
+    # --- 2. No exclusivity clause ---
+    exclusivity = _get("legal", "exclusivity_clause")
+    if not exclusivity:
+        flags.append({
+            "flag_id": flag_id_start + 2,
+            "severity": "medium",
+            "explanation": "No exclusivity clause. Landlord may lease adjacent spaces to direct competitors.",
+            "clause_text": "",
+        })
+
+    # --- 3. No co-tenancy clause (mall only) ---
+    property_type = _get("premises", "property_type")
+    prop_type_lower = (property_type or "").lower().strip()
+    co_tenancy = _get("legal", "co_tenancy_clause")
+    if prop_type_lower == "mall" and not co_tenancy:
+        flags.append({
+            "flag_id": flag_id_start + 3,
+            "severity": "low",
+            "explanation": "No co-tenancy clause for mall property. No rent relief if anchor tenants leave.",
+            "clause_text": "",
+        })
+
+    # --- 4. Long lock-in period (> 36 months) ---
+    lock_in_months = _get("lease_term", "lock_in_months")
+    try:
+        lock_in_val = float(lock_in_months) if lock_in_months is not None else None
+    except (ValueError, TypeError):
+        lock_in_val = None
+    if lock_in_val is not None and lock_in_val > 36:
+        flags.append({
+            "flag_id": flag_id_start + 4,
+            "severity": "medium",
+            "explanation": f"Lock-in period exceeds 3 years ({int(lock_in_val)} months). Consider negotiating shorter lock-in to reduce risk.",
+            "clause_text": "",
+        })
+
+    # --- 5. No subleasing allowed ---
+    subleasing = _get("legal", "subleasing_allowed")
+    if subleasing is False or (isinstance(subleasing, str) and subleasing.lower() in ("false", "no", "not permitted")):
+        flags.append({
+            "flag_id": flag_id_start + 5,
+            "severity": "low",
+            "explanation": "Subleasing/assignment not permitted. May limit flexibility for franchise or group entity transfers.",
+            "clause_text": "",
+        })
+
+    # --- 6. High escalation (> 10%) ---
+    escalation_pct = _get("rent", "escalation_percentage")
+    try:
+        esc_val = float(escalation_pct) if escalation_pct is not None else None
+    except (ValueError, TypeError):
+        esc_val = None
+    if esc_val is not None and esc_val > 10:
+        flags.append({
+            "flag_id": flag_id_start + 6,
+            "severity": "medium",
+            "explanation": f"Escalation rate of {esc_val}% exceeds typical market range (5-7% annually).",
+            "clause_text": "",
+        })
+
+    # --- 7. No parking allocation (mall or high_street) ---
+    parking_slots = _get("premises", "parking_slots")
+    if prop_type_lower in ("mall", "high_street") and (parking_slots is None or parking_slots == "" or parking_slots == 0):
+        flags.append({
+            "flag_id": flag_id_start + 7,
+            "severity": "low",
+            "explanation": "No parking slots allocated. Customer access may be affected.",
+            "clause_text": "",
+        })
+
+    # --- 8. Security deposit > 6 months ---
+    sd_months = _get("deposits", "security_deposit_months")
+    try:
+        sd_val = float(sd_months) if sd_months is not None else None
+    except (ValueError, TypeError):
+        sd_val = None
+    if sd_val is not None and sd_val > 6:
+        flags.append({
+            "flag_id": flag_id_start + 8,
+            "severity": "medium",
+            "explanation": f"Security deposit equivalent to {int(sd_val)} months exceeds typical range (3-6 months).",
+            "clause_text": "",
+        })
+
+    return flags
+
+
 # ============================================
 # EXTRACTION MERGE & DERIVATION HELPERS
 # ============================================
@@ -1423,6 +1547,16 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
             except Exception:
                 risk_flags = []
 
+            # --- Step 5.1: Add India-specific code-based risk flags ---
+            india_flags = _detect_india_specific_risk_flags(extraction)
+            if india_flags:
+                # Deduplicate: avoid adding a code-based flag if the AI already flagged a similar concern
+                existing_explanations = {f.get("explanation", "").lower()[:40] for f in risk_flags if isinstance(f, dict)}
+                for flag in india_flags:
+                    short_key = flag["explanation"].lower()[:40]
+                    if short_key not in existing_explanations:
+                        risk_flags.append(flag)
+
         if extraction_method == "failed":
             error_message = "Could not extract content from this file. The file may be empty, corrupt, or in an unsupported format."
 
@@ -1544,14 +1678,14 @@ def build_outlet_data(extraction: dict, org_id: str) -> dict:
     franchise = get_section(extraction, "franchise")
 
     prop_type = get_val(premises.get("property_type"))
-    valid_types = {"mall", "high_street", "cloud_kitchen", "metro", "transit", "cyber_park", "hospital", "college"}
+    valid_types = {"mall", "high_street", "cloud_kitchen", "metro", "transit", "cyber_park", "hospital", "college", "educational_hub"}
     if prop_type and prop_type.lower() in valid_types:
         prop_type = prop_type.lower()
     else:
         prop_type = None
 
     fm = get_val(franchise.get("franchise_model"))
-    valid_fm = {"FOFO", "FOCO", "COCO", "direct_lease"}
+    valid_fm = {"FOFO", "FOCO", "COCO", "FICO", "direct_lease"}
     if fm and fm.upper() in valid_fm:
         fm = fm.upper()
     else:
@@ -1854,14 +1988,14 @@ def create_outlet_from_extraction(extraction: dict, org_id: str) -> str:
     franchise = get_section(extraction, "franchise")
 
     prop_type = get_val(premises.get("property_type"))
-    valid_types = {"mall", "high_street", "cloud_kitchen", "metro", "transit", "cyber_park", "hospital", "college"}
+    valid_types = {"mall", "high_street", "cloud_kitchen", "metro", "transit", "cyber_park", "hospital", "college", "educational_hub"}
     if prop_type and prop_type.lower() in valid_types:
         prop_type = prop_type.lower()
     else:
         prop_type = None
 
     fm = get_val(franchise.get("franchise_model"))
-    valid_fm = {"FOFO", "FOCO", "COCO", "direct_lease"}
+    valid_fm = {"FOFO", "FOCO", "COCO", "FICO", "direct_lease"}
     if fm and fm.upper() in valid_fm:
         fm = fm.upper()
     else:

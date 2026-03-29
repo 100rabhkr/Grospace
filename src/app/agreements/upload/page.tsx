@@ -88,6 +88,10 @@ const LEASE_FIELDS = new Set([
   "escalation_pct", "cam_monthly", "cam_per_sqft", "cam_escalation_pct",
   "security_deposit", "security_deposit_amount", "deposit_amount",
   "total_monthly_outflow", "revenue_share", "revenue_share_takeaway_dining", "revenue_share_online",
+  "parking_slots", "parking_details", "signage_rights", "signage_approval_required",
+  "marketing_charges_monthly", "marketing_charges_per_sqft",
+  "force_majeure_clause", "force_majeure_details", "exclusivity_clause", "exclusivity_details",
+  "co_tenancy_clause", "subleasing_allowed", "subleasing_conditions", "trading_hours", "title_clear",
 ]);
 
 const LICENSE_FIELDS = new Set([
