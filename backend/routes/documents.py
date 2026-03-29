@@ -520,6 +520,9 @@ async def upload_and_extract_async(
                 org_id = profile.data.get("org_id") if profile.data else None
         except Exception:
             pass
+    if not org_id:
+        from services.extraction import get_or_create_demo_org
+        org_id = get_or_create_demo_org()
 
     # Create job record
     job_id = str(uuid.uuid4())
