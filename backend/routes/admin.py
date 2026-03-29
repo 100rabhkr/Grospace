@@ -884,7 +884,7 @@ def create_pilot(req: CreatePilotRequest):
                 "id": str(uuid.uuid4()),
                 "org_id": org_id,
                 "outlet_id": out["id"],
-                "type": "lease_agreement",
+                "type": "lease_loi",
                 "status": "active",
                 "lessor_name": f"Landlord - {out['city']}",
                 "lessee_name": req.client_name,

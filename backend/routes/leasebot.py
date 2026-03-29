@@ -3,6 +3,7 @@ Leasebot: public-facing lease analysis tool.
 No auth required for analyze/preview; auth required for full results and conversion.
 """
 
+import os
 import uuid
 import logging
 from typing import Optional
@@ -172,9 +173,10 @@ async def get_results(
     is_demo = False
     if not user and request:
         demo_cookie = request.cookies.get("grospace-demo-session")
-        is_demo = demo_cookie == "authenticated"
+        demo_secret = os.getenv("DEMO_SESSION_SECRET", "")
+        is_demo = bool(demo_cookie and demo_secret and demo_cookie == demo_secret)
 
-    if user or is_demo or full == "true":
+    if user or is_demo:
         # Authenticated or demo user: return full data
         return {
             "token": token,

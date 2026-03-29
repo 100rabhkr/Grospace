@@ -91,7 +91,7 @@ ALLOWED_ORIGINS = list(set(filter(None, [
     *(_prod_origins),
     *([] if _is_production else _dev_origins),
     _frontend_url,
-    _custom_domain,
+    *([_custom_domain] if _custom_domain.startswith("https://") else []),
     *(_env_origins.split(",") if _env_origins else []),
 ])))
 

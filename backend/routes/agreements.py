@@ -4,6 +4,7 @@ CRUD agreements, confirm-and-activate, save-draft endpoints.
 
 
 import uuid
+import logging
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from starlette.requests import Request
@@ -13,6 +14,8 @@ from core.models import (
     ConfirmActivateRequest, UpdateAgreementRequest, SaveDraftRequest,
 )
 from core.dependencies import require_permission
+
+logger = logging.getLogger(__name__)
 from services.extraction import (
     get_or_create_demo_org, create_outlet_from_extraction,
     create_agreement_record, generate_obligations, generate_alerts,
@@ -409,8 +412,8 @@ def create_draft(body: ConfirmActivateRequest, request: Request):
                         profile = supabase.table("profiles").select("org_id").eq("id", user_result.user.id).single().execute()
                         if profile.data and profile.data.get("org_id"):
                             org_id = profile.data["org_id"]
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Failed to extract org_id from token: {e}")
         if not org_id:
             org_id = get_or_create_demo_org()
         extraction = body.extraction or {}
