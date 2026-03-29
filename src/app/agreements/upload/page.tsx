@@ -575,27 +575,38 @@ export default function UploadAgreementPage() {
       return true;
     });
 
-    // Upload all files in parallel for speed
+    // Add files to queue immediately as "uploading"
+    const tempIds: Record<string, string> = {};
+    for (const file of validFiles) {
+      const tempId = `uploading-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      tempIds[file.name] = tempId;
+      setBulkJobs((prev) => [
+        ...prev,
+        { id: tempId, filename: file.name, status: "uploading" },
+      ]);
+    }
+
+    // Upload all files in parallel
     const uploads = validFiles.map(async (file) => {
+      const tempId = tempIds[file.name];
       try {
         const data = await uploadAndExtractAsync(file);
-        setBulkJobs((prev) => [
-          ...prev,
-          {
-            id: data.job_id,
-            filename: data.filename || file.name,
-            status: "processing",
-          },
-        ]);
+        // Replace temp "uploading" entry with real "processing" entry
+        setBulkJobs((prev) =>
+          prev.map((j) =>
+            j.id === tempId
+              ? { ...j, id: data.job_id, status: "processing" }
+              : j
+          )
+        );
       } catch (err) {
-        setBulkJobs((prev) => [
-          ...prev,
-          {
-            id: `error-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-            filename: file.name,
-            status: "failed",
-            error: err instanceof Error ? err.message : "Upload failed",
-          },
+        setBulkJobs((prev) =>
+          prev.map((j) =>
+            j.id === tempId
+              ? { ...j, status: "failed", error: err instanceof Error ? err.message : "Upload failed" }
+              : j
+          )
+        );
         ]);
       }
     });
@@ -873,6 +884,9 @@ export default function UploadAgreementPage() {
                 <Card key={job.id} className={`overflow-hidden ${job.status === "completed" ? "border-emerald-200" : job.status === "failed" ? "border-rose-200" : "border-border"}`}>
                   <CardContent className="py-3 px-4">
                     <div className="flex items-center gap-3">
+                      {job.status === "uploading" && (
+                        <CloudUpload className="h-5 w-5 animate-pulse text-blue-500 flex-shrink-0" />
+                      )}
                       {job.status === "processing" && (
                         <Loader2 className="h-5 w-5 animate-spin text-foreground flex-shrink-0" />
                       )}
@@ -885,7 +899,8 @@ export default function UploadAgreementPage() {
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium truncate">{job.filename}</p>
                         <p className="text-xs text-[#9ca3af]">
-                          {job.status === "processing" && "Processing..."}
+                          {job.status === "uploading" && "Uploading to server..."}
+                          {job.status === "processing" && "AI is extracting data..."}
                           {job.status === "completed" && (
                             <>
                               Completed
@@ -1639,13 +1654,13 @@ export default function UploadAgreementPage() {
           <Separator />
           <div className="flex items-center justify-between py-2">
             <Button
-              variant="ghost"
+              variant={bulkJobs.length > 0 ? "outline" : "ghost"}
               onClick={() => {
                 setStep(1);
                 setResult(null);
                 setSelectedFile(null);
                 setError(null);
-                // Return to bulk mode if there are remaining bulk jobs
+                setCurrentBulkJobId(null);
                 if (bulkJobs.length > 0) {
                   setBulkMode(true);
                 }
@@ -1653,7 +1668,7 @@ export default function UploadAgreementPage() {
               className="gap-1"
             >
               <ChevronLeft className="h-4 w-4" />
-              {bulkJobs.length > 0 ? "Back to Queue" : "Upload Another"}
+              {bulkJobs.length > 0 ? `Back to Queue (${bulkJobs.filter(j => j.status === "completed" && j.result).length} ready)` : "Upload Another"}
             </Button>
             <div className="flex items-center gap-3">
               <Button

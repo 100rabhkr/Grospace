@@ -418,10 +418,21 @@ def create_draft(body: ConfirmActivateRequest, request: Request):
             org_id = get_or_create_demo_org()
         extraction = body.extraction or {}
 
+        # Create a placeholder outlet for the draft (required by NOT NULL constraint)
+        from services.extraction import build_outlet_data
+        outlet_data = build_outlet_data(extraction, org_id)
+        outlet_data["status"] = "draft"
+        try:
+            outlet_result = supabase.table("outlets").insert(outlet_data).execute()
+            outlet_id = outlet_result.data[0]["id"] if outlet_result.data else outlet_data.get("id")
+        except Exception:
+            outlet_id = outlet_data.get("id")
+
         # Create a minimal agreement record in draft status
         agreement_data = {
             "id": str(uuid.uuid4()),
             "org_id": org_id,
+            "outlet_id": outlet_id,
             "type": body.document_type or "lease_loi",
             "extracted_data": extraction,
             "risk_flags": [rf.dict() if hasattr(rf, "dict") else rf for rf in (body.risk_flags or [])],
