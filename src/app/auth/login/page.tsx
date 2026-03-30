@@ -170,7 +170,7 @@ function LoginContent() {
               <span className="text-xl font-semibold tracking-tight text-white">GroSpace</span>
             </div>
             <p className="text-white/35 text-sm tracking-wide">
-              Real Estate Intelligence Platform
+              Your real estate, made smarter!
             </p>
           </div>
 
@@ -189,7 +189,7 @@ function LoginContent() {
               Scale.
             </h1>
             <p className="mt-6 text-[14px] text-white/35 leading-relaxed max-w-[360px]">
-              Helping F&B and retail brands manage their real estate portfolios — from outlet leases and licenses to smarter expansion decisions.
+              An AI-native platform helping F&amp;B and retail brands operate, optimize, and scale their real estate portfolios — from outlet leases, licenses to making smarter expansion decisions — all in one place.
             </p>
           </div>
         </div>

@@ -265,7 +265,7 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
     outlet_data = build_outlet_data(req.extraction, org_id)
     agreement_data = build_agreement_data(
         req.extraction, req.document_type, req.risk_flags, req.confidence,
-        req.filename, org_id, req.document_text, req.document_url,
+        req.filename, org_id, req.document_text, req.document_url, req.file_hash,
     )
     obligations_data = build_obligations_data(req.extraction, org_id)
     alerts_data = build_alerts_data(req.extraction, org_id)
@@ -397,6 +397,16 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
         else:
             raise HTTPException(status_code=500, detail=str(rpc_err))
 
+    # Get uploader name for sheets
+    uploader_name = None
+    try:
+        if 'user_result' in dir() and user_result and user_result.user:
+            profile = supabase.table("profiles").select("full_name, email").eq("id", user_result.user.id).single().execute()
+            if profile.data:
+                uploader_name = profile.data.get("full_name") or profile.data.get("email")
+    except Exception:
+        pass
+
     # Write to Google Sheets (non-blocking, outside transaction)
     try:
         premises = get_section(req.extraction, "premises")
@@ -442,6 +452,7 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
             risk_flags_count=len(req.risk_flags),
             status="active",
             document_filename=req.filename,
+            uploaded_by=uploader_name,
         )
     except Exception as sheets_err:
         logger.error(f"Google Sheets write failed: {sheets_err}")
@@ -503,6 +514,7 @@ def create_draft(body: ConfirmActivateRequest, request: Request):
             "document_filename": body.filename or "unknown",
             "document_text": body.document_text,
             "document_url": body.document_url,
+            "file_hash": body.file_hash,
             "status": "draft",
         }
 

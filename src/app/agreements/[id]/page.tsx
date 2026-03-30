@@ -817,7 +817,7 @@ export default function AgreementDetailPage() {
           </TabsTrigger>
           <TabsTrigger value="qa" className="gap-1.5 text-xs sm:text-sm">
             <MessageSquare className="h-3.5 w-3.5 hidden sm:block" />
-            Grow AI
+            Gro AI
           </TabsTrigger>
         </TabsList>
 
@@ -1037,7 +1037,7 @@ export default function AgreementDetailPage() {
                   No Risk Flags Detected
                 </h3>
                 <p className="text-sm text-muted-foreground">
-                  Grow AI analysis did not detect any risk flags in this
+                  Gro AI analysis did not detect any risk flags in this
                   agreement.
                 </p>
               </CardContent>
@@ -1209,7 +1209,7 @@ export default function AgreementDetailPage() {
           </Card>
         </TabsContent>
 
-        {/* Grow AI Tab */}
+        {/* Gro AI Tab */}
         <TabsContent value="qa">
           <Card className="flex flex-col h-[calc(100vh-280px)] sm:h-[calc(100vh-340px)] min-h-[500px]">
             {/* Chat Header */}
@@ -1219,7 +1219,7 @@ export default function AgreementDetailPage() {
                 Ask questions about this agreement
               </span>
               <Badge variant="secondary" className="text-xs ml-auto">
-                Powered by Grow AI
+                Powered by Gro AI
               </Badge>
               {chatMessages.length > 0 && (
                 <button
@@ -1242,7 +1242,7 @@ export default function AgreementDetailPage() {
                 </div>
                 <div className="flex-1">
                   <p className="text-xs text-muted-foreground mb-1">
-                    Grow AI
+                    Gro AI
                   </p>
                   <div className="bg-muted rounded-lg rounded-tl-none p-3 max-w-[85%]">
                     <p className="text-sm">
@@ -1292,7 +1292,7 @@ export default function AgreementDetailPage() {
                   )}
                   <div className="flex-1">
                     <p className="text-xs text-muted-foreground mb-1">
-                      {msg.role === "assistant" ? "Grow AI" : "You"}
+                      {msg.role === "assistant" ? "Gro AI" : "You"}
                     </p>
                     <div
                       className={`rounded-lg p-3 max-w-[85%] ${
@@ -1335,7 +1335,7 @@ export default function AgreementDetailPage() {
                   </div>
                   <div className="flex-1">
                     <p className="text-xs text-muted-foreground mb-1">
-                      Grow AI
+                      Gro AI
                     </p>
                     <div className="bg-muted rounded-lg rounded-tl-none p-3 max-w-[85%]">
                       <div className="flex items-center gap-2 text-sm text-muted-foreground">

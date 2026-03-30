@@ -44,7 +44,7 @@ async function apiFetch(endpoint: string, options: RequestInit = {}) {
 
   const isLongRunning = LONG_TIMEOUT_PATTERNS.some((p) => endpoint.startsWith(p));
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), isLongRunning ? 180000 : 15000);
+  const timeoutId = setTimeout(() => controller.abort(), isLongRunning ? 600000 : 15000);
 
   let response: Response;
   try {
@@ -138,6 +138,7 @@ export async function confirmAndActivate(data: {
   filename: string;
   document_text?: string | null;
   document_url?: string | null;
+  file_hash?: string | null;
 }) {
   return apiFetch("/api/confirm-and-activate", {
     method: "POST",
@@ -173,13 +174,23 @@ export async function getOutlet(id: string) {
   return apiFetch(`/api/outlets/${id}`);
 }
 
-/** List alerts (paginated) */
-export async function listAlerts(params?: { page?: number; page_size?: number }) {
+/** List alerts (paginated, server-side date filtering) */
+export async function listAlerts(params?: { page?: number; page_size?: number; months_ahead?: number; deduplicate?: boolean }) {
   const sp = new URLSearchParams();
   if (params?.page != null) sp.set("page", String(params.page));
   if (params?.page_size != null) sp.set("page_size", String(params.page_size));
+  if (params?.months_ahead != null) sp.set("months_ahead", String(params.months_ahead));
+  if (params?.deduplicate) sp.set("deduplicate", "true");
   const qs = sp.toString();
   return apiFetch(`/api/alerts${qs ? `?${qs}` : ""}`);
+}
+
+/** List pending/completed extraction jobs for the current user */
+export async function listExtractionJobs(params?: { status?: string }) {
+  const sp = new URLSearchParams();
+  if (params?.status) sp.set("status", params.status);
+  const qs = sp.toString();
+  return apiFetch(`/api/extraction-jobs${qs ? `?${qs}` : ""}`);
 }
 
 /** Update an outlet (revenue, status, site_code) */
@@ -634,6 +645,7 @@ export async function createDraft(data: {
   filename: string;
   document_text?: string | null;
   document_url?: string | null;
+  file_hash?: string | null;
 }) {
   return apiFetch("/api/agreements/create-draft", {
     method: "POST",
@@ -775,6 +787,31 @@ export async function createOutlet(data: { name: string; city?: string }) {
     method: "POST",
     body: JSON.stringify(data),
   });
+}
+
+/** Soft-delete an outlet (admin only) */
+export async function deleteOutlet(outletId: string) {
+  return apiFetch(`/api/outlets/${outletId}`, { method: "DELETE" });
+}
+
+/** Restore a soft-deleted outlet */
+export async function restoreOutlet(outletId: string) {
+  return apiFetch(`/api/outlets/${outletId}/restore`, { method: "PATCH" });
+}
+
+/** Upload a profile photo for an outlet */
+export async function uploadOutletProfilePhoto(outletId: string, file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiFetch(`/api/outlets/${outletId}/profile-photo`, {
+    method: "POST",
+    body: formData,
+  });
+}
+
+/** List soft-deleted outlets (recycle bin) */
+export async function listDeletedOutlets() {
+  return apiFetch("/api/outlets/deleted");
 }
 
 // ============================================
@@ -1159,6 +1196,27 @@ export async function uploadAndExtractAsync(file: File) {
 /** Get extraction job status */
 export async function getExtractionJob(jobId: string) {
   return apiFetch(`/api/extraction-jobs/${jobId}`);
+}
+
+/** Mark an extraction job as seen */
+export async function markExtractionJobSeen(jobId: string) {
+  return apiFetch(`/api/extraction-jobs/${jobId}/seen`, { method: "PATCH" });
+}
+
+/** Create a critical date / event for an outlet */
+export async function createCriticalDate(data: {
+  outlet_id: string;
+  agreement_id?: string;
+  title: string;
+  event_type: string;
+  date_value: string;
+  priority?: string;
+  description?: string;
+}) {
+  return apiFetch("/api/critical-dates", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
 }
 
 // ============================================

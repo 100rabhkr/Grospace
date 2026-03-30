@@ -143,6 +143,47 @@ def list_overdue_events():
 # CREATE / UPDATE / DELETE
 # ============================================
 
+class QuickEventCreate(BaseModel):
+    outlet_id: str
+    agreement_id: Optional[str] = None
+    title: str
+    event_type: str = "custom"
+    date_value: str
+    priority: str = "medium"
+    description: Optional[str] = None
+
+
+@router.post(
+    "/critical-dates",
+    dependencies=[Depends(require_permission("edit_agreements"))],
+)
+def create_critical_date(body: QuickEventCreate):
+    """Create a new event/critical date from the outlet page."""
+    # Get org_id from outlet
+    outlet = supabase.table("outlets").select("org_id").eq("id", body.outlet_id).single().execute()
+    if not outlet.data:
+        raise HTTPException(status_code=404, detail="Outlet not found")
+
+    entry = {
+        "id": str(uuid.uuid4()),
+        "outlet_id": body.outlet_id,
+        "agreement_id": body.agreement_id,
+        "org_id": outlet.data["org_id"],
+        "date_value": body.date_value,
+        "date_type": "custom",
+        "event_type": body.event_type,
+        "label": body.title,
+        "priority": body.priority,
+        "status": "upcoming",
+        "task_status": "pending",
+        "notes": body.description,
+        "alert_days": [90, 30, 7],
+    }
+    clean = {k: v for k, v in entry.items() if v is not None}
+    result = supabase.table("critical_dates").insert(clean).execute()
+    return {"event": result.data[0] if result.data else clean}
+
+
 @router.post(
     "/events",
     dependencies=[Depends(require_permission("edit_agreements"))],

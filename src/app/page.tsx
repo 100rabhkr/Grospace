@@ -248,7 +248,7 @@ interface ChatMessage {
 }
 
 // ---------------------------------------------------------------------------
-// Grow AI Chat Component
+// Gro AI Chat Component
 // ---------------------------------------------------------------------------
 
 function SmartAIChat() {
@@ -369,7 +369,7 @@ function SmartAIChat() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-foreground" />
-            <CardTitle className="text-sm font-semibold">Grow AI</CardTitle>
+            <CardTitle className="text-sm font-semibold">Gro AI</CardTitle>
             <Badge variant="outline" className="text-[10px]">AI</Badge>
           </div>
           <div className="flex items-center gap-2">
@@ -1090,8 +1090,8 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* Portfolio Health Score */}
-        {avgHealthScore !== null && (
+        {/* Portfolio Health / Snapshot */}
+        {avgHealthScore !== null ? (
           <Card>
             <CardContent className="p-4 flex items-center gap-4">
               <HealthScoreGauge score={avgHealthScore} size="sm" />
@@ -1113,6 +1113,45 @@ export default function Dashboard() {
               </div>
             </CardContent>
           </Card>
+        ) : (
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Activity className="h-4 w-4 text-neutral-500" />
+                <h3 className="text-sm font-semibold text-foreground">Portfolio Snapshot</h3>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex items-center gap-2 p-2.5 rounded-lg bg-neutral-50 border border-neutral-100">
+                  <ShieldAlert className="h-3.5 w-3.5 text-neutral-500 flex-shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-lg font-bold text-foreground leading-tight">{stats?.total_risk_flags ?? 0}</p>
+                    <p className="text-[10px] text-muted-foreground">Risk Flags</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 p-2.5 rounded-lg bg-neutral-50 border border-neutral-100">
+                  <CalendarClock className="h-3.5 w-3.5 text-neutral-500 flex-shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-lg font-bold text-foreground leading-tight">{stats?.expiring_leases_90d ?? 0}</p>
+                    <p className="text-[10px] text-muted-foreground">Expiring (90d)</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 p-2.5 rounded-lg bg-neutral-50 border border-neutral-100">
+                  <Bell className="h-3.5 w-3.5 text-neutral-500 flex-shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-lg font-bold text-foreground leading-tight">{stats?.pending_alerts ?? 0}</p>
+                    <p className="text-[10px] text-muted-foreground">Pending Alerts</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 p-2.5 rounded-lg bg-neutral-50 border border-neutral-100">
+                  <IndianRupee className="h-3.5 w-3.5 text-neutral-500 flex-shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-lg font-bold text-foreground leading-tight">{stats?.overdue_payments_count ?? 0}</p>
+                    <p className="text-[10px] text-muted-foreground">Overdue</p>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         )}
       </div>
 
@@ -1124,7 +1163,7 @@ export default function Dashboard() {
         <Link href="/ai-assistant">
           <Button variant="outline" size="sm" className="gap-1.5 text-xs cursor-pointer">
             <Sparkles className="h-3.5 w-3.5" />
-            Grow AI
+            Gro AI
           </Button>
         </Link>
         <Link href="/agreements/upload">
@@ -1608,7 +1647,7 @@ export default function Dashboard() {
       )}
 
       {/* -------------------------------------------------------------- */}
-      {/* Row 5 -- Grow AI Chat                                       */}
+      {/* Row 5 -- Gro AI Chat                                       */}
       {/* -------------------------------------------------------------- */}
       <SmartAIChat />
     </div>

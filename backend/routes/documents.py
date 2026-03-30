@@ -6,12 +6,13 @@ import os
 import uuid
 import json
 import time
+import hashlib
 import asyncio
 from typing import Optional
 from datetime import datetime
 from collections import deque
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends, Query
 from starlette.requests import Request
 import google.generativeai as genai
 
@@ -89,6 +90,29 @@ async def upload_and_extract(request: Request, file: UploadFile = File(...)):
                 "error": "Uploaded file is empty.",
             }
 
+        # --- Duplicate detection: check if this exact file was already uploaded ---
+        file_hash = hashlib.sha256(file_bytes).hexdigest()
+        try:
+            existing = supabase.table("agreements").select(
+                "id, document_filename, status, document_url, extracted_data, risk_flags, type, extraction_confidence"
+            ).eq("file_hash", file_hash).limit(1).execute()
+            if existing.data and len(existing.data) > 0:
+                prev = existing.data[0]
+                return {
+                    "status": "duplicate",
+                    "document_type": prev.get("type", "lease_loi"),
+                    "extraction": prev.get("extracted_data") or {},
+                    "confidence": prev.get("extraction_confidence") or {},
+                    "risk_flags": prev.get("risk_flags") or [],
+                    "filename": filename,
+                    "document_url": prev.get("document_url"),
+                    "existing_agreement_id": prev["id"],
+                    "existing_status": prev.get("status"),
+                    "message": f"This document was already uploaded as \"{prev.get('document_filename', 'unknown')}\" (status: {prev.get('status', 'unknown')}). The previous extraction and risk flags have been returned for consistency.",
+                }
+        except Exception:
+            pass  # file_hash column may not exist yet — skip check gracefully
+
         # Upload file to Supabase storage so it can be viewed later
         document_url = None
         try:
@@ -110,6 +134,7 @@ async def upload_and_extract(request: Request, file: UploadFile = File(...)):
         duration = round(time.time() - start_time, 2)
         _processing_times.append(duration)
         result["processing_duration_seconds"] = duration
+        result["file_hash"] = file_hash
         if document_url:
             result["document_url"] = document_url
         return result
@@ -492,6 +517,23 @@ async def upload_and_extract_async(
     if len(file_bytes) > MAX_FILE_SIZE:
         raise HTTPException(status_code=413, detail="File too large. Maximum is 50MB.")
 
+    # Duplicate detection for async uploads
+    file_hash = hashlib.sha256(file_bytes).hexdigest()
+    try:
+        existing = supabase.table("agreements").select(
+            "id, document_filename, status"
+        ).eq("file_hash", file_hash).limit(1).execute()
+        if existing.data and len(existing.data) > 0:
+            prev = existing.data[0]
+            return {
+                "status": "duplicate",
+                "existing_agreement_id": prev["id"],
+                "filename": filename,
+                "message": f"This document was already uploaded as \"{prev.get('document_filename', 'unknown')}\" (status: {prev.get('status', 'unknown')}).",
+            }
+    except Exception:
+        pass
+
     # Server-side bulk upload limit: check active processing jobs for this user
     if user:
         try:
@@ -580,6 +622,29 @@ async def _process_extraction_job(job_id: str, file_bytes: bytes, filename: str,
             "error": str(e),
             "updated_at": datetime.utcnow().isoformat(),
         }).eq("id", job_id).execute()
+
+
+@router.get("/extraction-jobs", dependencies=[Depends(require_permission("view_agreements"))])
+def list_extraction_jobs(
+    status: Optional[str] = Query(None),
+    user: Optional[CurrentUser] = Depends(get_current_user),
+):
+    """List extraction jobs for the current user."""
+    query = supabase.table("extraction_jobs").select("*").order("created_at", desc=True)
+    if status:
+        query = query.eq("status", status)
+    query = query.limit(20)
+    result = query.execute()
+    return {"jobs": result.data or []}
+
+
+@router.patch("/extraction-jobs/{job_id}/seen", dependencies=[Depends(require_permission("view_agreements"))])
+def mark_job_seen(job_id: str):
+    """Mark an extraction job as seen by the user."""
+    result = supabase.table("extraction_jobs").update({"seen": True}).eq("id", job_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {"job": result.data[0]}
 
 
 @router.get("/extraction-jobs/{job_id}", dependencies=[Depends(require_permission("view_agreements"))])

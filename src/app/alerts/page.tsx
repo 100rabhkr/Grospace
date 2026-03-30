@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { listAlerts, acknowledgeAlert, snoozeAlert, createReminder, updateReminder, deleteReminder } from "@/lib/api";
 import { Pagination } from "@/components/pagination";
 import {
@@ -322,7 +322,7 @@ export default function AlertsPage() {
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [severityFilter, setSeverityFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [timeFilter, setTimeFilter] = useState<string>("6");  // months ahead — default 6
+  const [timeFilter, setTimeFilter] = useState<string>("3");  // months ahead — default 3
   const [outletFilter, setOutletFilter] = useState<string>("all");
   const [cityFilter, setCityFilter] = useState<string>("all");
 
@@ -367,12 +367,21 @@ export default function AlertsPage() {
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<string | null>(null);
 
   // ---------- Fetch alerts ----------
+  const hasDeduped = useRef(false);
 
   async function fetchAlerts() {
     try {
       setLoading(true);
       setError(null);
-      const data = await listAlerts({ page, page_size: pageSize });
+      const months = timeFilter !== "all" ? parseInt(timeFilter, 10) : undefined;
+      const shouldDedup = !hasDeduped.current;
+      if (shouldDedup) hasDeduped.current = true;
+      const data = await listAlerts({
+        page,
+        page_size: pageSize,
+        months_ahead: months,
+        deduplicate: shouldDedup,
+      });
       setAlerts(data.items || []);
       setTotal(data.total || 0);
     } catch (err) {
@@ -387,7 +396,7 @@ export default function AlertsPage() {
   useEffect(() => {
     fetchAlerts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page]);
+  }, [page, timeFilter]);
 
   // ---------- Filtered + grouped alerts ----------
 
@@ -416,13 +425,7 @@ export default function AlertsPage() {
       if (statusFilter !== "all" && effectiveStatus !== statusFilter)
         return false;
 
-      // Time filter: only show reminders within N months from today
-      if (timeFilter !== "all" && alert.trigger_date) {
-        const months = parseInt(timeFilter, 10);
-        const cutoff = new Date();
-        cutoff.setMonth(cutoff.getMonth() + months);
-        if (new Date(alert.trigger_date) > cutoff) return false;
-      }
+      // Time filter is now handled server-side via months_ahead param
 
       // Outlet filter
       if (outletFilter !== "all" && outletName !== outletFilter) return false;

@@ -284,19 +284,23 @@ async def dashboard_stats():
     """Get dashboard statistics."""
     # Run all sync Supabase queries in threads to avoid blocking the event loop
     outlets, agreements, _, alerts, payments = await asyncio.gather(
-        asyncio.to_thread(lambda: supabase.table("outlets").select("id, name, status, city, property_type, franchise_model, monthly_net_revenue, deal_stage").execute()),
+        asyncio.to_thread(lambda: supabase.table("outlets").select("id, name, status, city, property_type, franchise_model, monthly_net_revenue, deal_stage").is_("deleted_at", "null").execute()),
         asyncio.to_thread(lambda: supabase.table("agreements").select("id, outlet_id, type, status, monthly_rent, cam_monthly, total_monthly_outflow, lease_expiry_date, extracted_data, risk_flags").execute()),
         asyncio.to_thread(lambda: supabase.table("obligations").select("id, type, amount, is_active").execute()),
         asyncio.to_thread(lambda: supabase.table("alerts").select("id, type, severity, status, trigger_date").execute()),
         asyncio.to_thread(lambda: supabase.table("payment_records").select("id, status, due_amount").execute()),
     )
 
+    # Filter agreements to only include those from non-deleted outlets
+    active_outlet_ids = {o["id"] for o in outlets.data}
+    agreements_data = [a for a in agreements.data if a.get("outlet_id") in active_outlet_ids]
+
     total_outlets = len(outlets.data)
-    total_agreements = len(agreements.data)
-    active_agreements = len([a for a in agreements.data if a.get("status") == "active"])
-    total_monthly_rent = sum(a.get("monthly_rent") or 0 for a in agreements.data)
-    total_monthly_outflow = sum(a.get("total_monthly_outflow") or 0 for a in agreements.data)
-    total_risk_flags = sum(len(a.get("risk_flags") or []) for a in agreements.data)
+    total_agreements = len(agreements_data)
+    active_agreements = len([a for a in agreements_data if a.get("status") == "active"])
+    total_monthly_rent = sum(a.get("monthly_rent") or 0 for a in agreements_data)
+    total_monthly_outflow = sum(a.get("total_monthly_outflow") or 0 for a in agreements_data)
+    total_risk_flags = sum(len(a.get("risk_flags") or []) for a in agreements_data)
     pending_alerts = len([a for a in alerts.data if a.get("status") == "pending"])
 
     overdue_payments = [p for p in (payments.data or []) if p.get("status") == "overdue"]
@@ -309,7 +313,7 @@ async def dashboard_stats():
 
     today = date.today()
     expiring = []
-    for a in agreements.data:
+    for a in agreements_data:
         try:
             if a.get("lease_expiry_date"):
                 days_left = (date.fromisoformat(a["lease_expiry_date"]) - today).days
@@ -322,7 +326,7 @@ async def dashboard_stats():
     expiring_licenses_30d = 0
     expiring_licenses_60d = 0
     expiring_licenses_90d = 0
-    for a in agreements.data:
+    for a in agreements_data:
         if a.get("type") != "license_certificate":
             continue
         extracted = a.get("extracted_data") or {}
@@ -351,7 +355,7 @@ async def dashboard_stats():
         statuses[s] = statuses.get(s, 0) + 1
 
     rent_by_outlet = {}
-    for a in agreements.data:
+    for a in agreements_data:
         oid = a.get("outlet_id")
         if oid:
             rent_by_outlet[oid] = a.get("monthly_rent") or 0

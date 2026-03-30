@@ -23,15 +23,48 @@ router = APIRouter(prefix="/api", tags=["alerts"])
 def list_alerts(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=500),
+    months_ahead: Optional[int] = Query(None, ge=1, le=24),
+    deduplicate: bool = Query(False),
 ):
-    """List all alerts (paginated)."""
+    """List alerts (paginated). Optional: months_ahead limits future window, deduplicate removes dupes first."""
+
+    # One-shot deduplication: remove rows with identical (agreement_id, type, trigger_date, reference_date)
+    if deduplicate:
+        try:
+            all_alerts = supabase.table("alerts").select(
+                "id, agreement_id, type, trigger_date, reference_date"
+            ).order("created_at").execute()
+            seen: set = set()
+            dupe_ids: list = []
+            for a in (all_alerts.data or []):
+                key = (a.get("agreement_id"), a.get("type"), a.get("trigger_date"), a.get("reference_date"))
+                if key in seen:
+                    dupe_ids.append(a["id"])
+                else:
+                    seen.add(key)
+            if dupe_ids:
+                for i in range(0, len(dupe_ids), 50):
+                    batch = dupe_ids[i:i+50]
+                    supabase.table("alerts").delete().in_("id", batch).execute()
+        except Exception:
+            pass  # Non-critical — proceed with listing
+
     offset = (page - 1) * page_size
-    count_result = supabase.table("alerts").select("id", count="exact").execute()
-    total = count_result.count or 0
-    result = supabase.table("alerts").select(
-        "*, outlets(name, city), agreements(type, document_filename)"
-    ).order("trigger_date").range(offset, offset + page_size - 1).execute()
-    return {"items": result.data, "total": total, "page": page, "page_size": page_size}
+
+    # Build query with optional date window
+    from_date = date.today().isoformat()
+    query = supabase.table("alerts").select(
+        "*, outlets(name, city), agreements(type, document_filename)", count="exact"
+    ).gte("trigger_date", from_date)
+
+    if months_ahead:
+        to_date = (date.today() + timedelta(days=months_ahead * 30)).isoformat()
+        query = query.lte("trigger_date", to_date)
+
+    query = query.order("trigger_date").range(offset, offset + page_size - 1)
+    result = query.execute()
+
+    return {"items": result.data or [], "total": result.count or 0, "page": page, "page_size": page_size}
 
 
 @router.patch("/alerts/{alert_id}/acknowledge", dependencies=[Depends(require_permission("acknowledge_alerts"))])

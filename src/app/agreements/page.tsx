@@ -105,7 +105,7 @@ function statusColor(status: string): string {
     expiring: "bg-amber-50 text-amber-700",
     expired: "bg-rose-50 text-rose-700",
     terminated: "bg-rose-50 text-rose-700",
-    draft: "bg-muted text-[#4a5568]",
+    draft: "bg-blue-100 text-blue-700",
     renewed: "bg-emerald-50 text-emerald-700",
     confirmed: "bg-emerald-50 text-emerald-700",
     review: "bg-amber-50 text-amber-700",
@@ -362,7 +362,7 @@ export default function AgreementsPage() {
             <FileText className="h-12 w-12 text-[#d1d5db] mb-4" />
             <h2 className="text-lg font-semibold mb-1">No agreements yet</h2>
             <p className="text-sm text-muted-foreground mb-6">
-              Upload your first agreement to get started with Grow AI-powered
+              Upload your first agreement to get started with Gro AI-powered
               extraction.
             </p>
             <Link href="/agreements/upload">
