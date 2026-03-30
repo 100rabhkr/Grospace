@@ -252,6 +252,7 @@ export default function SettingsPage() {
   const [selectedTemplateFile, setSelectedTemplateFile] = useState<File | null>(null);
 
   const orgId = user?.orgId;
+  const [orgLogoUrl, setOrgLogoUrl] = useState<string | null>(null);
 
   // Fetch organization details
   useEffect(() => {
@@ -263,6 +264,7 @@ export default function SettingsPage() {
         if (org) {
           setOrgName(org.name || "");
           setOrgCreatedAt(org.created_at || null);
+          setOrgLogoUrl(org.logo_url || null);
         }
       })
       .catch(() => {})
@@ -789,20 +791,55 @@ export default function SettingsPage() {
                     />
                   </div>
 
-                  {/* Logo Upload Placeholder */}
+                  {/* Logo Upload */}
                   <div className="grid gap-2 max-w-md">
                     <Label>Organization Logo</Label>
                     <div className="flex items-center gap-4">
-                      <div className="w-20 h-20 rounded-lg border-2 border-dashed border-border bg-muted flex items-center justify-center">
-                        <Upload className="w-6 h-6 text-muted-foreground" />
+                      <div className="w-20 h-20 rounded-lg border-2 border-dashed border-border bg-muted flex items-center justify-center overflow-hidden">
+                        {orgLogoUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={orgLogoUrl} alt="Logo" className="w-full h-full object-contain" />
+                        ) : (
+                          <Upload className="w-6 h-6 text-muted-foreground" />
+                        )}
                       </div>
                       <div className="flex flex-col gap-1.5">
-                        <Button variant="outline" size="sm" className="gap-1.5">
-                          <Upload className="w-3.5 h-3.5" />
-                          Upload Logo
-                        </Button>
+                        <label className="cursor-pointer">
+                          <input
+                            type="file"
+                            className="hidden"
+                            accept=".png,.jpg,.jpeg,.svg,.webp"
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0];
+                              if (!file || !orgId) return;
+                              try {
+                                const formData = new FormData();
+                                formData.append("file", file);
+                                formData.append("category", "logo");
+                                const uploadRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/documents/upload-file`, {
+                                  method: "POST",
+                                  body: formData,
+                                });
+                                const uploadData = await uploadRes.json();
+                                if (uploadData?.url) {
+                                  await updateOrganization(orgId, { logo_url: uploadData.url });
+                                  setOrgLogoUrl(uploadData.url);
+                                }
+                              } catch (err) {
+                                console.error("Logo upload failed:", err);
+                              }
+                              e.target.value = "";
+                            }}
+                          />
+                          <Button variant="outline" size="sm" className="gap-1.5" asChild>
+                            <span>
+                              <Upload className="w-3.5 h-3.5" />
+                              {orgLogoUrl ? "Change Logo" : "Upload Logo"}
+                            </span>
+                          </Button>
+                        </label>
                         <p className="text-xs text-muted-foreground">
-                          PNG or SVG, max 2 MB. Recommended 256x256px.
+                          PNG or JPG, max 2 MB. Shows across the app.
                         </p>
                       </div>
                     </div>

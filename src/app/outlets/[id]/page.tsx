@@ -54,6 +54,7 @@ import {
   AlertCircle,
   Info,
   Percent,
+  ChevronRight,
 } from "lucide-react";
 import {
   Dialog,
@@ -162,6 +163,9 @@ interface OutletDocument {
   file_type: string;
   file_size_bytes: number;
   uploaded_at: string;
+  category?: string;
+  name?: string;
+  url?: string;
 }
 
 interface OutletContact {
@@ -783,9 +787,15 @@ export default function OutletDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <Link href={`/agreements/upload?outlet_id=${outlet.id}`}>
+            <Button variant="default" size="sm" className="gap-1.5 bg-foreground hover:bg-foreground/90">
+              <Upload className="h-3.5 w-3.5" />
+              Upload Lease
+            </Button>
+          </Link>
           {agreements.length > 0 && (
             <Link href={`/agreements/${agreements[0].id}`}>
-              <Button variant="default" size="sm" className="gap-1.5 bg-foreground hover:bg-foreground/90">
+              <Button variant="outline" size="sm" className="gap-1.5">
                 <FileText className="h-3.5 w-3.5" />
                 View Agreement
               </Button>
@@ -1995,7 +2005,7 @@ export default function OutletDetailPage() {
           <div className="flex items-center justify-between">
             <CardTitle className="text-base flex items-center gap-2">
               <FolderOpen className="h-4 w-4" />
-              Document Storage
+              Outlet Storage Drive
               <Badge variant="secondary" className="text-[10px]">
                 {(data.documents || []).length}
               </Badge>
@@ -2054,15 +2064,79 @@ export default function OutletDetailPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {(data.documents || []).length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <File className="h-8 w-8 mx-auto mb-2 opacity-50" />
-              <p className="text-sm">No documents uploaded yet</p>
-              <p className="text-xs mt-1">Upload lease agreements, bills, licenses, and more</p>
+          {/* Pre-defined folder view */}
+          {(() => {
+            const docs = data.documents || [];
+            const FOLDERS = [
+              { key: "agreement", label: "Agreements", icon: "📄" },
+              { key: "loi", label: "LOI / Letters of Intent", icon: "📋" },
+              { key: "license", label: "Licenses & Certificates", icon: "📜" },
+              { key: "kyc", label: "KYC Documents", icon: "🪪" },
+              { key: "property_tax", label: "Property Tax", icon: "🏛️" },
+              { key: "electricity", label: "Electricity Bills", icon: "⚡" },
+              { key: "layout_plan", label: "Layout Plans", icon: "📐" },
+              { key: "noc", label: "NOC / Approvals", icon: "✅" },
+              { key: "sale_deed", label: "Sale Deed", icon: "📑" },
+              { key: "other", label: "Other Documents", icon: "📁" },
+            ];
+            const grouped: Record<string, typeof docs> = {};
+            for (const f of FOLDERS) grouped[f.key] = [];
+            for (const doc of docs) {
+              const cat = doc.category || doc.file_type || "other";
+              const folder = FOLDERS.find((f) => f.key === cat) ? cat : "other";
+              grouped[folder].push(doc);
+            }
+            const photosDocs = docs.filter((d) => /\.(jpg|jpeg|png|webp|gif)$/i.test(d.filename || ""));
+            const nonEmpty = FOLDERS.filter((f) => grouped[f.key].length > 0);
+            const empty = FOLDERS.filter((f) => grouped[f.key].length === 0);
+
+            return (
+              <div className="space-y-1">
+                {/* Photo folder (special) */}
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-muted transition-colors">
+                  <span className="text-sm">📸</span>
+                  <span className="text-sm font-medium flex-1">Photos</span>
+                  <Badge variant="outline" className="text-[10px]">{photosDocs.length}</Badge>
+                </div>
+                {/* Folders with documents */}
+                {nonEmpty.map((folder) => (
+                  <details key={folder.key} className="group">
+                    <summary className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-muted transition-colors cursor-pointer list-none">
+                      <span className="text-sm">{folder.icon}</span>
+                      <span className="text-sm font-medium flex-1">{folder.label}</span>
+                      <Badge variant="secondary" className="text-[10px]">{grouped[folder.key].length}</Badge>
+                      <ChevronRight className="h-3 w-3 text-muted-foreground group-open:rotate-90 transition-transform" />
+                    </summary>
+                    <div className="ml-8 mt-1 space-y-1">
+                      {grouped[folder.key].map((doc) => (
+                        <a key={doc.id} href={doc.url || doc.file_url} target="_blank" rel="noopener noreferrer"
+                          className="flex items-center gap-2 px-2 py-1.5 rounded text-xs hover:bg-muted transition-colors">
+                          <File className="h-3 w-3 text-muted-foreground" />
+                          <span className="truncate flex-1">{doc.filename || doc.name}</span>
+                        </a>
+                      ))}
+                    </div>
+                  </details>
+                ))}
+                {/* Empty folders (collapsed) */}
+                {empty.map((folder) => (
+                  <div key={folder.key} className="flex items-center gap-2 px-3 py-2 rounded-lg text-muted-foreground">
+                    <span className="text-sm opacity-50">{folder.icon}</span>
+                    <span className="text-xs flex-1">{folder.label}</span>
+                    <Badge variant="outline" className="text-[9px] opacity-50">empty</Badge>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+          {(data?.documents || []).length === 0 && (
+            <div className="text-center py-6 text-muted-foreground mt-3 border-t">
+              <p className="text-xs">Upload documents using the button above. Files will be organized into folders automatically.</p>
             </div>
-          ) : (
-            <div className="space-y-2">
-              {(data.documents || []).map((doc) => (
+          )}
+          {false && (data?.documents || []).length > 0 && (
+            <div className="space-y-2 hidden">
+              {(data?.documents || []).map((doc) => (
                 <div
                   key={doc.id}
                   className="flex items-center gap-3 p-2.5 rounded-lg border border-border hover:bg-muted transition-colors group"

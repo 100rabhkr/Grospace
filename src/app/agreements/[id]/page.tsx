@@ -46,6 +46,8 @@ import dynamic from "next/dynamic";
 const PdfViewer = dynamic(() => import("@/components/pdf-viewer").then(mod => ({ default: mod.PdfViewer })), { ssr: false, loading: () => <div className="flex items-center justify-center h-64 text-sm text-muted-foreground">Loading PDF viewer...</div> });
 import { EditableField } from "@/components/editable-field";
 import { FeedbackButton } from "@/components/feedback-button";
+import { RentScheduleTable } from "@/components/rent-schedule-table";
+import { CriticalDatesCard } from "@/components/critical-dates-card";
 import AgreementTimeline from "@/components/agreement-timeline";
 import { HealthScoreGauge } from "@/components/health-score-gauge";
 
@@ -867,6 +869,12 @@ export default function AgreementDetailPage() {
                   </div>
                 );
               })()}
+              {/* Rent Schedule Table */}
+              <RentScheduleTable agreementId={agreement.id} />
+
+              {/* Critical Dates */}
+              <CriticalDatesCard agreementId={agreement.id} />
+
               {Object.entries(extractedData).map(
                 ([sectionKey, sectionData]) => {
                   if (

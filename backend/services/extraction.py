@@ -8,6 +8,7 @@ import json
 import uuid
 import httpx
 import fitz  # PyMuPDF
+import pdfplumber
 from io import BytesIO
 from typing import Optional
 from datetime import datetime, date, timedelta
@@ -218,6 +219,452 @@ def extract_text_from_pdf(pdf_bytes: bytes) -> str:
         text += page.get_text()
     doc.close()
     return text
+
+
+# ============================================
+# IMPROVEMENT 1: DUAL EXTRACTION (PyMuPDF + Cloud Vision)
+# ============================================
+
+async def extract_text_dual(pdf_bytes: bytes) -> tuple[str, str, str]:
+    """
+    Run both PyMuPDF and Cloud Vision extraction in parallel.
+    Returns (merged_text, pymupdf_text, cloud_vision_text).
+    Merges results: Cloud Vision fills gaps where PyMuPDF fails (tables, scans).
+    """
+    pymupdf_text = extract_text_from_pdf(pdf_bytes)
+    cloud_vision_text = ""
+
+    # Only run Cloud Vision if PyMuPDF text is sparse (<500 chars)
+    # For clean text PDFs, PyMuPDF is sufficient and faster
+    pymupdf_len = len(pymupdf_text.strip())
+    if pymupdf_len < 500:
+        print(f"[DUAL] PyMuPDF sparse ({pymupdf_len} chars), running Cloud Vision...")
+        try:
+            images = pdf_bytes_to_images(pdf_bytes)
+            if images:
+                cloud_vision_text = extract_text_cloud_vision(images)
+        except Exception as e:
+            print(f"[DUAL] Cloud Vision failed: {e}")
+    else:
+        print(f"[DUAL] PyMuPDF sufficient ({pymupdf_len} chars), skipping Cloud Vision")
+
+    # Merge strategy: use PyMuPDF as base, supplement with Cloud Vision
+    pymupdf_len = len(pymupdf_text.strip())
+    cv_len = len(cloud_vision_text.strip())
+
+    if pymupdf_len >= 100 and cv_len >= 100:
+        # Both have content — use the longer one as primary, but keep both
+        if cv_len > pymupdf_len * 1.3:
+            # Cloud Vision got significantly more text (likely tables/scans)
+            merged = cloud_vision_text
+            print(f"[DUAL] Cloud Vision primary ({cv_len} chars vs PyMuPDF {pymupdf_len})")
+        else:
+            merged = pymupdf_text
+            print(f"[DUAL] PyMuPDF primary ({pymupdf_len} chars vs Cloud Vision {cv_len})")
+    elif cv_len >= 100:
+        merged = cloud_vision_text
+        print(f"[DUAL] Cloud Vision only ({cv_len} chars)")
+    elif pymupdf_len >= 100:
+        merged = pymupdf_text
+        print(f"[DUAL] PyMuPDF only ({pymupdf_len} chars)")
+    else:
+        merged = pymupdf_text or cloud_vision_text
+        print("[DUAL] Both sparse — using whatever is available")
+
+    return merged, pymupdf_text, cloud_vision_text
+
+
+# ============================================
+# IMPROVEMENT 2: PDFPLUMBER TABLE EXTRACTION
+# ============================================
+
+def extract_tables_from_pdf(pdf_bytes: bytes) -> str:
+    """
+    Use pdfplumber to extract tables (rent schedules, charges) from PDF.
+    Returns formatted table text with page markers.
+    """
+    table_text = ""
+    try:
+        with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
+            for i, page in enumerate(pdf.pages):
+                tables = page.extract_tables()
+                if tables:
+                    table_text += f"\n--- TABLE DATA FROM PAGE {i + 1} ---\n"
+                    for t_idx, table in enumerate(tables):
+                        if not table:
+                            continue
+                        table_text += f"[Table {t_idx + 1}]\n"
+                        for row in table:
+                            cleaned_row = [str(cell).strip() if cell else "" for cell in row]
+                            table_text += " | ".join(cleaned_row) + "\n"
+                        table_text += "\n"
+    except Exception as e:
+        print(f"[TABLES] pdfplumber extraction failed: {e}")
+
+    if table_text.strip():
+        print(f"[TABLES] Extracted {len(table_text)} chars of table data")
+    return table_text
+
+
+# ============================================
+# IMPROVEMENT 3: VALIDATE EXTRACTED VALUES AGAINST SOURCE
+# ============================================
+
+def validate_values_against_source(extraction: dict, source_text: str) -> dict:
+    """
+    Search for each extracted value in the original document text.
+    If a value isn't found, downgrade confidence to 'low'.
+    Returns updated confidence dict.
+    """
+    source_lower = source_text.lower().replace(",", "").replace(" ", "")
+    validated_confidence = {}
+
+    for section_key, section_data in extraction.items():
+        if not isinstance(section_data, dict):
+            continue
+        for field_key, field_val in section_data.items():
+            dot_key = f"{section_key}.{field_key}"
+
+            # Extract the actual value
+            val = field_val
+            reported_conf = "high"
+            if isinstance(field_val, dict) and "value" in field_val:
+                val = field_val["value"]
+                reported_conf = field_val.get("confidence", "high")
+
+            if val is None or val == "" or val == "not_found":
+                validated_confidence[dot_key] = "not_found"
+                continue
+
+            # Skip arrays and complex objects
+            if isinstance(val, (list, dict)):
+                validated_confidence[dot_key] = reported_conf
+                continue
+
+            # Search for the value in source text
+            val_str = str(val).lower().replace(",", "").replace(" ", "")
+            if len(val_str) < 2:
+                validated_confidence[dot_key] = reported_conf
+                continue
+
+            found = val_str in source_lower
+
+            # For numbers, also try with/without formatting
+            if not found and val_str.replace(".", "").isdigit():
+                # Try the raw number
+                found = val_str in source_lower
+                # Try without decimals
+                if not found:
+                    found = val_str.split(".")[0] in source_lower
+
+            if found:
+                validated_confidence[dot_key] = reported_conf
+            else:
+                # Value not found in source — downgrade unless already low/not_found
+                if reported_conf == "high":
+                    validated_confidence[dot_key] = "medium"
+                    print(f"[VALIDATE] Downgraded {dot_key}='{str(val)[:30]}' from high→medium (not found in source)")
+                elif reported_conf == "medium":
+                    validated_confidence[dot_key] = "low"
+                    print(f"[VALIDATE] Downgraded {dot_key}='{str(val)[:30]}' from medium→low (not found in source)")
+                else:
+                    validated_confidence[dot_key] = reported_conf
+
+    return validated_confidence
+
+
+# ============================================
+# IMPROVEMENT 4: TWO-PASS EXTRACTION (FOCUSED RETRY)
+# ============================================
+
+async def focused_retry_extraction(text: str, extraction: dict, confidence: dict, doc_type: str) -> dict:
+    """
+    Second pass: re-extract only the fields that came back as 'not_found' or 'low'.
+    Uses a focused prompt that tells Gemini exactly which fields to look for.
+    """
+    missing_fields = []
+    for key, conf in confidence.items():
+        if conf in ("not_found", "low"):
+            missing_fields.append(key)
+
+    if not missing_fields or len(missing_fields) < 3:
+        return extraction  # Not enough missing fields to justify a retry
+
+    print(f"[RETRY] Focused retry for {len(missing_fields)} missing/low fields: {missing_fields[:10]}...")
+
+    retry_prompt = (
+        "You are re-examining a document because the first extraction pass missed some fields.\n"
+        "FOCUS ONLY on finding these specific fields:\n\n"
+        + "\n".join(f"- {f}" for f in missing_fields)
+        + "\n\n"
+        "Return a JSON object with ONLY these fields (use the same section.field structure).\n"
+        "Look VERY carefully — check tables, footnotes, annexures, and supplementary clauses.\n"
+        "Indian lease terminology: MGLR=minimum guaranteed rent, CAM=maintenance, L&L=leave and license.\n\n"
+        f"DOCUMENT TEXT:\n{text[:12000]}"
+    )
+
+    try:
+        response = model.generate_content(
+            retry_prompt,
+            generation_config=genai.GenerationConfig(
+                response_mime_type="application/json",
+                temperature=0,
+            ),
+        )
+        retry_result = json.loads(response.text)
+        if isinstance(retry_result, list) and len(retry_result) > 0:
+            retry_result = retry_result[0]
+
+        if isinstance(retry_result, dict):
+            filled = 0
+            for section_key, section_data in retry_result.items():
+                if not isinstance(section_data, dict):
+                    continue
+                if section_key not in extraction:
+                    extraction[section_key] = {}
+                for field_key, field_val in section_data.items():
+                    dot_key = f"{section_key}.{field_key}"
+                    if dot_key in missing_fields:
+                        # Check if the retry actually found something
+                        val = field_val
+                        if isinstance(field_val, dict) and "value" in field_val:
+                            val = field_val["value"]
+                        if val and val != "not_found" and val != "":
+                            extraction[section_key][field_key] = field_val
+                            filled += 1
+
+            print(f"[RETRY] Filled {filled}/{len(missing_fields)} previously missing fields")
+
+    except Exception as e:
+        print(f"[RETRY] Focused retry failed: {e}")
+
+    return extraction
+
+
+# ============================================
+# IMPROVEMENT 7: CROSS-FIELD VALIDATION RULES
+# ============================================
+
+def cross_field_validation(extraction: dict, confidence: dict) -> list[str]:
+    """
+    Run sanity checks across related fields.
+    Returns list of validation warnings.
+    """
+    warnings = []
+
+    rent = extraction.get("rent", {})
+    charges = extraction.get("charges", {})
+    deposits = extraction.get("deposits", {})
+    lease_term = extraction.get("lease_term", {})
+
+    def _num(val):
+        if isinstance(val, dict) and "value" in val:
+            val = val["value"]
+        if val is None or val == "" or val == "not_found":
+            return None
+        try:
+            return float(str(val).replace(",", ""))
+        except (ValueError, TypeError):
+            return None
+
+    def _date(val):
+        if isinstance(val, dict) and "value" in val:
+            val = val["value"]
+        if not val or val == "not_found":
+            return None
+        try:
+            return date.fromisoformat(str(val))
+        except (ValueError, TypeError):
+            return None
+
+    # 1. total_monthly_outflow >= monthly_rent + cam_monthly
+    monthly_rent = _num(rent.get("monthly_rent")) or _num(rent.get("mglr_monthly"))
+    cam = _num(charges.get("cam_monthly"))
+    total_outflow = _num(rent.get("total_monthly_outflow"))
+    if monthly_rent and cam and total_outflow:
+        expected_min = monthly_rent + cam
+        if total_outflow < expected_min * 0.9:
+            warnings.append(f"total_monthly_outflow ({total_outflow}) is less than rent ({monthly_rent}) + CAM ({cam}) = {expected_min}")
+
+    # 2. lease_expiry_date > lease_commencement_date
+    commencement = _date(lease_term.get("lease_commencement_date"))
+    expiry = _date(lease_term.get("lease_expiry_date"))
+    if commencement and expiry and expiry <= commencement:
+        warnings.append(f"lease_expiry_date ({expiry}) must be after commencement ({commencement})")
+
+    # 3. security_deposit ≈ monthly_rent × deposit_months
+    deposit = _num(deposits.get("security_deposit_amount"))
+    deposit_months = _num(deposits.get("security_deposit_months"))
+    if deposit and deposit_months and monthly_rent:
+        expected_deposit = monthly_rent * deposit_months
+        if abs(deposit - expected_deposit) > expected_deposit * 0.3:
+            warnings.append(f"security_deposit ({deposit}) doesn't match rent ({monthly_rent}) × {deposit_months} months = {expected_deposit}")
+
+    # 4. escalation_pct between 3-25%
+    esc_pct = _num(rent.get("escalation_percentage"))
+    if esc_pct is not None:
+        if esc_pct < 1 or esc_pct > 30:
+            warnings.append(f"escalation_percentage ({esc_pct}%) is outside normal range (3-25%)")
+
+    # 5. lock_in_months < total lease months
+    lock_in = _num(lease_term.get("lock_in_months"))
+    term_years = _num(lease_term.get("lease_term_years"))
+    if lock_in and term_years:
+        total_months = term_years * 12
+        if lock_in > total_months:
+            warnings.append(f"lock_in_months ({lock_in}) exceeds total lease term ({total_months} months)")
+
+    # 6. rent_commencement should be >= lease_commencement
+    rent_comm = _date(lease_term.get("rent_commencement_date"))
+    if rent_comm and commencement and rent_comm < commencement:
+        warnings.append(f"rent_commencement_date ({rent_comm}) is before lease_commencement ({commencement})")
+
+    if warnings:
+        print(f"[CROSS-VALIDATE] {len(warnings)} issues found: {warnings}")
+
+    return warnings
+
+
+# ============================================
+# IMPROVEMENT 6: INDIAN LEASE TEMPLATES
+# ============================================
+
+INDIAN_LEASE_TEMPLATES = {
+    "maharashtra_ll": (
+        "This is a Maharashtra Leave and License agreement. Key terminology:\n"
+        "- Licensor = Landlord/Owner, Licensee = Tenant\n"
+        "- 'Leave and License' = rental agreement type common in Maharashtra\n"
+        "- License fee = monthly rent\n"
+        "- Must be registered within 2 months of execution\n"
+        "- Standard stamp duty: 0.25% of total license fee + deposit\n"
+        "- Lock-in typically 12-36 months, notice period 1-3 months\n"
+    ),
+    "delhi_lease": (
+        "This is a Delhi lease deed. Key terminology:\n"
+        "- Lessor = Landlord, Lessee = Tenant\n"
+        "- Lease deed is a more formal, longer document\n"
+        "- Stamp duty: 2% of average annual rent × term\n"
+        "- Common to have escalation clauses (5-15% every 1-3 years)\n"
+        "- Security deposit typically 3-10 months of rent\n"
+    ),
+    "franchise": (
+        "This is a franchise agreement for a commercial property. Key terminology:\n"
+        "- Franchisor = brand owner, Franchisee = operator\n"
+        "- Franchise fee, royalty, and revenue share are common\n"
+        "- May include MGLR (Minimum Guaranteed License Revenue)\n"
+        "- Hybrid model: higher of fixed rent or revenue share\n"
+    ),
+    "karnataka_license": (
+        "This is a Karnataka commercial license agreement. Key terminology:\n"
+        "- License agreement (not lease) — shorter term, fewer rights\n"
+        "- Stamp duty: 0.5-1% of total consideration\n"
+        "- Common in Bangalore IT/commercial spaces\n"
+    ),
+}
+
+def detect_lease_template(text: str) -> str:
+    """Detect which Indian lease template to use based on document content."""
+    text_lower = text[:5000].lower()
+
+    if "leave and license" in text_lower or "licensor" in text_lower:
+        if "maharashtra" in text_lower or "mumbai" in text_lower or "pune" in text_lower or "thane" in text_lower:
+            return "maharashtra_ll"
+    if "franchise" in text_lower or "franchisor" in text_lower or "franchisee" in text_lower:
+        return "franchise"
+    if "bangalore" in text_lower or "bengaluru" in text_lower or "karnataka" in text_lower:
+        return "karnataka_license"
+    if "delhi" in text_lower or "noida" in text_lower or "gurgaon" in text_lower or "gurugram" in text_lower:
+        return "delhi_lease"
+
+    return ""
+
+
+# ============================================
+# GOOGLE DOCUMENT AI (optional — enhanced table/form extraction)
+# ============================================
+
+async def extract_with_document_ai(pdf_bytes: bytes) -> str:
+    """
+    Use Google Document AI for superior table/form extraction.
+    Falls back gracefully if not configured (DOCUMENT_AI_PROCESSOR env var).
+    Returns extracted text with page markers.
+    """
+    processor_name = os.getenv("DOCUMENT_AI_PROCESSOR")
+    if not processor_name:
+        return ""  # Not configured, skip
+
+    try:
+        from google.cloud import documentai_v1 as documentai
+
+        client = documentai.DocumentProcessorServiceClient()
+
+        raw_document = documentai.RawDocument(
+            content=pdf_bytes,
+            mime_type="application/pdf",
+        )
+
+        request = documentai.ProcessRequest(
+            name=processor_name,
+            raw_document=raw_document,
+        )
+
+        result = client.process_document(request=request)
+        document = result.document
+
+        # Build text with page markers
+        doc_text = ""
+        for i, page in enumerate(document.pages):
+            doc_text += f"\n--- PAGE {i + 1} ---\n"
+
+            # Extract tables specifically
+            for table in page.tables:
+                doc_text += "[TABLE]\n"
+                for row in table.header_rows:
+                    cells = []
+                    for cell in row.cells:
+                        cell_text = _get_docai_text(cell.layout, document.text)
+                        cells.append(cell_text.strip())
+                    doc_text += " | ".join(cells) + "\n"
+                for row in table.body_rows:
+                    cells = []
+                    for cell in row.cells:
+                        cell_text = _get_docai_text(cell.layout, document.text)
+                        cells.append(cell_text.strip())
+                    doc_text += " | ".join(cells) + "\n"
+                doc_text += "\n"
+
+            # Extract form fields (key-value pairs)
+            for field in page.form_fields:
+                key = _get_docai_text(field.field_name, document.text).strip()
+                value = _get_docai_text(field.field_value, document.text).strip()
+                if key and value:
+                    doc_text += f"{key}: {value}\n"
+
+        # Also include the full OCR text
+        if document.text:
+            doc_text += "\n--- FULL OCR TEXT ---\n" + document.text
+
+        print(f"[DOCAI] Extracted {len(doc_text)} chars with {len(document.pages)} pages")
+        return doc_text
+
+    except ImportError:
+        print("[DOCAI] google-cloud-documentai not installed. Skipping.")
+        return ""
+    except Exception as e:
+        print(f"[DOCAI] Document AI failed: {e}")
+        return ""
+
+
+def _get_docai_text(layout, full_text: str) -> str:
+    """Helper to extract text from Document AI layout element."""
+    if not layout or not layout.text_anchor or not layout.text_anchor.text_segments:
+        return ""
+    result = ""
+    for segment in layout.text_anchor.text_segments:
+        start = int(segment.start_index) if segment.start_index else 0
+        end = int(segment.end_index)
+        result += full_text[start:end]
+    return result
 
 
 def clean_ocr_text(raw_text: str) -> str:
@@ -742,8 +1189,14 @@ async def extract_structured_data(text: str, doc_type: str) -> dict:
         "- 'Leave and License' agreements (common in Maharashtra) use 'Licensor/Licensee' instead of 'Lessor/Lessee'.\n\n"
         "Return valid JSON matching this schema:\n"
         f"{json.dumps(schema, indent=2)}\n\n"
-        f"DOCUMENT TEXT:\n{text}"
     )
+
+    # Add Indian lease template hint (Improvement #6)
+    template_key = detect_lease_template(text)
+    if template_key and template_key in INDIAN_LEASE_TEMPLATES:
+        prompt += f"DOCUMENT TYPE HINT:\n{INDIAN_LEASE_TEMPLATES[template_key]}\n\n"
+
+    prompt += f"DOCUMENT TEXT:\n{text}"
 
     # First extraction pass (with retry on failure)
     result = {}
@@ -1403,17 +1856,45 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
     try:
         file_type = get_file_type(filename)
 
-        # --- Step 1: Get content (text and/or images) ---
+        # --- Step 1: Get content — DUAL EXTRACTION (Improvement #1) ---
+        import time as _time
+        _extraction_start = _time.time()
+
+        table_text = ""
         if file_type == "pdf":
+            # Run dual extraction: PyMuPDF + Cloud Vision
             try:
-                text = extract_text_from_pdf(file_bytes)
+                text, pymupdf_text, cv_text = await extract_text_dual(file_bytes)
             except Exception:
                 text = ""
+                pymupdf_text = ""
+                cv_text = ""
 
-            print(f"[PROCESS] PDF text extraction: {len(text.strip())} chars")
+            # Extract tables with pdfplumber (Improvement #2)
+            try:
+                table_text = extract_tables_from_pdf(file_bytes)
+            except Exception as e:
+                print(f"[PROCESS] Table extraction failed: {e}")
+
+            # Try Document AI if configured (best quality for tables/forms)
+            docai_text = ""
+            try:
+                docai_text = await extract_with_document_ai(file_bytes)
+                if docai_text and len(docai_text.strip()) > len(text.strip()) * 1.2:
+                    print(f"[PROCESS] Document AI produced better results ({len(docai_text)} vs {len(text.strip())} chars)")
+                    text = docai_text
+                    table_text = ""  # Already included in docai_text
+                    extraction_method = "document_ai"
+            except Exception as e:
+                print(f"[PROCESS] Document AI skipped: {e}")
+
+            print(f"[PROCESS] Dual extraction: {len(text.strip())} chars, tables: {len(table_text.strip())} chars")
 
             if len(text.strip()) >= 100:
-                extraction_method = "text"
+                extraction_method = "text+cloud_vision" if cv_text else "text"
+                # Append table data to text for Gemini context (preserving page markers)
+                if table_text.strip():
+                    text = text + "\n\n" + table_text
             else:
                 images = pdf_bytes_to_images(file_bytes)
                 print(f"[PROCESS] Converted PDF to {len(images)} page images")
@@ -1422,6 +1903,8 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
                     print(f"[PROCESS] Cloud Vision OCR: {len(cloud_vision_text.strip())} chars")
                     if len(cloud_vision_text.strip()) >= 100:
                         text = cloud_vision_text
+                        if table_text.strip():
+                            text = text + "\n\n" + table_text
                         extraction_method = "cloud_vision"
                     else:
                         extraction_method = "vision"
@@ -1490,8 +1973,11 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
         confidence = calculate_confidence(extraction)
 
         # --- Step 4.5: Fallback — retry with Cloud Vision OCR if text extraction gave low confidence ---
+        # Skip if already >60s to avoid timeout during demo
+        _step4_elapsed = _time.time() - _extraction_start
         if (
-            extraction_method == "text"
+            _step4_elapsed < 60
+            and extraction_method == "text"
             and extraction
             and doc_type in ("lease_loi", "franchise_agreement")
         ):
@@ -1531,11 +2017,40 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
                 except Exception as e:
                     print(f"[PROCESS] OCR fallback failed: {type(e).__name__}: {e}")
 
-        # --- Step 4.6: Derive missing fields from related extracted data ---
+        # --- Step 4.6: Validate extracted values against source text (Improvement #3) ---
+        if extraction and text and extraction_method != "vision":
+            source_validated_confidence = validate_values_against_source(extraction, text)
+            # Merge: only downgrade confidence, never upgrade
+            for key, validated_conf in source_validated_confidence.items():
+                existing = confidence.get(key)
+                conf_order = {"not_found": 0, "low": 1, "medium": 2, "high": 3}
+                if existing and conf_order.get(validated_conf, 2) < conf_order.get(existing, 2):
+                    confidence[key] = validated_conf
+
+        # --- Step 4.65: Two-pass focused retry (Improvement #4) ---
+        # Skip if extraction already took >90s (avoid timeout during demo)
+        _elapsed = _time.time() - _extraction_start
+        if extraction and text and doc_type in ("lease_loi", "franchise_agreement") and _elapsed < 90:
+            not_found_count = sum(1 for v in confidence.values() if v in ("not_found", "low"))
+            if not_found_count >= 5:
+                extraction = await focused_retry_extraction(text, extraction, confidence, doc_type)
+        elif _elapsed >= 90:
+            print(f"[PROCESS] Skipping focused retry — extraction already took {_elapsed:.0f}s")
+
+        # Recalculate confidence after retry
+        if extraction:
+            confidence = calculate_confidence(extraction)
+
+        # --- Step 4.7: Derive missing fields from related extracted data ---
         if extraction and doc_type in ("lease_loi", "franchise_agreement"):
             _derive_missing_fields(extraction, confidence)
 
-        # --- Step 4.7: Post-extraction validation ---
+        # --- Step 4.75: Cross-field validation rules (Improvement #7) ---
+        cross_field_warnings = []
+        if extraction and doc_type in ("lease_loi", "franchise_agreement"):
+            cross_field_warnings = cross_field_validation(extraction, confidence)
+
+        # --- Step 4.8: Post-extraction validation ---
         validation_result = _post_extraction_validation(extraction, confidence, doc_type)
         if validation_result["needs_review_fields"]:
             print(f"[PROCESS] Fields needing review: {validation_result['needs_review_fields']}")
@@ -1587,6 +2102,7 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
         "document_text": text if text and len(text.strip()) >= 100 else None,
         "needs_review_fields": validation_info.get("needs_review_fields", []),
         "validation_errors": validation_info.get("validation_errors", []),
+        "cross_field_warnings": locals().get("cross_field_warnings", []),
     }
 
 

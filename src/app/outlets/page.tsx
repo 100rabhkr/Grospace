@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
-import { listOutlets } from "@/lib/api";
+import { listOutlets, createOutlet } from "@/lib/api";
 import { Pagination } from "@/components/pagination";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -184,7 +184,12 @@ export default function OutletsPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [propertyTypeFilter, setPropertyTypeFilter] = useState("all");
   const [franchiseModelFilter, setFranchiseModelFilter] = useState("all");
+  const [brandFilter, setBrandFilter] = useState("all");
   const [viewMode, setViewMode] = useState<"card" | "table">("card");
+  const [showCreateOutlet, setShowCreateOutlet] = useState(false);
+  const [newOutletName, setNewOutletName] = useState("");
+  const [newOutletCity, setNewOutletCity] = useState("");
+  const [creatingOutlet, setCreatingOutlet] = useState(false);
 
   useEffect(() => {
     async function fetchOutlets() {
@@ -220,6 +225,10 @@ export default function OutletsPage() {
     () => Array.from(new Set(outlets.map((o) => o.franchise_model))).sort(),
     [outlets]
   );
+  const uniqueBrands = useMemo(
+    () => Array.from(new Set(outlets.map((o) => o.brand_name).filter(Boolean))).sort(),
+    [outlets]
+  );
 
   const filteredOutlets = useMemo(() => {
     return outlets.filter((outlet) => {
@@ -237,9 +246,27 @@ export default function OutletsPage() {
       if (statusFilter !== "all" && outlet.status !== statusFilter) return false;
       if (propertyTypeFilter !== "all" && outlet.property_type !== propertyTypeFilter) return false;
       if (franchiseModelFilter !== "all" && outlet.franchise_model !== franchiseModelFilter) return false;
+      if (brandFilter !== "all" && outlet.brand_name !== brandFilter) return false;
       return true;
     });
-  }, [outlets, searchQuery, cityFilter, statusFilter, propertyTypeFilter, franchiseModelFilter]);
+  }, [outlets, searchQuery, cityFilter, statusFilter, propertyTypeFilter, franchiseModelFilter, brandFilter]);
+
+  const handleCreateOutlet = async () => {
+    if (!newOutletName.trim()) return;
+    setCreatingOutlet(true);
+    try {
+      const data = await createOutlet({ name: newOutletName, city: newOutletCity || undefined });
+      setShowCreateOutlet(false);
+      setNewOutletName("");
+      setNewOutletCity("");
+      window.location.href = `/outlets/${data.outlet?.id || data.id}`;
+    } catch (e) {
+      console.error("Failed to create outlet:", e);
+      setError("Failed to create outlet. Please try again.");
+    } finally {
+      setCreatingOutlet(false);
+    }
+  };
 
   // ---------------------------------------------------------------------------
   // Loading State
@@ -287,12 +314,13 @@ export default function OutletsPage() {
           >
             {filteredOutlets.length} of {outlets.length}
           </Badge>
-          <Link href="/agreements/upload">
-            <Button className="bg-foreground text-white hover:bg-foreground/90">
-              <Plus className="h-4 w-4 mr-1" />
-              Add Outlet
-            </Button>
-          </Link>
+          <Button
+            className="bg-foreground text-white hover:bg-foreground/90"
+            onClick={() => setShowCreateOutlet(true)}
+          >
+            <Plus className="h-4 w-4 mr-1" />
+            Create Outlet
+          </Button>
         </PageHeader>
 
         {/* Filter Bar */}
@@ -367,6 +395,21 @@ export default function OutletsPage() {
               ))}
             </SelectContent>
           </Select>
+
+          {/* Brand Filter */}
+          {uniqueBrands.length > 1 && (
+            <Select value={brandFilter} onValueChange={setBrandFilter}>
+              <SelectTrigger className="w-full lg:w-44 bg-card border-border text-foreground">
+                <SelectValue placeholder="All Brands" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Brands</SelectItem>
+                {uniqueBrands.map((brand) => (
+                  <SelectItem key={brand} value={brand!}>{brand}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
 
           {/* View Toggle */}
           <div className="flex items-center gap-1 ml-auto border border-border rounded-md p-0.5">
@@ -672,6 +715,41 @@ export default function OutletsPage() {
         {/* Pagination */}
         <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} />
       </div>
+
+      {/* Create Outlet Dialog */}
+      {showCreateOutlet && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <Card className="max-w-md mx-4 w-full">
+            <CardContent className="pt-6 pb-6 space-y-4">
+              <h3 className="text-lg font-semibold">Create New Outlet</h3>
+              <p className="text-sm text-muted-foreground">
+                Create an outlet first, then upload lease documents from the outlet page.
+              </p>
+              <div className="space-y-3">
+                <Input
+                  placeholder="Outlet name (e.g., Saket Select Citywalk)"
+                  value={newOutletName}
+                  onChange={(e) => setNewOutletName(e.target.value)}
+                />
+                <Input
+                  placeholder="City (e.g., New Delhi)"
+                  value={newOutletCity}
+                  onChange={(e) => setNewOutletCity(e.target.value)}
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setShowCreateOutlet(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={handleCreateOutlet} disabled={!newOutletName.trim() || creatingOutlet}>
+                  {creatingOutlet ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Plus className="h-4 w-4 mr-1" />}
+                  Create Outlet
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

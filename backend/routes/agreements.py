@@ -200,6 +200,33 @@ def update_agreement(agreement_id: str, body: UpdateAgreementRequest):
     return {"agreement": result.data[0] if result.data else None}
 
 
+@router.delete("/agreements/{agreement_id}", dependencies=[Depends(require_permission("manage_org_settings"))])
+def delete_agreement(agreement_id: str):
+    """Delete an agreement and all related data (admin only)."""
+    # Get agreement for audit log
+    agreement = supabase.table("agreements").select("org_id, lessor_name, filename, outlet_id").eq("id", agreement_id).single().execute()
+    if not agreement.data:
+        raise HTTPException(status_code=404, detail="Agreement not found")
+
+    org_id = agreement.data["org_id"]
+
+    # Cascade delete related data
+    supabase.table("rent_schedules").delete().eq("agreement_id", agreement_id).execute()
+    supabase.table("critical_dates").delete().eq("agreement_id", agreement_id).execute()
+    supabase.table("agreement_clauses").delete().eq("agreement_id", agreement_id).execute()
+    supabase.table("obligations").delete().eq("agreement_id", agreement_id).execute()
+    supabase.table("alerts").delete().eq("agreement_id", agreement_id).execute()
+    supabase.table("agreements").delete().eq("id", agreement_id).execute()
+
+    # Audit log
+    log_activity(org_id, None, "agreement", agreement_id, "agreement_deleted", {
+        "lessor_name": agreement.data.get("lessor_name"),
+        "filename": agreement.data.get("filename"),
+    })
+
+    return {"deleted": True, "agreement_id": agreement_id}
+
+
 @router.post("/confirm-and-activate", dependencies=[Depends(require_permission("create_agreements"))])
 @limiter.limit("10/minute")
 async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
@@ -308,6 +335,39 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
                         pass
                 obligations = generate_obligations(req.extraction, agreement_id, outlet_id, org_id)
                 alerts = generate_alerts(req.extraction, agreement_id, outlet_id, org_id)
+
+                # Auto-populate rent schedule from extracted rent_schedule array
+                try:
+                    from routes.rent_schedules import populate_rent_schedule_from_extraction
+                    rent_section = get_section(req.extraction, "rent")
+                    rent_sched = get_val(rent_section.get("rent_schedule")) if rent_section else None
+                    lease_term = get_section(req.extraction, "lease_term")
+                    lc_date = get_val(lease_term.get("lease_commencement_date")) if lease_term else None
+                    le_date = get_val(lease_term.get("lease_expiry_date")) if lease_term else None
+                    if isinstance(rent_sched, list) and len(rent_sched) > 0:
+                        populate_rent_schedule_from_extraction(
+                            agreement_id, org_id, rent_sched,
+                            lease_commencement=lc_date if isinstance(lc_date, str) else None,
+                            lease_expiry=le_date if isinstance(le_date, str) else None,
+                        )
+                except Exception as e:
+                    logger.warning(f"Failed to populate rent schedule: {e}")
+
+                # Auto-populate critical dates from extraction
+                try:
+                    from routes.critical_dates import populate_critical_dates_from_extraction
+                    populate_critical_dates_from_extraction(
+                        agreement_id, org_id, outlet_id, req.extraction,
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to populate critical dates: {e}")
+
+                # Auto-extract clauses from legal section
+                try:
+                    from routes.india_compliance import populate_clauses_from_extraction
+                    populate_clauses_from_extraction(agreement_id, org_id, req.extraction)
+                except Exception as e:
+                    logger.warning(f"Failed to extract clauses: {e}")
                 obligations_created = len(obligations)
                 alerts_created = len(alerts)
                 supabase.table("activity_log").insert({
