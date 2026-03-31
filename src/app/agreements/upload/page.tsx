@@ -37,7 +37,7 @@ import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { confirmAndActivate, createDraft, getProcessingEstimate, getExtractionJob, uploadAndExtractAsync, listOutlets } from "@/lib/api";
 import { EditableField } from "@/components/editable-field";
-import { FeedbackButton } from "@/components/feedback-button";
+
 import { PageHeader } from "@/components/page-header";
 import dynamic from "next/dynamic";
 
@@ -429,7 +429,6 @@ export default function UploadAgreementPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Split-screen review state
-  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
   const [pdfHighlightPage, setPdfHighlightPage] = useState<number | undefined>();
   const [pdfHighlightQuote, setPdfHighlightQuote] = useState<string | undefined>();
   const [customFields, setCustomFields] = useState<{name: string; value: string}[]>([]);
@@ -445,9 +444,6 @@ export default function UploadAgreementPage() {
       setPdfHighlightQuote(sourceQuote);
     }, 50);
   };
-
-  // Verification checkboxes state (tracks "sectionKey.fieldKey" strings)
-  const [verifiedFields, setVerifiedFields] = useState<Set<string>>(new Set());
 
   // Section-by-section stepper state
   const [activeSectionIndex, setActiveSectionIndex] = useState(0);
@@ -478,34 +474,10 @@ export default function UploadAgreementPage() {
   function toggleSectionVerified(key: string) {
     setVerifiedSections((prev) => {
       const next = new Set(prev);
-      const wasVerified = next.has(key);
-      if (wasVerified) {
+      if (next.has(key)) {
         next.delete(key);
       } else {
         next.add(key);
-      }
-      // Also toggle all field checkboxes in this section
-      if (result?.extraction?.[key] && typeof result.extraction[key] === 'object') {
-        const sectionFields = Object.keys(result.extraction[key] as Record<string, unknown>);
-        setVerifiedFields((prevFields) => {
-          const nextFields = new Set(prevFields);
-          for (const fieldKey of sectionFields) {
-            const path = `${key}.${fieldKey}`;
-            if (wasVerified) {
-              nextFields.delete(path);
-            } else {
-              // Only auto-verify fields that have actual values (not "not found")
-              const fieldVal = (result?.extraction?.[key] as Record<string, unknown>)?.[fieldKey];
-              const isNotFound = fieldVal === null || fieldVal === undefined || fieldVal === "" || fieldVal === "not_found" || fieldVal === "N/A" ||
-                (typeof fieldVal === "object" && fieldVal !== null && "value" in (fieldVal as Record<string, unknown>) &&
-                  ((fieldVal as Record<string, unknown>).value === null || (fieldVal as Record<string, unknown>).value === "" || (fieldVal as Record<string, unknown>).value === "not_found"));
-              if (!isNotFound) {
-                nextFields.add(path);
-              }
-            }
-          }
-          return nextFields;
-        });
       }
       return next;
     });
@@ -583,21 +555,6 @@ export default function UploadAgreementPage() {
       if (fileUrl) URL.revokeObjectURL(fileUrl);
     };
   }, [fileUrl]);
-
-  function toggleSection(sectionKey: string) {
-    setCollapsedSections((prev) => ({ ...prev, [sectionKey]: !prev[sectionKey] }));
-  }
-
-  function expandAllSections() {
-    setCollapsedSections({});
-  }
-
-  function collapseAllSections() {
-    if (!result) return;
-    const all: Record<string, boolean> = {};
-    Object.keys(result.extraction).forEach((key) => { all[key] = true; });
-    setCollapsedSections(all);
-  }
 
   function getConfidenceBadge(level: Confidence) {
     switch (level) {
@@ -885,18 +842,6 @@ export default function UploadAgreementPage() {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  }
-
-  function toggleFieldVerified(fieldPath: string) {
-    setVerifiedFields((prev) => {
-      const next = new Set(prev);
-      if (next.has(fieldPath)) {
-        next.delete(fieldPath);
-      } else {
-        next.add(fieldPath);
-      }
-      return next;
-    });
   }
 
   // Count stats from extraction
