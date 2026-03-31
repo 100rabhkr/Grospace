@@ -106,6 +106,8 @@ type Agreement = {
   confirmed_at: string | null;
   created_at: string;
   outlets: OutletInfo | null;
+  custom_notes?: string | null;
+  custom_clauses?: { name: string; value: string }[] | null;
 };
 
 type ChatMessage = {
@@ -1002,6 +1004,33 @@ export default function AgreementDetailPage() {
                 }
               )}
             </div>
+          )}
+
+          {/* Custom Notes & Clauses */}
+          {(agreement.custom_notes || (agreement.custom_clauses && agreement.custom_clauses.length > 0)) && (
+            <Card className="mt-4">
+              <CardContent className="pt-4 pb-4 space-y-3">
+                {agreement.custom_clauses && agreement.custom_clauses.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Custom Clauses</p>
+                    <div className="space-y-1.5">
+                      {agreement.custom_clauses.map((clause, i) => (
+                        <div key={i} className="flex items-start gap-2 text-sm">
+                          <span className="font-medium text-foreground min-w-[120px]">{clause.name}:</span>
+                          <span className="text-muted-foreground">{clause.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {agreement.custom_notes && (
+                  <div>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Notes</p>
+                    <p className="text-sm text-muted-foreground whitespace-pre-wrap">{agreement.custom_notes}</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           )}
 
           {/* Save / Discard bar */}

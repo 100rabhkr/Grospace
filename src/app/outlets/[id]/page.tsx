@@ -111,6 +111,8 @@ interface Agreement {
   revenue_share_pct?: number;
   rent_per_sqft?: number;
   extracted_data?: Record<string, Record<string, unknown>> | null;
+  custom_notes?: string | null;
+  custom_clauses?: { name: string; value: string }[] | null;
 }
 
 interface Obligation {
@@ -310,6 +312,7 @@ export default function OutletDetailPage() {
   const [data, setData] = useState<OutletResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
   const [revenueInput, setRevenueInput] = useState<string>("");
   const [revenueSaving, setRevenueSaving] = useState(false);
   const [revenueFrequency, setRevenueFrequency] = useState<string>("monthly");
@@ -445,7 +448,7 @@ export default function OutletDetailPage() {
     if (outletId) {
       fetchOutlet();
     }
-  }, [outletId]);
+  }, [outletId, refreshKey]);
 
   // Initialize revenue input when data loads
   useEffect(() => {
@@ -1580,6 +1583,36 @@ export default function OutletDetailPage() {
         </CardContent>
       </Card>
 
+      {/* Custom Notes from Agreements */}
+      {agreements.some((a) => a.custom_notes || (a.custom_clauses && a.custom_clauses.length > 0)) && (
+        <Card className="border-border">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              Agreement Notes & Custom Clauses
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {agreements.filter((a) => a.custom_notes || (a.custom_clauses && a.custom_clauses.length > 0)).map((agr) => (
+              <div key={agr.id} className="space-y-2">
+                {agr.document_filename && <p className="text-xs font-medium text-muted-foreground">{agr.document_filename}</p>}
+                {agr.custom_clauses && agr.custom_clauses.length > 0 && (
+                  <div className="space-y-1">
+                    {agr.custom_clauses.map((clause, i) => (
+                      <div key={i} className="flex items-start gap-2 text-sm">
+                        <span className="font-medium min-w-[120px]">{clause.name}:</span>
+                        <span className="text-muted-foreground">{clause.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {agr.custom_notes && <p className="text-sm text-muted-foreground whitespace-pre-wrap">{agr.custom_notes}</p>}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
       {/* ----------------------------------------------------------------- */}
       {/* EVENTS TABLE                                                      */}
       {/* ----------------------------------------------------------------- */}
@@ -1691,9 +1724,9 @@ export default function OutletDetailPage() {
           <CardTitle className="text-base flex items-center gap-2">
             <ShieldAlert className="h-4 w-4" />
             Reminders
-            {alerts.filter(a => { const d = new Date(a.trigger_date); const now = new Date(); return d >= now && d <= new Date(now.getTime() + 90*24*60*60*1000); }).length > 0 && (
+            {alerts.filter(a => { const d = new Date(a.trigger_date); const t = new Date(); t.setHours(0,0,0,0); return d >= t && d <= new Date(t.getTime() + 90*24*60*60*1000); }).length > 0 && (
               <Badge variant="secondary" className="ml-2 bg-muted text-muted-foreground">
-                {alerts.filter(a => { const d = new Date(a.trigger_date); const now = new Date(); return d >= now && d <= new Date(now.getTime() + 90*24*60*60*1000); }).length}
+                {alerts.filter(a => { const d = new Date(a.trigger_date); const t = new Date(); t.setHours(0,0,0,0); return d >= t && d <= new Date(t.getTime() + 90*24*60*60*1000); }).length}
               </Badge>
             )}
             <Button variant="outline" size="sm" className="gap-1.5 text-xs ml-auto" onClick={() => setShowCreateReminder(true)}>
@@ -1704,12 +1737,13 @@ export default function OutletDetailPage() {
         </CardHeader>
         <CardContent>
           {(() => {
-            const now = new Date();
-            const cutoff = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const cutoff = new Date(today.getTime() + 90 * 24 * 60 * 60 * 1000);
             const upcomingAlerts = alerts.filter((a) => {
               if (!a.trigger_date) return true;
               const d = new Date(a.trigger_date);
-              return d >= now && d <= cutoff;
+              return d >= today && d <= cutoff;
             });
             return upcomingAlerts.length === 0 ? (
             <div className="text-sm text-muted-foreground py-4 text-center">
@@ -2271,7 +2305,7 @@ export default function OutletDetailPage() {
                   });
                   setShowCreateEvent(false);
                   setEventForm({ title: "", event_type: "custom", date_value: "", priority: "medium", description: "" });
-                  window.location.reload();
+                  setRefreshKey((k) => k + 1);
                 } catch (err) {
                   alert(err instanceof Error ? err.message : "Failed to create event");
                 } finally {
@@ -2330,7 +2364,7 @@ export default function OutletDetailPage() {
                   });
                   setShowCreateReminder(false);
                   setReminderForm({ title: "", message: "", trigger_date: "", severity: "medium" });
-                  window.location.reload();
+                  setRefreshKey((k) => k + 1);
                 } catch (err) {
                   alert(err instanceof Error ? err.message : "Failed to create reminder");
                 } finally {

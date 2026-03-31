@@ -23,15 +23,28 @@ export type PdfViewerHandle = {
   clearHighlight: () => void;
 };
 
+type OcrWord = {
+  text: string;
+  bbox: { x: number; y: number; w: number; h: number };
+};
+
+type OcrPage = {
+  page_number: number;
+  width: number;
+  height: number;
+  words: OcrWord[];
+};
+
 type Props = {
   url: string;
   activePage?: number;
   highlightQuote?: string;
+  ocrPages?: OcrPage[] | null;
   onPageChange?: (page: number) => void;
 };
 
 export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
-  function PdfViewer({ url, activePage, highlightQuote, onPageChange }, ref) {
+  function PdfViewer({ url, activePage, highlightQuote, ocrPages, onPageChange }, ref) {
     const [numPages, setNumPages] = useState<number>(0);
     const [pageNumber, setPageNumber] = useState(activePage || 1);
     const [scale, setScale] = useState(1.0);
@@ -85,8 +98,9 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
           return;
         }
 
-        // Clear previous highlights
+        // Clear previous highlights (from text layer and page element for OCR fallback)
         textLayer.querySelectorAll(".source-highlight").forEach((el) => el.remove());
+        containerRef.current?.querySelectorAll(".react-pdf__Page .source-highlight").forEach((el) => el.remove());
 
         // Find matching text spans
         const spans = Array.from(textLayer.querySelectorAll("span"));
@@ -126,7 +140,68 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
           }
         }
 
-        if (matchIdx === -1) return;
+        if (matchIdx === -1) {
+          // Fallback: try OCR bbox-based highlighting for scanned documents
+          if (ocrPages && ocrPages.length > 0) {
+            const ocrPage = ocrPages.find((p) => p.page_number === pageNumber);
+            if (ocrPage && ocrPage.words.length > 0) {
+              const ocrNormQuote = rawQuote.toLowerCase();
+              // Find consecutive words that match the quote
+              const wordTexts = ocrPage.words.map((w) => w.text.toLowerCase().replace(/[^a-z0-9]/g, ""));
+              const joined = wordTexts.join(" ");
+              let ocrMatchIdx = -1;
+              for (const len of [ocrNormQuote.length, 60, 40, 25]) {
+                if (ocrNormQuote.length < len) continue;
+                ocrMatchIdx = joined.indexOf(ocrNormQuote.slice(0, len));
+                if (ocrMatchIdx !== -1) break;
+              }
+              if (ocrMatchIdx !== -1) {
+                // Map character position back to word indices
+                let charPos = 0;
+                const startWordIdx = wordTexts.findIndex((wt) => {
+                  const start = charPos;
+                  charPos += wt.length + 1;
+                  return start <= ocrMatchIdx && ocrMatchIdx < charPos;
+                });
+                if (startWordIdx >= 0) {
+                  // Get the rendered page element to draw bbox highlights
+                  const pageEl = containerRef.current?.querySelector(".react-pdf__Page");
+                  if (pageEl) {
+                    const pageRect = pageEl.getBoundingClientRect();
+                    const renderedW = pageRect.width;
+                    const renderedH = pageRect.height;
+                    // Highlight ~20 consecutive words from match start
+                    const endIdx = Math.min(startWordIdx + 20, ocrPage.words.length);
+                    for (let wi = startWordIdx; wi < endIdx; wi++) {
+                      const word = ocrPage.words[wi];
+                      const hl = document.createElement("div");
+                      hl.className = "source-highlight";
+                      hl.style.cssText = `
+                        position: absolute;
+                        left: ${word.bbox.x * renderedW}px;
+                        top: ${word.bbox.y * renderedH}px;
+                        width: ${word.bbox.w * renderedW}px;
+                        height: ${word.bbox.h * renderedH}px;
+                        background: rgba(16, 185, 129, 0.25);
+                        pointer-events: none;
+                        z-index: 5;
+                      `;
+                      pageEl.appendChild(hl);
+                      if (wi === startWordIdx) {
+                        const container = containerRef.current;
+                        if (container) {
+                          const scrollTop = container.scrollTop + (word.bbox.y * renderedH) - pageRect.height / 2;
+                          container.scrollTo({ top: scrollTop, behavior: "smooth" });
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+          return;
+        }
 
         // Map back to original positions — find spans that overlap
         // Since we stripped non-alphanumeric, we need to map normalized positions to original spans
@@ -146,7 +221,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
           charCount = spanEnd + 1; // +1 for the space between spans
         }
 
-        // Highlight matching spans
+        // Highlight matching spans — Leasecake-style teal/green background on text
         const layerRect = textLayer.getBoundingClientRect();
         for (const span of matchingSpans) {
           const rect = span.getBoundingClientRect();
@@ -158,12 +233,9 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
             top: ${rect.top - layerRect.top - 1}px;
             width: ${rect.width + 4}px;
             height: ${rect.height + 2}px;
-            background: rgba(250, 204, 21, 0.45);
-            border: 2px solid rgba(234, 179, 8, 0.7);
-            border-radius: 3px;
+            background: rgba(16, 185, 129, 0.25);
             pointer-events: none;
             z-index: 5;
-            box-shadow: 0 0 8px rgba(234, 179, 8, 0.3);
           `;
           textLayer.appendChild(highlight);
 
@@ -182,7 +254,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
       const timer = setTimeout(tryHighlight, 600);
 
       return () => clearTimeout(timer);
-    }, [activeQuote, pageNumber, highlightTrigger]);
+    }, [activeQuote, pageNumber, highlightTrigger, ocrPages]);
 
     const onDocumentLoadSuccess = useCallback(
       ({ numPages: n }: { numPages: number }) => {

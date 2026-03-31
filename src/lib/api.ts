@@ -139,6 +139,8 @@ export async function confirmAndActivate(data: {
   document_text?: string | null;
   document_url?: string | null;
   file_hash?: string | null;
+  custom_notes?: string;
+  custom_clauses?: { name: string; value: string }[];
 }) {
   return apiFetch("/api/confirm-and-activate", {
     method: "POST",

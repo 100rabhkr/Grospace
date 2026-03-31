@@ -39,6 +39,8 @@ class ConfirmActivateRequest(BaseModel):
     document_text: Optional[str] = None  # Cached OCR/extracted text for Q&A
     document_url: Optional[str] = None  # URL to the uploaded document in storage
     file_hash: Optional[str] = None  # SHA256 hash for duplicate detection
+    custom_notes: Optional[str] = None  # User-added notes during review
+    custom_clauses: Optional[list] = None  # User-added custom clauses [{name, value}]
 
 
 class PaymentUpdateRequest(BaseModel):

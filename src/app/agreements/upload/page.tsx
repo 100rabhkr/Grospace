@@ -196,6 +196,12 @@ type ExtractionResult = {
   existing_agreement_id?: string;
   existing_status?: string;
   message?: string;
+  ocr_pages?: Array<{
+    page_number: number;
+    width: number;
+    height: number;
+    words: Array<{ text: string; bbox: { x: number; y: number; w: number; h: number } }>;
+  }> | null;
 };
 
 const processingSteps = [
@@ -427,6 +433,7 @@ export default function UploadAgreementPage() {
   const [pdfHighlightPage, setPdfHighlightPage] = useState<number | undefined>();
   const [pdfHighlightQuote, setPdfHighlightQuote] = useState<string | undefined>();
   const [customFields, setCustomFields] = useState<{name: string; value: string}[]>([]);
+  const [customNotes, setCustomNotes] = useState("");
 
   const handleSourceClick = (sourcePage?: number, sourceQuote?: string) => {
     // Clear first to force React re-render even if same value
@@ -1027,7 +1034,7 @@ export default function UploadAgreementPage() {
               ).map((opt) => (
                 <button
                   key={opt.value}
-                  onClick={() => setSelectedDocType(opt.value)}
+                  onClick={() => { setSelectedDocType(opt.value); if (error === "Please select a document type to continue.") setError(null); }}
                   className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-colors ${
                     selectedDocType === opt.value
                       ? "bg-foreground text-white border-foreground"
@@ -1076,18 +1083,45 @@ export default function UploadAgreementPage() {
                 id="bulk-file-input"
                 onChange={(e) => {
                   const files = e.target.files;
-                  if (files && files.length > 0) handleBulkUpload(files);
+                  if (!files || files.length === 0) return;
+                  if (!selectedDocType) {
+                    setError("Please select a document type to continue.");
+                    e.target.value = "";
+                    return;
+                  }
+                  handleBulkUpload(files);
                   e.target.value = "";
                 }}
               />
+              {/* Uploading animation overlay for bulk */}
+              {bulkJobs.some(j => j.status === "uploading") && (
+                <div className="flex items-center gap-3 p-4 rounded-lg border border-blue-200 bg-blue-50">
+                  <CloudUpload className="h-5 w-5 animate-pulse text-blue-500 flex-shrink-0" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-blue-700">Uploading documents...</p>
+                    <p className="text-xs text-blue-600 mt-0.5">
+                      {bulkJobs.filter(j => j.status === "uploading").length} uploading, {bulkJobs.filter(j => j.status === "queued").length} queued
+                    </p>
+                  </div>
+                  <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+                </div>
+              )}
               <div
                 className="flex flex-col items-center justify-center border-2 border-dashed rounded-xl p-10 cursor-pointer transition-all border-neutral-300 hover:border-neutral-400 hover:bg-muted/50"
                 onClick={() => {
+                  if (!selectedDocType) {
+                    setError("Please select a document type to continue.");
+                    return;
+                  }
                   document.getElementById("bulk-file-input")?.click();
                 }}
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={(e) => {
                   e.preventDefault();
+                  if (!selectedDocType) {
+                    setError("Please select a document type to continue.");
+                    return;
+                  }
                   handleBulkUpload(e.dataTransfer.files);
                 }}
               >
@@ -1430,10 +1464,26 @@ export default function UploadAgreementPage() {
           {/* Section Stepper Navigation */}
           <div className="p-3 rounded-xl border bg-card space-y-3">
             {/* Section progress dots */}
-            <div className="flex items-center gap-1 justify-center">
+            <div className="flex items-center gap-1 justify-center flex-wrap">
+              {/* Risk flags dot (if any) */}
+              {result.risk_flags.length > 0 && (
+                <button
+                  onClick={() => { setActiveSectionIndex(0); setPdfHighlightPage(undefined); setPdfHighlightQuote(undefined); }}
+                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[10px] font-medium transition-all ${
+                    activeSectionIndex === 0 ? "bg-rose-600 text-white shadow-sm" : "bg-rose-100 text-rose-700 hover:bg-rose-200"
+                  }`}
+                  title="Risk Flags"
+                >
+                  <Shield className="h-2.5 w-2.5" />
+                  <span className="hidden sm:inline">Risks</span>
+                  <span className="sm:hidden">!</span>
+                </button>
+              )}
+              {/* Data section dots */}
               {sectionKeys.map((key, idx) => {
-                const isActive = idx === activeSectionIndex;
-                // Auto-verify sections with no visible fields
+                const dataSectionOffset = result.risk_flags.length > 0 ? 1 : 0;
+                const stepIdx = idx + dataSectionOffset;
+                const isActive = stepIdx === activeSectionIndex;
                 const sectionData = result.extraction[key];
                 const hasVisibleFields = sectionData && typeof sectionData === "object"
                   ? Object.values(sectionData as Record<string, unknown>).some(v => parseField(v).displayVal !== "Not found")
@@ -1443,20 +1493,9 @@ export default function UploadAgreementPage() {
                 return (
                   <button
                     key={key}
-                    onClick={() => {
-                      setActiveSectionIndex(idx);
-                      setPdfHighlightPage(undefined);
-                      setPdfHighlightQuote(undefined);
-                      // Scroll to the section card
-                      const el = document.getElementById(`section-${key}`);
-                      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                    }}
+                    onClick={() => { setActiveSectionIndex(stepIdx); setPdfHighlightPage(undefined); setPdfHighlightQuote(undefined); }}
                     className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[10px] font-medium transition-all ${
-                      isActive
-                        ? "bg-foreground text-white shadow-sm"
-                        : isVerified
-                        ? "bg-emerald-100 text-emerald-700"
-                        : "bg-muted text-muted-foreground hover:bg-muted/80"
+                      isActive ? "bg-foreground text-white shadow-sm" : isVerified ? "bg-emerald-100 text-emerald-700" : "bg-muted text-muted-foreground hover:bg-muted/80"
                     }`}
                     title={conf.title}
                   >
@@ -1466,6 +1505,19 @@ export default function UploadAgreementPage() {
                   </button>
                 );
               })}
+              {/* Custom fields dot */}
+              <button
+                onClick={() => { setActiveSectionIndex((result.risk_flags.length > 0 ? 1 : 0) + sectionKeys.length); setPdfHighlightPage(undefined); setPdfHighlightQuote(undefined); }}
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[10px] font-medium transition-all ${
+                  activeSectionIndex === (result.risk_flags.length > 0 ? 1 : 0) + sectionKeys.length
+                    ? "bg-foreground text-white shadow-sm"
+                    : customFields.length > 0 ? "bg-emerald-100 text-emerald-700" : "bg-muted text-muted-foreground hover:bg-muted/80"
+                }`}
+                title="Custom Clauses"
+              >
+                <Plus className="h-2.5 w-2.5" />
+                <span className="hidden sm:inline">Custom</span>
+              </button>
             </div>
             {/* Section progress bar */}
             <div className="flex items-center gap-2">
@@ -1506,33 +1558,12 @@ export default function UploadAgreementPage() {
                   </div>
                 </div>
                 <div style={{ height: "calc(100vh - 320px)", minHeight: "400px" }} className="relative">
-                  {/* Green highlight banner — Leasecake-style */}
-                  {pdfHighlightQuote && (
-                    <div className="absolute top-0 left-0 right-0 z-10 bg-emerald-600 text-white px-4 py-3 backdrop-blur-sm shadow-lg">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <div className="h-2 w-2 rounded-full bg-white animate-pulse flex-shrink-0" />
-                            <span className="text-[10px] font-semibold uppercase tracking-wide opacity-80">Source Reference</span>
-                            {pdfHighlightPage && (
-                              <span className="text-[10px] bg-white/20 px-2 py-0.5 rounded font-medium">Page {pdfHighlightPage}</span>
-                            )}
-                          </div>
-                          <p className="text-xs leading-relaxed">
-                            &ldquo;{pdfHighlightQuote.slice(0, 200)}{pdfHighlightQuote.length > 200 ? "..." : ""}&rdquo;
-                          </p>
-                        </div>
-                        <button onClick={() => { setPdfHighlightPage(undefined); setPdfHighlightQuote(undefined); }} className="text-white/70 hover:text-white text-xs flex-shrink-0 mt-0.5">
-                          Dismiss
-                        </button>
-                      </div>
-                    </div>
-                  )}
                   {fileUrl && (selectedFile?.type === "application/pdf" || (!selectedFile && result?.filename?.toLowerCase().endsWith(".pdf"))) ? (
                     <PdfViewer
                       url={fileUrl}
                       activePage={pdfHighlightPage}
                       highlightQuote={pdfHighlightQuote}
+                      ocrPages={result?.ocr_pages}
                     />
                   ) : fileUrl && (selectedFile?.type?.startsWith("image/") || (!selectedFile && /\.(png|jpe?g|webp|gif|bmp|tiff?)$/i.test(result?.filename || ""))) ? (
                     <div className="flex items-center justify-center p-4 h-full">
@@ -1560,528 +1591,421 @@ export default function UploadAgreementPage() {
 
             {/* RIGHT SIDE: Extracted Fields with Collapsible Sections */}
             <div className="w-full lg:w-1/2 space-y-3">
-              {/* Section controls */}
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-foreground">Extracted Data</h2>
-                <div className="flex items-center gap-1">
-                  <Button variant="ghost" size="sm" className="text-xs h-7 px-2" onClick={expandAllSections}>
-                    Expand All
-                  </Button>
-                  <Button variant="ghost" size="sm" className="text-xs h-7 px-2" onClick={collapseAllSections}>
-                    Collapse All
-                  </Button>
-                </div>
-              </div>
+              {/* Section title */}
+              <h2 className="text-sm font-semibold text-foreground">Extracted Data — Review Section by Section</h2>
 
-              {/* Risk Flags Section (collapsible) */}
-              {result.risk_flags.length > 0 && (
-                <Card className="overflow-hidden border-rose-200">
-                  <button
-                    className="w-full flex items-center gap-2 px-4 py-3 bg-rose-50/50 hover:bg-rose-50 transition-colors text-left"
-                    onClick={() => toggleSection("_risk_flags")}
-                  >
-                    <Shield className="h-4 w-4 text-rose-600 flex-shrink-0" />
-                    <span className="text-sm font-semibold flex-1">Risk Flags</span>
-                    <Badge
-                      variant="outline"
-                      className="text-[10px] border-rose-200 text-rose-700 mr-1"
-                    >
-                      {result.risk_flags.length}
-                    </Badge>
-                    {collapsedSections["_risk_flags"] ? (
-                      <ChevronDown className="h-4 w-4 text-[#9ca3af]" />
-                    ) : (
-                      <ChevronUp className="h-4 w-4 text-[#9ca3af]" />
-                    )}
-                  </button>
-                  <div
-                    className={`transition-all duration-300 ease-in-out overflow-hidden ${
-                      collapsedSections["_risk_flags"] ? "max-h-0" : "max-h-[2000px]"
-                    }`}
-                  >
-                    <CardContent className="pt-3 pb-3 space-y-2">
-                      {result.risk_flags.map((flag, i) => (
-                        <div
-                          key={i}
-                          className={`p-2.5 rounded-lg border transition-colors ${
-                            flag.clause_text ? "cursor-pointer" : ""
-                          } ${
-                            flag.severity === "high"
-                              ? "border-rose-200 bg-rose-50/50" + (flag.clause_text ? " hover:bg-rose-100/50" : "")
-                              : "border-amber-200 bg-amber-50/50" + (flag.clause_text ? " hover:bg-amber-100/50" : "")
-                          }`}
-                          onClick={() => {
-                            if (flag.clause_text || (flag as Record<string, unknown>).source_page) {
-                              handleSourceClick(
-                                (flag as Record<string, unknown>).source_page as number | undefined,
-                                flag.clause_text
-                              );
-                            }
-                          }}
-                          title={flag.clause_text ? "Click to find in document" : "Auto-detected risk — no specific clause"}
-                        >
-                          <div className="flex items-start gap-2">
-                            <AlertTriangle
-                              className={`h-3.5 w-3.5 mt-0.5 flex-shrink-0 ${
-                                flag.severity === "high" ? "text-rose-600" : "text-amber-600"
-                              }`}
-                            />
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                                <span className="text-xs font-medium">{flag.name || flag.explanation}</span>
-                                <Badge
-                                  variant="outline"
-                                  className={`text-[10px] px-1.5 py-0 ${
-                                    flag.severity === "high"
-                                      ? "border-rose-200 text-rose-700"
-                                      : "border-amber-200 text-amber-700"
-                                  }`}
-                                >
-                                  {flag.severity}
-                                </Badge>
-                                {typeof (flag as Record<string, unknown>).source_page === "number" && (
-                                  <span className="text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded font-medium">
-                                    Pg {Number((flag as Record<string, unknown>).source_page)}
-                                  </span>
-                                )}
-                              </div>
-                              {flag.explanation && flag.name && (
-                                <p className="text-[11px] text-muted-foreground">{flag.explanation}</p>
-                              )}
-                              {flag.clause_text && (
-                                <p className="text-[11px] text-muted-foreground italic mt-1 line-clamp-2">
-                                  &ldquo;{flag.clause_text}&rdquo;
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </CardContent>
-                  </div>
-                </Card>
-              )}
+              {/* One-Section-at-a-Time Stepper */}
+              {(() => {
+                // Show risk flags as a special first "section" if any exist
+                const hasRiskFlags = result.risk_flags.length > 0;
+                const showRiskFlags = hasRiskFlags && activeSectionIndex === 0;
+                // After risk flags (or if none), show data sections one at a time
+                const dataSectionOffset = hasRiskFlags ? 1 : 0;
+                const currentDataIdx = activeSectionIndex - dataSectionOffset;
+                const isOnDataSection = activeSectionIndex >= dataSectionOffset && currentDataIdx < sectionKeys.length;
+                const isOnCustomSection = activeSectionIndex === dataSectionOffset + sectionKeys.length;
+                const totalSteps = dataSectionOffset + sectionKeys.length + 1; // +1 for custom fields
 
-              {/* Extracted Data — Section-by-Section Stepper */}
-              {sectionKeys.map((sectionKey) => {
-                const sectionData = result.extraction[sectionKey];
-                if (typeof sectionData !== "object" || sectionData === null) return null;
-                const allFields = Object.entries(sectionData as Record<string, unknown>);
-                // Apply field filter
-                const fields = allFields.filter(([, val]) => {
-                  const { displayVal } = parseField(val);
-                  return displayVal !== "Not found";
-                });
-                if (fields.length === 0) return null;
-
-                const config = sectionConfig[sectionKey] || {
-                  title: formatFieldLabel(sectionKey),
-                  icon: FileText,
-                };
-                const Icon = config.icon;
-                const isCollapsed = !!collapsedSections[sectionKey];
-
-                // Count confidence levels in this section
-                const sectionStats = fields.reduce(
-                  (acc, [, val]) => {
-                    const { confidence } = parseField(val);
-                    acc.total++;
-                    if (confidence === "high") acc.high++;
-                    else if (confidence === "medium") acc.medium++;
-                    else if (confidence === "low") acc.low++;
-                    return acc;
-                  },
-                  { total: 0, high: 0, medium: 0, low: 0 }
-                );
+                const currentSectionKey = isOnDataSection ? sectionKeys[currentDataIdx] : null;
 
                 return (
-                  <Card key={sectionKey} id={`section-${sectionKey}`} className="overflow-hidden">
-                    {/* Section Header (clickable to toggle) */}
-                    <button
-                      className="w-full flex items-center gap-2 px-4 py-3 hover:bg-muted transition-colors text-left"
-                      onClick={() => toggleSection(sectionKey)}
-                    >
-                      <Icon className="h-4 w-4 text-[#6b7280] flex-shrink-0" />
-                      <span className="text-sm font-semibold flex-1">{config.title}</span>
-                      <div className="flex items-center gap-1.5 mr-1">
-                        {sectionStats.high > 0 && (
-                          <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-emerald-700">
-                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                            {sectionStats.high}
-                          </span>
-                        )}
-                        {sectionStats.medium > 0 && (
-                          <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-amber-700">
-                            <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-                            {sectionStats.medium}
-                          </span>
-                        )}
-                        {sectionStats.low > 0 && (
-                          <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-rose-700">
-                            <span className="h-1.5 w-1.5 rounded-full bg-rose-400" />
-                            {sectionStats.low}
-                          </span>
-                        )}
-                      </div>
-                      <Badge variant="outline" className="text-[10px] mr-1">
-                        {fields.length}/{allFields.length} {allFields.length === 1 ? "field" : "fields"}
-                      </Badge>
-                      {verifiedSections.has(sectionKey) && (
-                        <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">
-                          <Check className="h-2.5 w-2.5" />
-                          Verified
-                        </span>
-                      )}
-                      {isCollapsed ? (
-                        <ChevronDown className="h-4 w-4 text-[#9ca3af] flex-shrink-0" />
-                      ) : (
-                        <ChevronUp className="h-4 w-4 text-[#9ca3af] flex-shrink-0" />
-                      )}
-                    </button>
-
-                    {/* Section Body (collapsible) */}
-                    <div
-                      className={`transition-all duration-300 ease-in-out overflow-hidden ${
-                        isCollapsed ? "max-h-0" : "max-h-[5000px]"
-                      }`}
-                    >
-                      <Separator />
-                      <CardContent className="pt-3 pb-3">
-                      <div className="mb-3">
-                        <button
-                          type="button"
-                          onClick={() => toggleSectionVerified(sectionKey)}
-                          className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border transition-colors text-sm font-medium ${
-                            verifiedSections.has(sectionKey)
-                              ? "bg-emerald-50 border-emerald-300 text-emerald-700"
-                              : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"
-                          }`}
-                        >
-                          <span className={`h-5 w-5 rounded border flex items-center justify-center ${
-                            verifiedSections.has(sectionKey)
-                              ? "bg-emerald-500 border-emerald-500 text-white"
-                              : "border-slate-300"
-                          }`}>
-                            {verifiedSections.has(sectionKey) && <Check className="h-3 w-3" />}
-                          </span>
-                          {verifiedSections.has(sectionKey) ? "Section verified ✓" : "I have reviewed and verified this section"}
-                        </button>
-                      </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-3">
-                          {fields.map(([fieldKey, fieldVal]) => {
-                            const { displayVal, confidence } = parseField(fieldVal);
-                            const isNotFound = displayVal === "Not found";
-                            const isCurrency = /rent|deposit|cam_monthly|outflow|amount|revenue/.test(fieldKey);
-                            const isArea = /area|sqft/.test(fieldKey);
-                            const isPct = /percentage|pct|escalation_pct/.test(fieldKey);
-                            const isDate = /date|commencement|expiry/.test(fieldKey);
-                            const isBool = displayVal === "Yes" || displayVal === "No";
-                            const isMultiLine = displayVal.includes("\n");
-
-                            let formattedVal = displayVal;
-                            if (!isNotFound && isCurrency && !isNaN(Number(displayVal.replace(/,/g, "")))) {
-                              formattedVal = `₹${Number(displayVal.replace(/,/g, "")).toLocaleString("en-IN")}`;
-                            } else if (!isNotFound && isArea && !isNaN(Number(displayVal.replace(/,/g, "")))) {
-                              formattedVal = `${Number(displayVal.replace(/,/g, "")).toLocaleString("en-IN")} sq ft`;
-                            } else if (!isNotFound && isPct && !isNaN(Number(displayVal))) {
-                              formattedVal = `${displayVal}%`;
-                            } else if (!isNotFound && isDate && /^\d{4}-\d{2}-\d{2}$/.test(displayVal)) {
-                              formattedVal = new Date(displayVal).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
-                            }
-
-                            const fieldPath = `${sectionKey}.${fieldKey}`;
-                            const isVerified = verifiedFields.has(fieldPath);
-                            const { sourcePage, sourceQuote } = parseField(fieldVal);
-
-                            return (
-                              <div key={fieldKey} className={`min-w-0 group/field rounded-lg p-2.5 -mx-1 transition-colors ${isNotFound ? "opacity-50" : "hover:bg-muted"} ${isVerified ? "bg-emerald-50 ring-1 ring-emerald-200" : ""}`}>
-                                <div className="flex items-center gap-1.5 mb-1">
-                                  {/* Verification checkbox */}
-                                  <button
-                                    type="button"
-                                    onClick={() => toggleFieldVerified(fieldPath)}
-                                    className={`flex-shrink-0 h-4 w-4 rounded border transition-colors flex items-center justify-center ${
-                                      isVerified
-                                        ? "bg-emerald-500 border-emerald-500 text-white"
-                                        : "border-slate-300 hover:border-slate-400 bg-white"
-                                    }`}
-                                    title={isVerified ? "Mark as unverified" : "Mark as verified"}
-                                  >
-                                    {isVerified && <Check className="h-2.5 w-2.5" />}
-                                  </button>
-                                  <ConfidenceDot level={confidence} />
-                                  <p
-                                    className={`text-[10px] uppercase tracking-wider font-semibold flex-1 ${isVerified ? "text-emerald-700" : "text-[#9ca3af]"} ${!isNotFound ? "cursor-pointer hover:text-blue-600" : ""}`}
-                                    onClick={() => {
-                                      if (isNotFound) return;
-                                      if (sourcePage || sourceQuote) {
-                                        handleSourceClick(sourcePage, sourceQuote);
-                                      } else {
-                                        // No source info — try to navigate using the value as search text
-                                        handleSourceClick(undefined, displayVal.slice(0, 60));
-                                      }
-                                    }}
-                                  >
-                                    {formatFieldLabel(fieldKey)}
-                                    {isVerified && <span className="ml-1 normal-case tracking-normal font-normal text-emerald-600">verified</span>}
-                                  </p>
-                                  {sourcePage && (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleSourceClick(sourcePage, sourceQuote)}
-                                      className="text-[10px] text-blue-600 hover:text-blue-800 font-medium flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-blue-50 hover:bg-blue-100"
-                                      title={sourceQuote ? `Source: "${sourceQuote.slice(0, 60)}..."` : `Found on page ${sourcePage}`}
-                                    >
-                                      <FileText className="h-2.5 w-2.5" />
-                                      Pg {sourcePage}
-                                    </button>
+                  <>
+                    {/* Risk Flags Section */}
+                    {showRiskFlags && (
+                      <Card className="overflow-hidden border-rose-200">
+                        <div className="flex items-center gap-2 px-4 py-3 bg-rose-50/50">
+                          <Shield className="h-4 w-4 text-rose-600 flex-shrink-0" />
+                          <span className="text-sm font-semibold flex-1">Risk Flags</span>
+                          <Badge variant="outline" className="text-[10px] border-rose-200 text-rose-700">
+                            {result.risk_flags.length}
+                          </Badge>
+                        </div>
+                        <CardContent className="pt-3 pb-3 space-y-2">
+                          {result.risk_flags.map((flag, i) => (
+                            <div
+                              key={i}
+                              className={`p-2.5 rounded-lg border transition-colors ${flag.clause_text ? "cursor-pointer" : ""} ${
+                                flag.severity === "high"
+                                  ? "border-rose-200 bg-rose-50/50" + (flag.clause_text ? " hover:bg-rose-100/50" : "")
+                                  : "border-amber-200 bg-amber-50/50" + (flag.clause_text ? " hover:bg-amber-100/50" : "")
+                              }`}
+                              onClick={() => {
+                                if (flag.clause_text || (flag as Record<string, unknown>).source_page) {
+                                  handleSourceClick(
+                                    (flag as Record<string, unknown>).source_page as number | undefined,
+                                    flag.clause_text
+                                  );
+                                }
+                              }}
+                              title={flag.clause_text ? "Click to find in document" : "Auto-detected risk — no specific clause"}
+                            >
+                              <div className="flex items-start gap-2">
+                                <AlertTriangle className={`h-3.5 w-3.5 mt-0.5 flex-shrink-0 ${flag.severity === "high" ? "text-rose-600" : "text-amber-600"}`} />
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                                    <span className="text-xs font-medium">{flag.name || flag.explanation}</span>
+                                    <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${flag.severity === "high" ? "border-rose-200 text-rose-700" : "border-amber-200 text-amber-700"}`}>
+                                      {flag.severity}
+                                    </Badge>
+                                    {typeof (flag as Record<string, unknown>).source_page === "number" && (
+                                      <span className="text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded font-medium">
+                                        Pg {Number((flag as Record<string, unknown>).source_page)}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {flag.explanation && flag.name && (
+                                    <p className="text-[11px] text-muted-foreground">{flag.explanation}</p>
                                   )}
-                                  <span>
-                                    {getConfidenceBadge(confidence)}
-                                  </span>
-                                  <FeedbackButton
-                                    agreementId={result.filename}
-                                    fieldName={fieldPath}
-                                    originalValue={displayVal}
-                                  />
+                                  {flag.clause_text && (
+                                    <p className="text-[11px] text-muted-foreground italic mt-1 line-clamp-2">
+                                      &ldquo;{flag.clause_text}&rdquo;
+                                    </p>
+                                  )}
                                 </div>
-                                {isNotFound ? (
-                                  <EditableField
-                                    value=""
-                                    displayValue="Not found in document"
-                                    isNotFound={true}
-                                    onChange={(newVal) => {
-                                      setResult((prev) => {
-                                        if (!prev) return prev;
-                                        const updated = { ...prev, extraction: { ...prev.extraction } };
-                                        const section = { ...(updated.extraction[sectionKey] as Record<string, unknown>) };
-                                        const existing = section[fieldKey];
-                                        if (typeof existing === "object" && existing !== null && "value" in (existing as Record<string, unknown>)) {
-                                          section[fieldKey] = { ...(existing as Record<string, unknown>), value: newVal };
-                                        } else {
-                                          section[fieldKey] = newVal;
-                                        }
-                                        updated.extraction[sectionKey] = section;
-                                        return updated;
-                                      });
-                                    }}
-                                  />
-                                ) : isBool ? (
-                                  <div className="pl-4">
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const newVal = displayVal === "Yes" ? "No" : "Yes";
+                              </div>
+                            </div>
+                          ))}
+                        </CardContent>
+                      </Card>
+                    )}
+
+                    {/* Current Data Section */}
+                    {isOnDataSection && currentSectionKey && (() => {
+                      const sectionKey = currentSectionKey;
+                      const sectionData = result.extraction[sectionKey];
+                      if (typeof sectionData !== "object" || sectionData === null) return null;
+                      const allFields = Object.entries(sectionData as Record<string, unknown>);
+                      const fields = allFields.filter(([, val]) => {
+                        const { displayVal } = parseField(val);
+                        return displayVal !== "Not found";
+                      });
+                      if (fields.length === 0) return null;
+
+                      const config = sectionConfig[sectionKey] || { title: formatFieldLabel(sectionKey), icon: FileText };
+                      const Icon = config.icon;
+                      const sectionStats = fields.reduce(
+                        (acc, [, val]) => {
+                          const { confidence } = parseField(val);
+                          acc.total++;
+                          if (confidence === "high") acc.high++;
+                          else if (confidence === "medium") acc.medium++;
+                          else if (confidence === "low") acc.low++;
+                          return acc;
+                        },
+                        { total: 0, high: 0, medium: 0, low: 0 }
+                      );
+
+                      return (
+                        <Card key={sectionKey} id={`section-${sectionKey}`} className="overflow-hidden">
+                          <div className="flex items-center gap-2 px-4 py-3 bg-muted/30 border-b">
+                            <Icon className="h-4 w-4 text-[#6b7280] flex-shrink-0" />
+                            <span className="text-sm font-semibold flex-1">{config.title}</span>
+                            <div className="flex items-center gap-1.5 mr-1">
+                              {sectionStats.high > 0 && (
+                                <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-emerald-700">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />{sectionStats.high}
+                                </span>
+                              )}
+                              {sectionStats.medium > 0 && (
+                                <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-amber-700">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />{sectionStats.medium}
+                                </span>
+                              )}
+                              {sectionStats.low > 0 && (
+                                <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-rose-700">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-rose-400" />{sectionStats.low}
+                                </span>
+                              )}
+                            </div>
+                            <Badge variant="outline" className="text-[10px]">
+                              {fields.length}/{allFields.length} fields
+                            </Badge>
+                            {verifiedSections.has(sectionKey) && (
+                              <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">
+                                <Check className="h-2.5 w-2.5" /> Verified
+                              </span>
+                            )}
+                          </div>
+                          <CardContent className="pt-3 pb-3">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-3">
+                              {fields.map(([fieldKey, fieldVal]) => {
+                                const { displayVal, confidence } = parseField(fieldVal);
+                                const isNotFound = displayVal === "Not found";
+                                const isCurrency = /rent|deposit|cam_monthly|outflow|amount|revenue/.test(fieldKey);
+                                const isArea = /area|sqft/.test(fieldKey);
+                                const isPct = /percentage|pct|escalation_pct/.test(fieldKey);
+                                const isDate = /date|commencement|expiry/.test(fieldKey);
+                                const isBool = displayVal === "Yes" || displayVal === "No";
+                                const isMultiLine = displayVal.includes("\n");
+
+                                let formattedVal = displayVal;
+                                if (!isNotFound && isCurrency && !isNaN(Number(displayVal.replace(/,/g, "")))) {
+                                  formattedVal = `₹${Number(displayVal.replace(/,/g, "")).toLocaleString("en-IN")}`;
+                                } else if (!isNotFound && isArea && !isNaN(Number(displayVal.replace(/,/g, "")))) {
+                                  formattedVal = `${Number(displayVal.replace(/,/g, "")).toLocaleString("en-IN")} sq ft`;
+                                } else if (!isNotFound && isPct && !isNaN(Number(displayVal))) {
+                                  formattedVal = `${displayVal}%`;
+                                } else if (!isNotFound && isDate && /^\d{4}-\d{2}-\d{2}$/.test(displayVal)) {
+                                  formattedVal = new Date(displayVal).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+                                }
+
+                                const { sourcePage, sourceQuote } = parseField(fieldVal);
+
+                                return (
+                                  <div key={fieldKey} className={`min-w-0 group/field rounded-lg p-2.5 -mx-1 transition-colors ${isNotFound ? "opacity-50" : "hover:bg-muted"}`}>
+                                    <div className="flex items-center gap-1.5 mb-1">
+                                      <ConfidenceDot level={confidence} />
+                                      <p
+                                        className={`text-[10px] uppercase tracking-wider font-semibold flex-1 text-[#9ca3af] ${!isNotFound ? "cursor-pointer hover:text-blue-600" : ""}`}
+                                        onClick={() => {
+                                          if (isNotFound) return;
+                                          if (sourcePage || sourceQuote) {
+                                            handleSourceClick(sourcePage, sourceQuote);
+                                          } else {
+                                            handleSourceClick(undefined, displayVal.slice(0, 60));
+                                          }
+                                        }}
+                                      >
+                                        {formatFieldLabel(fieldKey)}
+                                      </p>
+                                      {sourcePage && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleSourceClick(sourcePage, sourceQuote)}
+                                          className="text-[10px] text-blue-600 hover:text-blue-800 font-medium flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-blue-50 hover:bg-blue-100"
+                                          title={sourceQuote ? `Source: "${sourceQuote.slice(0, 60)}..."` : `Found on page ${sourcePage}`}
+                                        >
+                                          <FileText className="h-2.5 w-2.5" />
+                                          Pg {sourcePage}
+                                        </button>
+                                      )}
+                                      <span>{getConfidenceBadge(confidence)}</span>
+                                    </div>
+                                    {isNotFound ? (
+                                      <EditableField value="" displayValue="Not found in document" isNotFound={true} onChange={(newVal) => {
                                         setResult((prev) => {
                                           if (!prev) return prev;
                                           const updated = { ...prev, extraction: { ...prev.extraction } };
                                           const section = { ...(updated.extraction[sectionKey] as Record<string, unknown>) };
                                           const existing = section[fieldKey];
                                           if (typeof existing === "object" && existing !== null && "value" in (existing as Record<string, unknown>)) {
-                                            section[fieldKey] = { ...(existing as Record<string, unknown>), value: newVal === "Yes" };
-                                          } else {
-                                            section[fieldKey] = newVal === "Yes";
-                                          }
+                                            section[fieldKey] = { ...(existing as Record<string, unknown>), value: newVal };
+                                          } else { section[fieldKey] = newVal; }
                                           updated.extraction[sectionKey] = section;
                                           return updated;
                                         });
-                                      }}
-                                      className="cursor-pointer hover:opacity-80 transition-opacity"
-                                      title="Click to toggle"
-                                    >
-                                      <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${displayVal === "Yes" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
-                                        {displayVal === "Yes" ? "✓" : "✗"} {displayVal}
-                                      </span>
-                                    </button>
-                                  </div>
-                                ) : isMultiLine && Array.isArray(
-                                  (() => {
-                                    const sec = result.extraction[sectionKey] as Record<string, unknown>;
-                                    const raw = sec[fieldKey];
-                                    if (typeof raw === "object" && raw !== null && "value" in (raw as Record<string, unknown>)) {
-                                      return (raw as Record<string, unknown>).value;
-                                    }
-                                    return raw;
-                                  })()
-                                ) ? (
-                                  <div className="pl-4 mt-1">
-                                    {(() => {
+                                      }} />
+                                    ) : isBool ? (
+                                      <div className="pl-4">
+                                        <button type="button" onClick={() => {
+                                          const newVal = displayVal === "Yes" ? "No" : "Yes";
+                                          setResult((prev) => {
+                                            if (!prev) return prev;
+                                            const updated = { ...prev, extraction: { ...prev.extraction } };
+                                            const section = { ...(updated.extraction[sectionKey] as Record<string, unknown>) };
+                                            const existing = section[fieldKey];
+                                            if (typeof existing === "object" && existing !== null && "value" in (existing as Record<string, unknown>)) {
+                                              section[fieldKey] = { ...(existing as Record<string, unknown>), value: newVal === "Yes" };
+                                            } else { section[fieldKey] = newVal === "Yes"; }
+                                            updated.extraction[sectionKey] = section;
+                                            return updated;
+                                          });
+                                        }} className="cursor-pointer hover:opacity-80 transition-opacity" title="Click to toggle">
+                                          <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${displayVal === "Yes" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
+                                            {displayVal === "Yes" ? "✓" : "✗"} {displayVal}
+                                          </span>
+                                        </button>
+                                      </div>
+                                    ) : isMultiLine && Array.isArray((() => {
                                       const sec = result.extraction[sectionKey] as Record<string, unknown>;
                                       const raw = sec[fieldKey];
-                                      const arrVal = (typeof raw === "object" && raw !== null && "value" in (raw as Record<string, unknown>))
-                                        ? (raw as Record<string, unknown>).value as unknown[]
-                                        : raw as unknown[];
-                                      // Rent schedule: render as table
-                                      if (fieldKey === "rent_schedule" && arrVal.length > 0 && typeof arrVal[0] === "object") {
-                                        const items = arrVal as Record<string, unknown>[];
-                                        const allKeys = Array.from(new Set(items.flatMap(o => Object.keys(o)))).filter(k => k !== "confidence" && k !== "source_page" && k !== "source_quote");
-                                        return (
-                                          <div className="overflow-x-auto rounded-lg border">
-                                            <table className="w-full text-xs">
-                                              <thead>
-                                                <tr className="bg-muted">
-                                                  {allKeys.map(k => (
-                                                    <th key={k} className="px-2 py-1.5 text-left font-semibold text-muted-foreground uppercase tracking-wide text-[10px]">
-                                                      {k.replace(/_/g, " ")}
-                                                    </th>
-                                                  ))}
-                                                </tr>
-                                              </thead>
-                                              <tbody>
-                                                {items.map((row, ri) => (
-                                                  <tr key={ri} className="border-t hover:bg-muted/50">
-                                                    {allKeys.map(k => (
-                                                      <td key={k} className="px-2 py-1.5 text-sm">
-                                                        {row[k] != null ? String(row[k]) : "--"}
-                                                      </td>
-                                                    ))}
-                                                  </tr>
-                                                ))}
-                                              </tbody>
-                                            </table>
-                                          </div>
-                                        );
-                                      }
-                                      return arrVal.map((item, idx) => {
-                                        const { displayVal: itemDisplay } = parseField(item);
-                                        return (
-                                          <div key={idx} className="flex items-start gap-2">
-                                            <span className="w-1.5 h-1.5 rounded-full bg-foreground mt-1.5 flex-shrink-0" />
-                                            <EditableField
-                                              value={itemDisplay}
-                                              isNotFound={false}
-                                              onChange={(newVal) => {
-                                                setResult((prev) => {
-                                                  if (!prev) return prev;
-                                                  const updated = { ...prev, extraction: { ...prev.extraction } };
-                                                  const section = { ...(updated.extraction[sectionKey] as Record<string, unknown>) };
-                                                  const existing = section[fieldKey];
-                                                  let arr: unknown[];
-                                                  if (typeof existing === "object" && existing !== null && "value" in (existing as Record<string, unknown>)) {
-                                                    arr = [...((existing as Record<string, unknown>).value as unknown[])];
-                                                    arr[idx] = newVal;
-                                                    section[fieldKey] = { ...(existing as Record<string, unknown>), value: arr };
-                                                  } else {
-                                                    arr = [...(existing as unknown[])];
-                                                    arr[idx] = newVal;
-                                                    section[fieldKey] = arr;
-                                                  }
-                                                  updated.extraction[sectionKey] = section;
-                                                  return updated;
-                                                });
-                                              }}
-                                            />
-                                          </div>
-                                        );
-                                      });
-                                    })()}
+                                      if (typeof raw === "object" && raw !== null && "value" in (raw as Record<string, unknown>)) return (raw as Record<string, unknown>).value;
+                                      return raw;
+                                    })()) ? (
+                                      <div className="pl-4 mt-1">
+                                        {(() => {
+                                          const sec = result.extraction[sectionKey] as Record<string, unknown>;
+                                          const raw = sec[fieldKey];
+                                          const arrVal = (typeof raw === "object" && raw !== null && "value" in (raw as Record<string, unknown>))
+                                            ? (raw as Record<string, unknown>).value as unknown[] : raw as unknown[];
+                                          if (fieldKey === "rent_schedule" && arrVal.length > 0 && typeof arrVal[0] === "object") {
+                                            const items = arrVal as Record<string, unknown>[];
+                                            const allKeys = Array.from(new Set(items.flatMap(o => Object.keys(o)))).filter(k => k !== "confidence" && k !== "source_page" && k !== "source_quote");
+                                            return (
+                                              <div className="overflow-x-auto rounded-lg border">
+                                                <table className="w-full text-xs">
+                                                  <thead><tr className="bg-muted">{allKeys.map(k => (<th key={k} className="px-2 py-1.5 text-left font-semibold text-muted-foreground uppercase tracking-wide text-[10px]">{k.replace(/_/g, " ")}</th>))}</tr></thead>
+                                                  <tbody>{items.map((row, ri) => (<tr key={ri} className="border-t hover:bg-muted/50">{allKeys.map(k => (<td key={k} className="px-2 py-1.5 text-sm">{row[k] != null ? String(row[k]) : "--"}</td>))}</tr>))}</tbody>
+                                                </table>
+                                              </div>
+                                            );
+                                          }
+                                          return arrVal.map((item, idx) => {
+                                            const { displayVal: itemDisplay } = parseField(item);
+                                            return (
+                                              <div key={idx} className="flex items-start gap-2">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-foreground mt-1.5 flex-shrink-0" />
+                                                <EditableField value={itemDisplay} isNotFound={false} onChange={(newVal) => {
+                                                  setResult((prev) => {
+                                                    if (!prev) return prev;
+                                                    const updated = { ...prev, extraction: { ...prev.extraction } };
+                                                    const section = { ...(updated.extraction[sectionKey] as Record<string, unknown>) };
+                                                    const existing = section[fieldKey];
+                                                    let arr: unknown[];
+                                                    if (typeof existing === "object" && existing !== null && "value" in (existing as Record<string, unknown>)) {
+                                                      arr = [...((existing as Record<string, unknown>).value as unknown[])]; arr[idx] = newVal;
+                                                      section[fieldKey] = { ...(existing as Record<string, unknown>), value: arr };
+                                                    } else { arr = [...(existing as unknown[])]; arr[idx] = newVal; section[fieldKey] = arr; }
+                                                    updated.extraction[sectionKey] = section;
+                                                    return updated;
+                                                  });
+                                                }} />
+                                              </div>
+                                            );
+                                          });
+                                        })()}
+                                      </div>
+                                    ) : isMultiLine ? (
+                                      <EditableField value={displayVal} isNotFound={false} multiline onChange={(newVal) => {
+                                        setResult((prev) => {
+                                          if (!prev) return prev;
+                                          const updated = { ...prev, extraction: { ...prev.extraction } };
+                                          const section = { ...(updated.extraction[sectionKey] as Record<string, unknown>) };
+                                          const existing = section[fieldKey];
+                                          if (typeof existing === "object" && existing !== null && "value" in (existing as Record<string, unknown>)) {
+                                            section[fieldKey] = { ...(existing as Record<string, unknown>), value: newVal };
+                                          } else { section[fieldKey] = newVal; }
+                                          updated.extraction[sectionKey] = section;
+                                          return updated;
+                                        });
+                                      }} />
+                                    ) : (
+                                      <EditableField value={displayVal} displayValue={formattedVal !== displayVal ? formattedVal : undefined} isNotFound={false} onChange={(newVal) => {
+                                        setResult((prev) => {
+                                          if (!prev) return prev;
+                                          const updated = { ...prev, extraction: { ...prev.extraction } };
+                                          const section = { ...(updated.extraction[sectionKey] as Record<string, unknown>) };
+                                          const existing = section[fieldKey];
+                                          if (typeof existing === "object" && existing !== null && "value" in (existing as Record<string, unknown>)) {
+                                            section[fieldKey] = { ...(existing as Record<string, unknown>), value: newVal };
+                                          } else { section[fieldKey] = newVal; }
+                                          updated.extraction[sectionKey] = section;
+                                          return updated;
+                                        });
+                                      }} />
+                                    )}
                                   </div>
-                                ) : isMultiLine ? (
-                                  <EditableField
-                                    value={displayVal}
-                                    isNotFound={false}
-                                    multiline
-                                    onChange={(newVal) => {
-                                      setResult((prev) => {
-                                        if (!prev) return prev;
-                                        const updated = { ...prev, extraction: { ...prev.extraction } };
-                                        const section = { ...(updated.extraction[sectionKey] as Record<string, unknown>) };
-                                        const existing = section[fieldKey];
-                                        if (typeof existing === "object" && existing !== null && "value" in (existing as Record<string, unknown>)) {
-                                          section[fieldKey] = { ...(existing as Record<string, unknown>), value: newVal };
-                                        } else {
-                                          section[fieldKey] = newVal;
-                                        }
-                                        updated.extraction[sectionKey] = section;
-                                        return updated;
-                                      });
-                                    }}
-                                  />
-                                ) : (
-                                  <EditableField
-                                    value={displayVal}
-                                    displayValue={formattedVal !== displayVal ? formattedVal : undefined}
-                                    isNotFound={false}
-                                    onChange={(newVal) => {
-                                      setResult((prev) => {
-                                        if (!prev) return prev;
-                                        const updated = { ...prev, extraction: { ...prev.extraction } };
-                                        const section = { ...(updated.extraction[sectionKey] as Record<string, unknown>) };
-                                        const existing = section[fieldKey];
-                                        if (typeof existing === "object" && existing !== null && "value" in (existing as Record<string, unknown>)) {
-                                          section[fieldKey] = { ...(existing as Record<string, unknown>), value: newVal };
-                                        } else {
-                                          section[fieldKey] = newVal;
-                                        }
-                                        updated.extraction[sectionKey] = section;
-                                        return updated;
-                                      });
-                                    }}
-                                  />
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </CardContent>
-                    </div>
-                  </Card>
-                );
-              })}
+                                );
+                              })}
+                            </div>
+                            {/* Section verification checkbox */}
+                            <div className="mt-4 pt-3 border-t">
+                              <button
+                                type="button"
+                                onClick={() => toggleSectionVerified(sectionKey)}
+                                className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border transition-colors text-sm font-medium ${
+                                  verifiedSections.has(sectionKey)
+                                    ? "bg-emerald-50 border-emerald-300 text-emerald-700"
+                                    : "bg-white border-slate-300 text-slate-600 hover:bg-slate-50"
+                                }`}
+                              >
+                                <span className={`h-5 w-5 rounded border flex items-center justify-center ${
+                                  verifiedSections.has(sectionKey) ? "bg-emerald-500 border-emerald-500 text-white" : "border-slate-300"
+                                }`}>
+                                  {verifiedSections.has(sectionKey) && <Check className="h-3 w-3" />}
+                                </span>
+                                {verifiedSections.has(sectionKey) ? "Section verified" : "I have reviewed and verified this section"}
+                              </button>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      );
+                    })()}
 
-              {/* Custom Details — user can add any field manually */}
-              <Card className="overflow-hidden border-dashed">
-                <button
-                  className="w-full flex items-center gap-2 px-4 py-3 hover:bg-muted transition-colors text-left"
-                  onClick={() => toggleSection("_custom_fields")}
-                >
-                  <Plus className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm font-semibold flex-1">Add Custom Details</span>
-                  <span className="text-xs text-muted-foreground">Add any details you need</span>
-                  {collapsedSections["_custom_fields"] ? (
-                    <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                  ) : (
-                    <ChevronUp className="h-4 w-4 text-muted-foreground" />
-                  )}
-                </button>
-                <div className={`transition-all duration-300 overflow-hidden ${collapsedSections["_custom_fields"] ? "max-h-0" : "max-h-[2000px]"}`}>
-                  <CardContent className="pt-3 pb-3">
-                    <div className="space-y-3">
-                      {(customFields || []).map((cf, idx) => (
-                        <div key={idx} className="flex items-center gap-2">
-                          <Input
-                            placeholder="Field name"
-                            className="h-8 text-sm w-[140px]"
-                            value={cf.name}
-                            onChange={(e) => setCustomFields(prev => prev.map((f, i) => i === idx ? { ...f, name: e.target.value } : f))}
-                          />
-                          <Input
-                            placeholder="Value"
-                            className="h-8 text-sm flex-1"
-                            value={cf.value}
-                            onChange={(e) => setCustomFields(prev => prev.map((f, i) => i === idx ? { ...f, value: e.target.value } : f))}
-                          />
-                          <button
-                            onClick={() => setCustomFields(prev => prev.filter((_, i) => i !== idx))}
-                            className="text-muted-foreground hover:text-rose-500 p-1"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
+                    {/* Custom Details Section (last step) */}
+                    {isOnCustomSection && (
+                      <Card className="overflow-hidden border-dashed">
+                        <div className="flex items-center gap-2 px-4 py-3 bg-muted/30 border-b">
+                          <Plus className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm font-semibold flex-1">Add Custom Clauses & Details</span>
+                          <span className="text-xs text-muted-foreground">Add any manual clauses or notes</span>
                         </div>
-                      ))}
+                        <CardContent className="pt-3 pb-3">
+                          <div className="space-y-3">
+                            {(customFields || []).map((cf, idx) => (
+                              <div key={idx} className="flex items-center gap-2">
+                                <Input
+                                  placeholder="Clause / Field name"
+                                  className="h-8 text-sm w-[180px]"
+                                  value={cf.name}
+                                  onChange={(e) => setCustomFields(prev => prev.map((f, i) => i === idx ? { ...f, name: e.target.value } : f))}
+                                />
+                                <Input
+                                  placeholder="Value / Details"
+                                  className="h-8 text-sm flex-1"
+                                  value={cf.value}
+                                  onChange={(e) => setCustomFields(prev => prev.map((f, i) => i === idx ? { ...f, value: e.target.value } : f))}
+                                />
+                                <button onClick={() => setCustomFields(prev => prev.filter((_, i) => i !== idx))} className="text-muted-foreground hover:text-rose-500 p-1">
+                                  <X className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            ))}
+                            <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => setCustomFields(prev => [...prev, { name: "", value: "" }])}>
+                              <Plus className="h-3 w-3" /> Add Clause / Field
+                            </Button>
+                            {/* Custom Notes */}
+                            <div className="pt-3 border-t mt-3">
+                              <p className="text-xs font-medium text-muted-foreground mb-1.5">Notes</p>
+                              <textarea
+                                placeholder="Add any notes, observations, or comments about this agreement..."
+                                className="w-full min-h-[80px] rounded-lg border border-slate-200 px-3 py-2 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-foreground/20"
+                                value={customNotes}
+                                onChange={(e) => setCustomNotes(e.target.value)}
+                              />
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+
+                    {/* Prev / Next Navigation */}
+                    <div className="flex items-center justify-between pt-2">
                       <Button
                         variant="outline"
                         size="sm"
-                        className="gap-1.5 text-xs"
-                        onClick={() => setCustomFields(prev => [...prev, { name: "", value: "" }])}
+                        disabled={activeSectionIndex === 0}
+                        onClick={() => {
+                          setActiveSectionIndex((i) => Math.max(0, i - 1));
+                          setPdfHighlightPage(undefined);
+                          setPdfHighlightQuote(undefined);
+                        }}
+                        className="gap-1"
                       >
-                        <Plus className="h-3 w-3" />
-                        Add Field
+                        <ChevronLeft className="h-4 w-4" /> Previous
                       </Button>
+                      <span className="text-xs text-muted-foreground font-medium tabular-nums">
+                        Step {activeSectionIndex + 1} of {totalSteps}
+                      </span>
+                      {activeSectionIndex < totalSteps - 1 ? (
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            setActiveSectionIndex((i) => Math.min(totalSteps - 1, i + 1));
+                            setPdfHighlightPage(undefined);
+                            setPdfHighlightQuote(undefined);
+                          }}
+                          className="gap-1"
+                        >
+                          Next <ChevronRight className="h-4 w-4" />
+                        </Button>
+                      ) : (
+                        <div />
+                      )}
                     </div>
-                  </CardContent>
-                </div>
-              </Card>
+                  </>
+                );
+              })()}
             </div>
           </div>
 
@@ -2190,6 +2114,10 @@ export default function UploadAgreementPage() {
                         document_text: result.document_text,
                         document_url: result.document_url,
                         file_hash: result.file_hash,
+                        custom_notes: customNotes || undefined,
+                        custom_clauses: customFields.filter(f => f.name && f.value).length > 0
+                          ? customFields.filter(f => f.name && f.value)
+                          : undefined,
                       });
                       setActivationResult(res);
                       // Remove activated job from bulk queue
