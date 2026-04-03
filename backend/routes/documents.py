@@ -444,7 +444,8 @@ async def upload_outlet_document(
         "outlet_id": outlet_id,
         "file_url": file_url,
         "filename": filename,
-        "file_type": category or file_type,
+        "file_type": file_type,
+        "category": category or "other",
         "file_size_bytes": file_size,
         "uploaded_by": user.user_id if user else None,
     }

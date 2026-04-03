@@ -266,6 +266,7 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
     agreement_data = build_agreement_data(
         req.extraction, req.document_type, req.risk_flags, req.confidence,
         req.filename, org_id, req.document_text, req.document_url, req.file_hash,
+        req.custom_notes, req.custom_clauses,
     )
     obligations_data = build_obligations_data(req.extraction, org_id)
     alerts_data = build_alerts_data(req.extraction, org_id)

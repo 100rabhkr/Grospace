@@ -221,8 +221,9 @@ def create_event(body: EventCreate):
         "alert_days": body.alert_days or [180, 90, 60, 30, 14, 7],
     }
 
-    result = supabase.table("critical_dates").insert(entry).execute()
-    return {"event": result.data[0] if result.data else entry}
+    clean = {k: v for k, v in entry.items() if v is not None}
+    result = supabase.table("critical_dates").insert(clean).execute()
+    return {"event": result.data[0] if result.data else clean}
 
 
 @router.patch(

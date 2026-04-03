@@ -23,7 +23,7 @@ from core.config import (
     SUPPORTED_PDF_EXTENSIONS, SUPPORTED_IMAGE_EXTENSIONS,
     CITY_ABBREVIATIONS,
 )
-from services.ocr_service import extract_text_cloud_vision
+from services.ocr_service import extract_text_cloud_vision, extract_text_with_bboxes
 from services.email_service import dispatch_notification
 
 
@@ -1850,6 +1850,7 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
     extraction_method = "unknown"
     text = ""
     images = []
+    ocr_pages = []  # Word-level bounding boxes for scanned doc highlighting
     doc_type = "lease_loi"
     extraction = {}
     confidence = {}
@@ -1906,8 +1907,11 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
                 images = pdf_bytes_to_images(file_bytes)
                 print(f"[PROCESS] Converted PDF to {len(images)} page images")
                 if images:
-                    cloud_vision_text = extract_text_cloud_vision(images)
-                    print(f"[PROCESS] Cloud Vision OCR: {len(cloud_vision_text.strip())} chars")
+                    # Extract text + bounding boxes together
+                    bbox_result = extract_text_with_bboxes(images)
+                    cloud_vision_text = bbox_result.get("text", "")
+                    ocr_pages = bbox_result.get("pages", [])
+                    print(f"[PROCESS] Cloud Vision OCR: {len(cloud_vision_text.strip())} chars, {sum(len(p.get('words', [])) for p in ocr_pages)} words with bboxes")
                     if len(cloud_vision_text.strip()) >= 100:
                         text = cloud_vision_text
                         if table_text.strip():
@@ -1921,7 +1925,9 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
         elif file_type == "image":
             images = load_image_bytes(file_bytes)
             if images:
-                cloud_vision_text = extract_text_cloud_vision(images)
+                bbox_result = extract_text_with_bboxes(images)
+                cloud_vision_text = bbox_result.get("text", "")
+                ocr_pages = bbox_result.get("pages", [])
                 if len(cloud_vision_text.strip()) >= 100:
                     text = cloud_vision_text
                     extraction_method = "cloud_vision"
@@ -2137,6 +2143,7 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
         "extraction_method": extraction_method,
         "error": error_message,
         "document_text": text if text and len(text.strip()) >= 100 else None,
+        "ocr_pages": ocr_pages if ocr_pages else None,
         "needs_review_fields": validation_info.get("needs_review_fields", []),
         "validation_errors": validation_info.get("validation_errors", []),
         "cross_field_warnings": locals().get("cross_field_warnings", []),
@@ -2278,7 +2285,8 @@ def build_outlet_data(extraction: dict, org_id: str) -> dict:
 
 def build_agreement_data(extraction: dict, doc_type: str, risk_flags: list, confidence: dict,
                          filename: str, org_id: str, document_text: Optional[str] = None,
-                         document_url: Optional[str] = None, file_hash: Optional[str] = None) -> dict:
+                         document_url: Optional[str] = None, file_hash: Optional[str] = None,
+                         custom_notes: Optional[str] = None, custom_clauses: Optional[list] = None) -> dict:
     """Build agreement data dict without inserting. For use with transactional RPC."""
     parties = get_section(extraction, "parties")
     lease_term = get_section(extraction, "lease_term")
@@ -2333,6 +2341,8 @@ def build_agreement_data(extraction: dict, doc_type: str, risk_flags: list, conf
         "late_payment_interest_pct": get_num(legal.get("late_payment_interest_pct")),
         "document_text": document_text,
         "file_hash": file_hash,
+        "custom_notes": custom_notes,
+        "custom_clauses": custom_clauses or [],
         "confirmed_at": datetime.utcnow().isoformat(),
     }
 

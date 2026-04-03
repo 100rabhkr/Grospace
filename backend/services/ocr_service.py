@@ -101,3 +101,74 @@ def extract_text_cloud_vision(images: list, preprocess: bool = True) -> str:
     except Exception as e:
         print(f"[CLOUD VISION] OCR failed: {type(e).__name__}: {e}")
         return ""
+
+
+def extract_text_with_bboxes(images: list, preprocess: bool = True) -> dict:
+    """Extract text with word-level bounding boxes for scanned PDF highlighting.
+
+    Returns dict with:
+        - text: full OCR text
+        - pages: list of page dicts, each with:
+            - page_number: 1-indexed
+            - width: image width in pixels
+            - height: image height in pixels
+            - words: list of {text, bbox: {x, y, w, h}} where bbox is normalized (0-1)
+    """
+    result = {"text": "", "pages": []}
+    try:
+        client = _build_vision_client()
+        image_context = cloud_vision.ImageContext(language_hints=["en", "hi"])
+
+        for idx, img in enumerate(images):
+            img_width, img_height = img.size
+            if preprocess:
+                img = _preprocess_image(img)
+
+            buf = BytesIO()
+            img.save(buf, format="PNG")
+            image = cloud_vision.Image(content=buf.getvalue())
+
+            response = client.document_text_detection(image=image, image_context=image_context)
+
+            if response.error.message:
+                print(f"[CLOUD VISION BBOX] Page {idx + 1} error: {response.error.message}")
+                continue
+
+            page_data = {
+                "page_number": idx + 1,
+                "width": img_width,
+                "height": img_height,
+                "words": [],
+            }
+
+            if response.full_text_annotation:
+                result["text"] += response.full_text_annotation.text + "\n\n"
+
+                for page in response.full_text_annotation.pages:
+                    for block in page.blocks:
+                        for paragraph in block.paragraphs:
+                            for word in paragraph.words:
+                                word_text = "".join([s.text for s in word.symbols])
+                                vertices = word.bounding_box.vertices
+                                if len(vertices) >= 4:
+                                    xs = [v.x for v in vertices]
+                                    ys = [v.y for v in vertices]
+                                    x_min, x_max = min(xs), max(xs)
+                                    y_min, y_max = min(ys), max(ys)
+                                    page_data["words"].append({
+                                        "text": word_text,
+                                        "bbox": {
+                                            "x": x_min / img_width,
+                                            "y": y_min / img_height,
+                                            "w": (x_max - x_min) / img_width,
+                                            "h": (y_max - y_min) / img_height,
+                                        },
+                                    })
+
+            result["pages"].append(page_data)
+
+        result["text"] = result["text"].strip()
+        return result
+    except Exception as e:
+        print(f"[CLOUD VISION BBOX] OCR failed: {type(e).__name__}: {e}")
+        return result
