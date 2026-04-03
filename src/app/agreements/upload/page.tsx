@@ -1514,7 +1514,7 @@ export default function UploadAgreementPage() {
                     <div className="flex items-center justify-center p-4 h-full">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
-                        src={fileUrl}
+                        src={fileUrl || result?.document_url || ""}
                         alt="Uploaded document"
                         className="max-w-full object-contain"
                         style={{

@@ -31,7 +31,8 @@ const LONG_TIMEOUT_PATTERNS = [
   "/api/cron",
 ];
 
-async function apiFetch(endpoint: string, options: RequestInit = {}, retryCount = 0): Promise<unknown> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function apiFetch(endpoint: string, options: RequestInit = {}, retryCount = 0): Promise<any> {
   const token = await getAuthToken();
   const isFormData = options.body instanceof FormData;
   const headers: Record<string, string> = {
