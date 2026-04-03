@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { listExtractionJobs, markExtractionJobSeen } from "@/lib/api";
 import { useUser } from "@/lib/hooks/use-user";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/page-header";
@@ -13,7 +13,6 @@ import {
   Loader2,
   CheckCircle2,
   XCircle,
-  Clock,
   ArrowRight,
   Cpu,
   RefreshCw,
@@ -231,7 +230,7 @@ export default function ProcessingPage() {
                         {!job.seen && (
                           <Badge className="bg-emerald-500 text-white text-[10px]">New</Badge>
                         )}
-                        <Link href={`/agreements/upload?job_id=${job.id}`}>
+                        <Link href={`/agreements/upload?job_id=${job.id}`} onClick={() => handleMarkSeen(job.id)}>
                           <Button size="sm" variant="outline" className="gap-1 text-xs h-7">
                             View Results
                             <ArrowRight className="h-3 w-3" />
