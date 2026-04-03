@@ -325,7 +325,6 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
         // Since we stripped non-alphanumeric, we need to map normalized positions to original spans
         // Simpler approach: find spans whose normalized text overlaps the match
         let charCount = 0;
-        let scrolledToFirst = false;
         const matchingSpans: Element[] = [];
 
         for (const { span } of spanMap) {
