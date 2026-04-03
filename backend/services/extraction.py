@@ -1939,7 +1939,7 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
                             images = pdf_bytes_to_images(file_bytes)
                         if images:
                             # Only extract bboxes for first 5 pages to save time
-                            bbox_images = images[:5]
+                            bbox_images = images  # All pages for complete highlighting
                             bbox_result = extract_text_with_bboxes(bbox_images)
                             ocr_pages = bbox_result.get("pages", [])
                             print(f"[PROCESS] BBox extraction: {sum(len(p.get('words', [])) for p in ocr_pages)} words across {len(ocr_pages)} pages (of {len(images)} total)")

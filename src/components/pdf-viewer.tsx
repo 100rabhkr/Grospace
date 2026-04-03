@@ -104,44 +104,111 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
           if (ocrPages && ocrPages.length > 0) {
             const ocrPage = ocrPages.find((p) => p.page_number === pageNumber);
             if (ocrPage && ocrPage.words.length > 0) {
-              // Clear previous highlights
               pageEl.querySelectorAll(".source-highlight").forEach((el) => el.remove());
-              const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, " ").replace(/\s+/g, " ").trim();
+              const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
               const rawQuote = normalize(activeQuote);
-              const wordTexts = ocrPage.words.map((w) => normalize(w.text));
+              const words = ocrPage.words;
+              const wordTexts = words.map((w) => normalize(w.text));
               const joined = wordTexts.join(" ");
-              let ocrMatchIdx = -1;
-              for (const len of [rawQuote.length, 60, 40, 25, 15]) {
+
+              // Strategy 1: Full prefix match (progressively shorter)
+              let startWordIdx = -1;
+              for (const len of [rawQuote.length, 80, 60, 40, 30, 20, 12, 8]) {
                 if (rawQuote.length < len) continue;
-                ocrMatchIdx = joined.indexOf(rawQuote.slice(0, len));
-                if (ocrMatchIdx !== -1) break;
+                const prefix = rawQuote.slice(0, len);
+                const idx = joined.indexOf(prefix);
+                if (idx !== -1) {
+                  let charPos = 0;
+                  startWordIdx = wordTexts.findIndex((wt) => {
+                    const start = charPos;
+                    charPos += wt.length + 1;
+                    return start <= idx && idx < charPos;
+                  });
+                  break;
+                }
               }
-              if (ocrMatchIdx !== -1) {
-                let charPos = 0;
-                const startWordIdx = wordTexts.findIndex((wt) => {
-                  const start = charPos;
-                  charPos += wt.length + 1;
-                  return start <= ocrMatchIdx && ocrMatchIdx < charPos;
-                });
-                if (startWordIdx >= 0) {
-                  const pageRect = pageEl.getBoundingClientRect();
-                  const renderedW = pageRect.width;
-                  const renderedH = pageRect.height;
-                  const endIdx = Math.min(startWordIdx + 25, ocrPage.words.length);
-                  for (let wi = startWordIdx; wi < endIdx; wi++) {
-                    const word = ocrPage.words[wi];
-                    const hl = document.createElement("div");
-                    hl.className = "source-highlight";
-                    hl.style.cssText = `position:absolute;left:${word.bbox.x*renderedW}px;top:${word.bbox.y*renderedH}px;width:${word.bbox.w*renderedW}px;height:${word.bbox.h*renderedH}px;background:rgba(59,130,246,0.3);border-radius:2px;pointer-events:none;z-index:5;`;
-                    pageEl.appendChild(hl);
-                    if (wi === startWordIdx) {
-                      const container = containerRef.current;
-                      if (container) {
-                        const scrollTop = container.scrollTop + (word.bbox.y * renderedH) - pageRect.height / 3;
-                        container.scrollTo({ top: scrollTop, behavior: "smooth" });
-                      }
-                    }
+
+              // Strategy 2: Match any 3 consecutive words from the quote
+              if (startWordIdx === -1) {
+                const quoteWords = rawQuote.split(" ").filter(w => w.length > 2);
+                for (let qi = 0; qi <= quoteWords.length - 3; qi++) {
+                  const chunk = quoteWords.slice(qi, qi + 3).join(" ");
+                  const idx = joined.indexOf(chunk);
+                  if (idx !== -1) {
+                    let charPos = 0;
+                    startWordIdx = wordTexts.findIndex((wt) => {
+                      const start = charPos;
+                      charPos += wt.length + 1;
+                      return start <= idx && idx < charPos;
+                    });
+                    break;
                   }
+                }
+              }
+
+              // Strategy 3: Match the first significant word (>4 chars) from the quote
+              if (startWordIdx === -1) {
+                const firstSigWord = rawQuote.split(" ").find(w => w.length > 4);
+                if (firstSigWord) {
+                  startWordIdx = wordTexts.findIndex((wt) => wt.includes(firstSigWord));
+                }
+              }
+
+              if (startWordIdx >= 0) {
+                const pageRect = pageEl.getBoundingClientRect();
+                const renderedW = pageRect.width;
+                const renderedH = pageRect.height;
+                const endIdx = Math.min(startWordIdx + 25, words.length);
+
+                // Calculate bounding box around ALL matched words
+                let minX = Infinity, minY = Infinity, maxX = 0, maxY = 0;
+                for (let wi = startWordIdx; wi < endIdx; wi++) {
+                  const w = words[wi];
+                  minX = Math.min(minX, w.bbox.x);
+                  minY = Math.min(minY, w.bbox.y);
+                  maxX = Math.max(maxX, w.bbox.x + w.bbox.w);
+                  maxY = Math.max(maxY, w.bbox.y + w.bbox.h);
+                }
+
+                // Add padding
+                const pad = 0.008;
+                minX = Math.max(0, minX - pad);
+                minY = Math.max(0, minY - pad);
+                maxX = Math.min(1, maxX + pad);
+                maxY = Math.min(1, maxY + pad);
+
+                // Create spotlight window
+                const spotlight = document.createElement("div");
+                spotlight.className = "source-highlight";
+                spotlight.style.cssText = `
+                  position: absolute;
+                  left: ${minX * renderedW}px;
+                  top: ${minY * renderedH}px;
+                  width: ${(maxX - minX) * renderedW}px;
+                  height: ${(maxY - minY) * renderedH}px;
+                  background: rgba(59, 130, 246, 0.08);
+                  border: 2px solid rgba(59, 130, 246, 0.6);
+                  border-radius: 6px;
+                  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1), 0 0 20px rgba(59, 130, 246, 0.15);
+                  pointer-events: none;
+                  z-index: 5;
+                  animation: highlightPulse 2s ease-in-out infinite;
+                `;
+                pageEl.appendChild(spotlight);
+
+                // Add CSS animation if not already present
+                if (!document.getElementById("highlight-pulse-style")) {
+                  const style = document.createElement("style");
+                  style.id = "highlight-pulse-style";
+                  style.textContent = "@keyframes highlightPulse { 0%,100% { box-shadow: 0 0 0 4px rgba(59,130,246,0.1), 0 0 20px rgba(59,130,246,0.15); } 50% { box-shadow: 0 0 0 6px rgba(59,130,246,0.15), 0 0 30px rgba(59,130,246,0.2); } }";
+                  document.head.appendChild(style);
+                }
+
+                // Scroll to highlight
+                const container = containerRef.current;
+                if (container) {
+                  const scrollTop = container.scrollTop + (minY * renderedH) - pageRect.height / 3;
+                  container.scrollTo({ top: scrollTop, behavior: "smooth" });
                 }
               }
             }
@@ -272,33 +339,49 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
           charCount = spanEnd + 1; // +1 for the space between spans
         }
 
-        // Highlight matching spans — Leasecake-style teal/green background on text
-        const layerRect = textLayer.getBoundingClientRect();
-        for (const span of matchingSpans) {
-          const rect = span.getBoundingClientRect();
-          const highlight = document.createElement("div");
-          highlight.className = "source-highlight";
-          highlight.style.cssText = `
+        // Spotlight window around all matching spans
+        if (matchingSpans.length > 0) {
+          const layerRect = textLayer.getBoundingClientRect();
+          let minX = Infinity, minY = Infinity, maxX = 0, maxY = 0;
+          for (const span of matchingSpans) {
+            const rect = span.getBoundingClientRect();
+            minX = Math.min(minX, rect.left - layerRect.left);
+            minY = Math.min(minY, rect.top - layerRect.top);
+            maxX = Math.max(maxX, rect.right - layerRect.left);
+            maxY = Math.max(maxY, rect.bottom - layerRect.top);
+          }
+
+          const pad = 6;
+          const spotlight = document.createElement("div");
+          spotlight.className = "source-highlight";
+          spotlight.style.cssText = `
             position: absolute;
-            left: ${rect.left - layerRect.left - 2}px;
-            top: ${rect.top - layerRect.top - 1}px;
-            width: ${rect.width + 4}px;
-            height: ${rect.height + 2}px;
-            background: rgba(16, 185, 129, 0.25);
+            left: ${minX - pad}px;
+            top: ${minY - pad}px;
+            width: ${maxX - minX + pad * 2}px;
+            height: ${maxY - minY + pad * 2}px;
+            background: rgba(59, 130, 246, 0.08);
+            border: 2px solid rgba(59, 130, 246, 0.6);
+            border-radius: 6px;
+            box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1), 0 0 20px rgba(59, 130, 246, 0.15);
             pointer-events: none;
             z-index: 5;
+            animation: highlightPulse 2s ease-in-out infinite;
           `;
-          textLayer.appendChild(highlight);
+          textLayer.appendChild(spotlight);
 
-          if (!scrolledToFirst) {
-            scrolledToFirst = true;
-            const container = containerRef.current;
-            if (container) {
-              const spanRect = span.getBoundingClientRect();
-              const containerRect = container.getBoundingClientRect();
-              const scrollTop = container.scrollTop + (spanRect.top - containerRect.top) - containerRect.height / 2;
-              container.scrollTo({ top: scrollTop, behavior: "smooth" });
-            }
+          if (!document.getElementById("highlight-pulse-style")) {
+            const style = document.createElement("style");
+            style.id = "highlight-pulse-style";
+            style.textContent = "@keyframes highlightPulse { 0%,100% { box-shadow: 0 0 0 4px rgba(59,130,246,0.1), 0 0 20px rgba(59,130,246,0.15); } 50% { box-shadow: 0 0 0 6px rgba(59,130,246,0.15), 0 0 30px rgba(59,130,246,0.2); } }";
+            document.head.appendChild(style);
+          }
+
+          const container = containerRef.current;
+          if (container) {
+            const containerRect = container.getBoundingClientRect();
+            const scrollTop = container.scrollTop + (minY - containerRect.height / 3);
+            container.scrollTo({ top: scrollTop, behavior: "smooth" });
           }
         }
       };
