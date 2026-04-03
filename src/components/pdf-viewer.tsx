@@ -88,13 +88,64 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
     useEffect(() => {
       if (!activeQuote || !containerRef.current) return;
 
-      // Wait for text layer to render, then retry up to 3 times
+      // Wait for page to render, then try highlighting
       let attempts = 0;
       const tryHighlight = () => {
         attempts++;
         const textLayer = containerRef.current?.querySelector(".react-pdf__Page__textContent");
-        if (!textLayer) {
+        const pageEl = containerRef.current?.querySelector(".react-pdf__Page");
+        if (!pageEl) {
           if (attempts < 4) setTimeout(tryHighlight, 500);
+          return;
+        }
+        // If no text layer (scanned PDF), skip directly to bbox fallback
+        if (!textLayer || textLayer.querySelectorAll("span").length === 0) {
+          // Use OCR bbox highlighting for scanned documents
+          if (ocrPages && ocrPages.length > 0) {
+            const ocrPage = ocrPages.find((p) => p.page_number === pageNumber);
+            if (ocrPage && ocrPage.words.length > 0) {
+              // Clear previous highlights
+              pageEl.querySelectorAll(".source-highlight").forEach((el) => el.remove());
+              const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, " ").replace(/\s+/g, " ").trim();
+              const rawQuote = normalize(activeQuote);
+              const wordTexts = ocrPage.words.map((w) => normalize(w.text));
+              const joined = wordTexts.join(" ");
+              let ocrMatchIdx = -1;
+              for (const len of [rawQuote.length, 60, 40, 25, 15]) {
+                if (rawQuote.length < len) continue;
+                ocrMatchIdx = joined.indexOf(rawQuote.slice(0, len));
+                if (ocrMatchIdx !== -1) break;
+              }
+              if (ocrMatchIdx !== -1) {
+                let charPos = 0;
+                const startWordIdx = wordTexts.findIndex((wt) => {
+                  const start = charPos;
+                  charPos += wt.length + 1;
+                  return start <= ocrMatchIdx && ocrMatchIdx < charPos;
+                });
+                if (startWordIdx >= 0) {
+                  const pageRect = pageEl.getBoundingClientRect();
+                  const renderedW = pageRect.width;
+                  const renderedH = pageRect.height;
+                  const endIdx = Math.min(startWordIdx + 25, ocrPage.words.length);
+                  for (let wi = startWordIdx; wi < endIdx; wi++) {
+                    const word = ocrPage.words[wi];
+                    const hl = document.createElement("div");
+                    hl.className = "source-highlight";
+                    hl.style.cssText = `position:absolute;left:${word.bbox.x*renderedW}px;top:${word.bbox.y*renderedH}px;width:${word.bbox.w*renderedW}px;height:${word.bbox.h*renderedH}px;background:rgba(59,130,246,0.3);border-radius:2px;pointer-events:none;z-index:5;`;
+                    pageEl.appendChild(hl);
+                    if (wi === startWordIdx) {
+                      const container = containerRef.current;
+                      if (container) {
+                        const scrollTop = container.scrollTop + (word.bbox.y * renderedH) - pageRect.height / 3;
+                        container.scrollTo({ top: scrollTop, behavior: "smooth" });
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
           return;
         }
 
