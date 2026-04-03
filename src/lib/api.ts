@@ -5,7 +5,7 @@
 
 import { createClient } from "@/lib/supabase/client";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 async function getAuthToken(): Promise<string | null> {
   try {
