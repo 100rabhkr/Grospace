@@ -44,7 +44,7 @@ async function apiFetch(endpoint: string, options: RequestInit = {}) {
 
   const isLongRunning = LONG_TIMEOUT_PATTERNS.some((p) => endpoint.startsWith(p));
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), isLongRunning ? 600000 : 15000);
+  const timeoutId = setTimeout(() => controller.abort(), isLongRunning ? 600000 : 60000);
 
   let response: Response;
   try {
