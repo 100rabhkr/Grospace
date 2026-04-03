@@ -199,6 +199,8 @@ def bulk_mark_paid(body: BulkMarkPaidRequest):
     if body.payment_ids:
         for pid in body.payment_ids:
             rec = supabase.table("payment_records").select("due_amount").eq("id", pid).single().execute()
+            if not rec.data:
+                continue
             supabase.table("payment_records").update({
                 "status": "paid",
                 "paid_amount": rec.data.get("due_amount", 0),

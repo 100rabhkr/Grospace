@@ -54,7 +54,7 @@ _LONG_TIMEOUT_PATHS = {
 class TimeoutMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
-        timeout = 180.0 if any(path.startswith(p) for p in _LONG_TIMEOUT_PATHS) else 30.0
+        timeout = 600.0 if any(path.startswith(p) for p in _LONG_TIMEOUT_PATHS) else 30.0
         try:
             return await asyncio.wait_for(call_next(request), timeout=timeout)
         except asyncio.TimeoutError:

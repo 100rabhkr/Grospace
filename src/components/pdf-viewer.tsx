@@ -2,8 +2,8 @@
 
 import { useState, useCallback, useEffect, useRef, useImperativeHandle, forwardRef } from "react";
 import { Document, Page, pdfjs } from "react-pdf";
-import "react-pdf/dist/Page/AnnotationLayer.css";
-import "react-pdf/dist/Page/TextLayer.css";
+import "react-pdf/dist/esm/Page/AnnotationLayer.css";
+import "react-pdf/dist/esm/Page/TextLayer.css";
 import { Button } from "@/components/ui/button";
 import {
   ChevronLeft,
@@ -37,6 +37,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
     const [scale, setScale] = useState(1.0);
     const [error, setError] = useState<string | null>(null);
     const [activeQuote, setActiveQuote] = useState<string | null>(highlightQuote || null);
+    const [highlightTrigger, setHighlightTrigger] = useState(0);
     const containerRef = useRef<HTMLDivElement>(null);
 
     // Expose imperative methods for parent components
@@ -59,31 +60,44 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
 
     // Respond to external activePage changes
     useEffect(() => {
-      if (activePage && activePage !== pageNumber && activePage <= numPages) {
+      if (activePage && activePage <= (numPages || activePage)) {
         setPageNumber(activePage);
       }
     }, [activePage, numPages]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Respond to external highlightQuote changes
+    // Respond to external highlightQuote changes — always force re-trigger
     useEffect(() => {
       setActiveQuote(highlightQuote || null);
+      setHighlightTrigger((t) => t + 1);
     }, [highlightQuote]);
 
     // Highlight matching text in the rendered page after render
     useEffect(() => {
       if (!activeQuote || !containerRef.current) return;
 
-      // Wait for text layer to render
-      const timer = setTimeout(() => {
+      // Wait for text layer to render, then retry up to 3 times
+      let attempts = 0;
+      const tryHighlight = () => {
+        attempts++;
         const textLayer = containerRef.current?.querySelector(".react-pdf__Page__textContent");
-        if (!textLayer) return;
+        if (!textLayer) {
+          if (attempts < 4) setTimeout(tryHighlight, 500);
+          return;
+        }
 
         // Clear previous highlights
         textLayer.querySelectorAll(".source-highlight").forEach((el) => el.remove());
 
         // Find matching text spans
         const spans = Array.from(textLayer.querySelectorAll("span"));
-        const normalizedQuote = activeQuote.toLowerCase().replace(/\s+/g, " ").trim();
+        if (spans.length === 0 && attempts < 4) {
+          setTimeout(tryHighlight, 500);
+          return;
+        }
+
+        // Normalize: collapse whitespace, remove special chars for fuzzy matching
+        const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, " ").replace(/\s+/g, " ").trim();
+        const rawQuote = normalize(activeQuote);
 
         // Build concatenated text with span mapping
         let fullText = "";
@@ -95,42 +109,80 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
           spanMap.push({ start, end: start + text.length, span });
         }
 
-        const normalizedFull = fullText.toLowerCase().replace(/\s+/g, " ");
-        const matchIdx = normalizedFull.indexOf(normalizedQuote);
+        const normalizedFull = normalize(fullText);
+
+        // Try progressively shorter prefixes of the quote
+        let matchIdx = -1;
+        let matchLen = 0;
+        const tryLengths = [rawQuote.length, 100, 60, 40, 25];
+        for (const len of tryLengths) {
+          if (rawQuote.length < len) continue;
+          const prefix = rawQuote.slice(0, len);
+          const idx = normalizedFull.indexOf(prefix);
+          if (idx !== -1) {
+            matchIdx = idx;
+            matchLen = prefix.length;
+            break;
+          }
+        }
 
         if (matchIdx === -1) return;
 
-        // Find which spans overlap the match
-        const matchEnd = matchIdx + normalizedQuote.length;
-        for (const { start, end, span } of spanMap) {
-          if (end > matchIdx && start < matchEnd) {
-            const rect = span.getBoundingClientRect();
-            const layerRect = textLayer.getBoundingClientRect();
+        // Map back to original positions — find spans that overlap
+        // Since we stripped non-alphanumeric, we need to map normalized positions to original spans
+        // Simpler approach: find spans whose normalized text overlaps the match
+        let charCount = 0;
+        let scrolledToFirst = false;
+        const matchingSpans: Element[] = [];
 
-            const highlight = document.createElement("div");
-            highlight.className = "source-highlight";
-            highlight.style.cssText = `
-              position: absolute;
-              left: ${rect.left - layerRect.left}px;
-              top: ${rect.top - layerRect.top}px;
-              width: ${rect.width}px;
-              height: ${rect.height}px;
-              background: rgba(59, 130, 246, 0.25);
-              border-bottom: 2px solid rgb(59, 130, 246);
-              pointer-events: none;
-              z-index: 5;
-              transition: opacity 0.3s;
-            `;
-            textLayer.appendChild(highlight);
+        for (const { span } of spanMap) {
+          const spanNorm = normalize(span.textContent || "");
+          if (spanNorm.length === 0) continue;
+          const spanEnd = charCount + spanNorm.length;
+          // Check if this span's normalized text overlaps with match region
+          if (spanEnd > matchIdx && charCount < matchIdx + matchLen) {
+            matchingSpans.push(span);
+          }
+          charCount = spanEnd + 1; // +1 for the space between spans
+        }
 
-            // Scroll highlight into view
-            span.scrollIntoView({ behavior: "smooth", block: "center" });
+        // Highlight matching spans
+        const layerRect = textLayer.getBoundingClientRect();
+        for (const span of matchingSpans) {
+          const rect = span.getBoundingClientRect();
+          const highlight = document.createElement("div");
+          highlight.className = "source-highlight";
+          highlight.style.cssText = `
+            position: absolute;
+            left: ${rect.left - layerRect.left - 2}px;
+            top: ${rect.top - layerRect.top - 1}px;
+            width: ${rect.width + 4}px;
+            height: ${rect.height + 2}px;
+            background: rgba(250, 204, 21, 0.45);
+            border: 2px solid rgba(234, 179, 8, 0.7);
+            border-radius: 3px;
+            pointer-events: none;
+            z-index: 5;
+            box-shadow: 0 0 8px rgba(234, 179, 8, 0.3);
+          `;
+          textLayer.appendChild(highlight);
+
+          if (!scrolledToFirst) {
+            scrolledToFirst = true;
+            const container = containerRef.current;
+            if (container) {
+              const spanRect = span.getBoundingClientRect();
+              const containerRect = container.getBoundingClientRect();
+              const scrollTop = container.scrollTop + (spanRect.top - containerRect.top) - containerRect.height / 2;
+              container.scrollTo({ top: scrollTop, behavior: "smooth" });
+            }
           }
         }
-      }, 500);
+      };
+      const timer = setTimeout(tryHighlight, 600);
 
       return () => clearTimeout(timer);
-    }, [activeQuote, pageNumber]);
+    }, [activeQuote, pageNumber, highlightTrigger]);
 
     const onDocumentLoadSuccess = useCallback(
       ({ numPages: n }: { numPages: number }) => {

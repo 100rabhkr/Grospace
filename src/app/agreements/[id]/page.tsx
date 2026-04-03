@@ -25,6 +25,8 @@ import {
   Sparkles,
   Check,
   CheckSquare,
+  Rocket,
+  Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -39,7 +41,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { getAgreement, askDocumentQuestion, updateAgreement } from "@/lib/api";
+import { getAgreement, askDocumentQuestion, updateAgreement, confirmAndActivate } from "@/lib/api";
 import dynamic from "next/dynamic";
 const PdfViewer = dynamic(() => import("@/components/pdf-viewer").then(mod => ({ default: mod.PdfViewer })), { ssr: false, loading: () => <div className="flex items-center justify-center h-64 text-sm text-muted-foreground">Loading PDF viewer...</div> });
 import { EditableField } from "@/components/editable-field";
@@ -350,6 +352,9 @@ export default function AgreementDetailPage() {
   const [qaSessionId, setQaSessionId] = useState<string | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
+  // Activate draft state
+  const [activating, setActivating] = useState(false);
+
   // Inline editing state
   const [editedFields, setEditedFields] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -379,6 +384,67 @@ export default function AgreementDetailPage() {
     setEditedFields({});
   }
 
+  /** Export extracted data + risk flags as a downloadable CSV/text summary */
+  function handleExportReview() {
+    if (!agreement) return;
+    const lines: string[] = [];
+    lines.push("DRAFT LEASE REVIEW EXPORT");
+    lines.push(`Agreement ID: ${agreement.id}`);
+    lines.push(`Type: ${agreement.type}`);
+    lines.push(`Status: ${agreement.status}`);
+    lines.push(`Document: ${agreement.document_filename}`);
+    if (agreement.lessor_name) lines.push(`Lessor: ${agreement.lessor_name}`);
+    if (agreement.lessee_name) lines.push(`Lessee: ${agreement.lessee_name}`);
+    if (agreement.brand_name) lines.push(`Brand: ${agreement.brand_name}`);
+    if (agreement.lease_commencement_date) lines.push(`Commencement: ${agreement.lease_commencement_date}`);
+    if (agreement.lease_expiry_date) lines.push(`Expiry: ${agreement.lease_expiry_date}`);
+    if (agreement.monthly_rent != null) lines.push(`Monthly Rent: ${agreement.monthly_rent}`);
+    if (agreement.cam_monthly != null) lines.push(`CAM Monthly: ${agreement.cam_monthly}`);
+    if (agreement.total_monthly_outflow != null) lines.push(`Total Monthly Outflow: ${agreement.total_monthly_outflow}`);
+    if (agreement.security_deposit != null) lines.push(`Security Deposit: ${agreement.security_deposit}`);
+    lines.push("");
+
+    // Extracted data sections
+    const data = agreement.extracted_data;
+    if (data && typeof data === "object") {
+      lines.push("--- EXTRACTED DATA ---");
+      for (const [section, fields] of Object.entries(data)) {
+        if (section === "health_score") continue;
+        if (typeof fields === "object" && fields !== null) {
+          lines.push("");
+          lines.push(`[${section.replace(/_/g, " ").toUpperCase()}]`);
+          for (const [key, val] of Object.entries(fields as Record<string, unknown>)) {
+            const { displayVal } = parseField(val);
+            lines.push(`${formatFieldLabel(key)}: ${displayVal}`);
+          }
+        }
+      }
+      lines.push("");
+    }
+
+    // Risk flags
+    const flags = agreement.risk_flags || [];
+    lines.push("--- RISK FLAGS ---");
+    if (flags.length === 0) {
+      lines.push("No risk flags detected.");
+    } else {
+      for (const flag of flags) {
+        lines.push(`[${flag.severity.toUpperCase()}] ${flag.name}: ${flag.explanation}`);
+        if (flag.clause_text) lines.push(`  Clause: ${flag.clause_text}`);
+      }
+    }
+
+    const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `draft-review-${agreement.id.slice(0, 8)}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
   async function saveEdits() {
     if (!agreement || !hasEdits) return;
     setSaving(true);
@@ -392,6 +458,30 @@ export default function AgreementDetailPage() {
       alert(err instanceof Error ? err.message : "Failed to save changes");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleActivate() {
+    if (!agreement) return;
+    setActivating(true);
+    try {
+      await confirmAndActivate({
+        extraction: (agreement.extracted_data as Record<string, unknown>) || {},
+        document_type: agreement.type,
+        risk_flags: agreement.risk_flags || [],
+        confidence: {},
+        filename: agreement.document_filename,
+        document_text: null,
+        document_url: agreement.document_url,
+      });
+      // Refresh agreement data after activation
+      const data = await getAgreement(agreementId);
+      setAgreement(data.agreement || null);
+      setObligations(data.obligations || []);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to activate agreement");
+    } finally {
+      setActivating(false);
     }
   }
 
@@ -618,6 +708,32 @@ export default function AgreementDetailPage() {
               >
                 {statusLabel(agreement.status)}
               </Badge>
+              {agreement.status === "draft" && (
+                <>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 gap-1 text-xs"
+                    onClick={handleExportReview}
+                  >
+                    <Download className="h-3 w-3" />
+                    Export Review
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="h-6 gap-1 text-xs"
+                    onClick={handleActivate}
+                    disabled={activating}
+                  >
+                    {activating ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Rocket className="h-3 w-3" />
+                    )}
+                    {activating ? "Activating…" : "Activate Agreement"}
+                  </Button>
+                </>
+              )}
               {riskFlags.length > 0 && (
                 <Badge
                   className={`${
@@ -701,7 +817,7 @@ export default function AgreementDetailPage() {
           </TabsTrigger>
           <TabsTrigger value="qa" className="gap-1.5 text-xs sm:text-sm">
             <MessageSquare className="h-3.5 w-3.5 hidden sm:block" />
-            Grow AI
+            Gro AI
           </TabsTrigger>
         </TabsList>
 
@@ -921,7 +1037,7 @@ export default function AgreementDetailPage() {
                   No Risk Flags Detected
                 </h3>
                 <p className="text-sm text-muted-foreground">
-                  Grow AI analysis did not detect any risk flags in this
+                  Gro AI analysis did not detect any risk flags in this
                   agreement.
                 </p>
               </CardContent>
@@ -1093,7 +1209,7 @@ export default function AgreementDetailPage() {
           </Card>
         </TabsContent>
 
-        {/* Grow AI Tab */}
+        {/* Gro AI Tab */}
         <TabsContent value="qa">
           <Card className="flex flex-col h-[calc(100vh-280px)] sm:h-[calc(100vh-340px)] min-h-[500px]">
             {/* Chat Header */}
@@ -1103,7 +1219,7 @@ export default function AgreementDetailPage() {
                 Ask questions about this agreement
               </span>
               <Badge variant="secondary" className="text-xs ml-auto">
-                Powered by Grow AI
+                Powered by Gro AI
               </Badge>
               {chatMessages.length > 0 && (
                 <button
@@ -1126,7 +1242,7 @@ export default function AgreementDetailPage() {
                 </div>
                 <div className="flex-1">
                   <p className="text-xs text-muted-foreground mb-1">
-                    Grow AI
+                    Gro AI
                   </p>
                   <div className="bg-muted rounded-lg rounded-tl-none p-3 max-w-[85%]">
                     <p className="text-sm">
@@ -1176,7 +1292,7 @@ export default function AgreementDetailPage() {
                   )}
                   <div className="flex-1">
                     <p className="text-xs text-muted-foreground mb-1">
-                      {msg.role === "assistant" ? "Grow AI" : "You"}
+                      {msg.role === "assistant" ? "Gro AI" : "You"}
                     </p>
                     <div
                       className={`rounded-lg p-3 max-w-[85%] ${
@@ -1219,7 +1335,7 @@ export default function AgreementDetailPage() {
                   </div>
                   <div className="flex-1">
                     <p className="text-xs text-muted-foreground mb-1">
-                      Grow AI
+                      Gro AI
                     </p>
                     <div className="bg-muted rounded-lg rounded-tl-none p-3 max-w-[85%]">
                       <div className="flex items-center gap-2 text-sm text-muted-foreground">

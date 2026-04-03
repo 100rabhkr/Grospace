@@ -286,7 +286,7 @@ export default function PipelinePage() {
   return (
     <div className="space-y-4 animate-fade-in">
       {/* Header */}
-      <PageHeader title="Pipeline (Beta)" description={`${totalLeads} lead${totalLeads !== 1 ? "s" : ""} across ${STAGES.length} stages`}>
+      <PageHeader title={<span className="flex items-center gap-2">Pipeline <Badge variant="outline" className="text-[10px] font-medium bg-amber-50 text-amber-700 border-amber-200">Beta</Badge></span>} description={`${totalLeads} lead${totalLeads !== 1 ? "s" : ""} across ${STAGES.length} stages`}>
         <div className="flex items-center gap-2">
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />

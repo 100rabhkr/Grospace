@@ -41,7 +41,7 @@ function hasAccess(userRole: UserRole, minRole?: UserRole): boolean {
 const navItems: { label: string; href: string; icon: typeof LayoutDashboard; minRole?: UserRole }[] = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
   { label: "Map View", href: "/map", icon: Map },
-  { label: "Grow AI", href: "/ai-assistant", icon: Bot },
+  { label: "Gro AI", href: "/ai-assistant", icon: Bot },
   { label: "Outlets", href: "/outlets", icon: Store },
   { label: "Agreements", href: "/agreements", icon: FileText },
   { label: "Upload Documents", href: "/agreements/upload", icon: FileText, minRole: "org_admin" },

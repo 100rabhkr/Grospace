@@ -28,6 +28,35 @@ router = APIRouter(prefix="/api", tags=["admin"])
 
 
 # ============================================
+# USAGE LOGGING
+# ============================================
+
+@router.post("/admin/log-usage")
+async def log_usage(request: Request, user: Optional[CurrentUser] = Depends(get_current_user)):
+    """Log usage event to activity_log table."""
+    body = await request.json() if request else {}
+    action = body.get("action", "unknown")
+    metadata = body.get("metadata")
+
+    try:
+        org_id = user.org_id if user else None
+        user_id = user.id if user else None
+        supabase.table("activity_log").insert({
+            "id": str(uuid.uuid4()),
+            "org_id": org_id,
+            "user_id": user_id,
+            "entity_type": "usage",
+            "entity_id": None,
+            "action": action,
+            "details": metadata,
+        }).execute()
+    except Exception:
+        pass
+
+    return {"status": "ok"}
+
+
+# ============================================
 # SIGNUP REQUEST / APPROVAL ENDPOINTS
 # ============================================
 
@@ -117,6 +146,8 @@ def list_organizations(
 def create_organization(name: str = Form(...)):
     """Create a new organization."""
     result = supabase.table("organizations").insert({"id": str(uuid.uuid4()), "name": name}).execute()
+    if not result.data:
+        raise HTTPException(status_code=500, detail="Failed to create organization")
     return {"organization": result.data[0]}
 
 
@@ -253,19 +284,23 @@ async def dashboard_stats():
     """Get dashboard statistics."""
     # Run all sync Supabase queries in threads to avoid blocking the event loop
     outlets, agreements, _, alerts, payments = await asyncio.gather(
-        asyncio.to_thread(lambda: supabase.table("outlets").select("id, name, status, city, property_type, franchise_model, monthly_net_revenue, deal_stage").execute()),
+        asyncio.to_thread(lambda: supabase.table("outlets").select("id, name, status, city, property_type, franchise_model, monthly_net_revenue, deal_stage").is_("deleted_at", "null").execute()),
         asyncio.to_thread(lambda: supabase.table("agreements").select("id, outlet_id, type, status, monthly_rent, cam_monthly, total_monthly_outflow, lease_expiry_date, extracted_data, risk_flags").execute()),
         asyncio.to_thread(lambda: supabase.table("obligations").select("id, type, amount, is_active").execute()),
         asyncio.to_thread(lambda: supabase.table("alerts").select("id, type, severity, status, trigger_date").execute()),
         asyncio.to_thread(lambda: supabase.table("payment_records").select("id, status, due_amount").execute()),
     )
 
+    # Filter agreements to only include those from non-deleted outlets
+    active_outlet_ids = {o["id"] for o in outlets.data}
+    agreements_data = [a for a in agreements.data if a.get("outlet_id") in active_outlet_ids]
+
     total_outlets = len(outlets.data)
-    total_agreements = len(agreements.data)
-    active_agreements = len([a for a in agreements.data if a.get("status") == "active"])
-    total_monthly_rent = sum(a.get("monthly_rent") or 0 for a in agreements.data)
-    total_monthly_outflow = sum(a.get("total_monthly_outflow") or 0 for a in agreements.data)
-    total_risk_flags = sum(len(a.get("risk_flags") or []) for a in agreements.data)
+    total_agreements = len(agreements_data)
+    active_agreements = len([a for a in agreements_data if a.get("status") == "active"])
+    total_monthly_rent = sum(a.get("monthly_rent") or 0 for a in agreements_data)
+    total_monthly_outflow = sum(a.get("total_monthly_outflow") or 0 for a in agreements_data)
+    total_risk_flags = sum(len(a.get("risk_flags") or []) for a in agreements_data)
     pending_alerts = len([a for a in alerts.data if a.get("status") == "pending"])
 
     overdue_payments = [p for p in (payments.data or []) if p.get("status") == "overdue"]
@@ -278,7 +313,7 @@ async def dashboard_stats():
 
     today = date.today()
     expiring = []
-    for a in agreements.data:
+    for a in agreements_data:
         try:
             if a.get("lease_expiry_date"):
                 days_left = (date.fromisoformat(a["lease_expiry_date"]) - today).days
@@ -291,7 +326,7 @@ async def dashboard_stats():
     expiring_licenses_30d = 0
     expiring_licenses_60d = 0
     expiring_licenses_90d = 0
-    for a in agreements.data:
+    for a in agreements_data:
         if a.get("type") != "license_certificate":
             continue
         extracted = a.get("extracted_data") or {}
@@ -320,7 +355,7 @@ async def dashboard_stats():
         statuses[s] = statuses.get(s, 0) + 1
 
     rent_by_outlet = {}
-    for a in agreements.data:
+    for a in agreements_data:
         oid = a.get("outlet_id")
         if oid:
             rent_by_outlet[oid] = a.get("monthly_rent") or 0
@@ -780,6 +815,8 @@ def create_pilot(req: CreatePilotRequest):
             "password": req.admin_password,
             "email_confirm": True,
         })
+        if not admin_user or not admin_user.user:
+            raise HTTPException(status_code=500, detail="Failed to create admin user")
         admin_user_id = admin_user.user.id
 
         # Set profile for admin
@@ -796,6 +833,8 @@ def create_pilot(req: CreatePilotRequest):
                 "password": req.ceo_password,
                 "email_confirm": True,
             })
+            if not ceo_user or not ceo_user.user:
+                raise HTTPException(status_code=500, detail="Failed to create CEO user")
             ceo_user_id = ceo_user.user.id
 
             supabase.table("profiles").update({
@@ -1406,10 +1445,26 @@ OVERDUE PAYMENTS:
 {overdue_json}
 
 
+LEASE RULES REFERENCE (India Commercial Leasing):
+- Lock-in: Brand lock-in should be 1-2 years. Longer creates risk.
+- Termination: Exit with 3-6 month notice. Avoid full lock-in penalty.
+- Force Majeure: Must cover pandemic, lockdown, govt restrictions. Rent waived during non-operational.
+- Rent Commencement: Only after store opening/operational readiness.
+- Fit-out: 30-90 days rent-free for setup.
+- Escalation: Standard 5-7% annually or 15% every 3 years. Above 10% is high.
+- CAM: Require transparency, audit rights, capped increases.
+- Security Deposit: Typically 3-6 months. Above 6 is high.
+- Exclusivity: Prevent leasing to direct competitors.
+- Co-tenancy (malls): Rent relief or exit if anchor tenants leave.
+- Rent Models: Fixed, Step-Up, Revenue Share (PRS), MG + Revenue Share, Hybrid MGLR.
+- Franchise: FOFO, FOCO, COCO, FICO.
+Always flag risks when lease terms deviate from these standards.
+
 Answer the user's question based on this data. Be specific with numbers, outlet names, and dates.
 Format your response in clear, readable text. Use bullet points for lists.
 If the user asks about escalation struggles, focus on which outlets have high escalation rates and what their impact is.
 If asked for recommendations, be actionable and specific.
+When analyzing lease terms, compare them against the LEASE RULES REFERENCE above and flag any deviations.
 
 IMPORTANT: If the user asks a general question about real estate, leasing, F&B operations, commercial property,
 licenses, compliance, or any business topic — answer it using your general knowledge even if the portfolio data

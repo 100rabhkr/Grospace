@@ -17,7 +17,6 @@ import {
   Kanban,
   Bot,
   Map,
-  Sparkles,
   RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -54,30 +53,21 @@ function hasAccess(userRole: UserRole, minRole?: UserRole): boolean {
 const navItems: NavItem[] = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
   { label: "Map View", href: "/map", icon: Map },
-  { label: "Grow AI", href: "/ai-assistant", icon: Bot },
-  {
-    label: "Outlets",
-    href: "/outlets",
-    icon: Store,
-    children: [
-      { label: "All Outlets", href: "/outlets" },
-      { label: "Create Outlet", href: "/outlets?create=true", minRole: "org_admin" },
-    ],
-  },
+  { label: "Gro AI", href: "/ai-assistant", icon: Bot },
+  { label: "Outlets", href: "/outlets", icon: Store },
   {
     label: "Agreements",
     href: "/agreements",
     icon: FileText,
     children: [
       { label: "All Agreements", href: "/agreements" },
-      { label: "Draft Review", href: "/agreements/upload", minRole: "org_admin" },
+      { label: "Upload Document", href: "/agreements/upload", minRole: "org_admin" },
     ],
   },
   { label: "Reminders", href: "/alerts", icon: Bell },
   { label: "Pipeline", href: "/pipeline", icon: Kanban, minRole: "org_admin" },
   { label: "Renewals", href: "/renewals", icon: RefreshCw, minRole: "org_admin" },
   { label: "Payments", href: "/payments", icon: Wallet },
-  { label: "Lease AI", href: "/leasebot", icon: Sparkles },
   { label: "Reports", href: "/reports", icon: BarChart3 },
   { label: "Settings", href: "/settings", icon: Settings, minRole: "org_admin" },
 ];
@@ -95,6 +85,7 @@ export function Sidebar() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
     Outlets: true,
     Agreements: true,
+    "Gro AI": true,
   });
 
   const userRole: UserRole = user?.role || "org_member";

@@ -38,6 +38,7 @@ class ConfirmActivateRequest(BaseModel):
     org_id: Optional[str] = None  # If None, use/create demo org
     document_text: Optional[str] = None  # Cached OCR/extracted text for Q&A
     document_url: Optional[str] = None  # URL to the uploaded document in storage
+    file_hash: Optional[str] = None  # SHA256 hash for duplicate detection
 
 
 class PaymentUpdateRequest(BaseModel):

@@ -33,6 +33,7 @@ import {
   Plus,
   Loader2,
   AlertTriangle,
+  Trash2,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 
@@ -314,6 +315,12 @@ export default function OutletsPage() {
           >
             {filteredOutlets.length} of {outlets.length}
           </Badge>
+          <Link href="/recycle-bin">
+            <Button variant="outline" size="sm" className="gap-1.5 text-xs text-muted-foreground">
+              <Trash2 className="h-3.5 w-3.5" />
+              Recycle Bin
+            </Button>
+          </Link>
           <Button
             className="bg-foreground text-white hover:bg-foreground/90"
             onClick={() => setShowCreateOutlet(true)}
@@ -486,6 +493,13 @@ export default function OutletsPage() {
                         </Badge>
                       </div>
                       <div className="flex items-center gap-2">
+                        <div className="h-8 w-8 rounded-md bg-muted overflow-hidden flex-shrink-0 flex items-center justify-center">
+                          {(outlet as unknown as Record<string, unknown>).profile_photo_url ? (
+                            <img src={(outlet as unknown as Record<string, unknown>).profile_photo_url as string} alt="" className="h-full w-full object-cover" />
+                          ) : (
+                            <Store className="h-4 w-4 text-muted-foreground/40" />
+                          )}
+                        </div>
                         <h3 className="text-base font-semibold text-foreground leading-tight">
                           {outlet.name}
                         </h3>
@@ -643,8 +657,15 @@ export default function OutletsPage() {
                       <TableCell>
                         <Link
                           href={`/outlets/${outlet.id}`}
-                          className="text-sm font-medium text-foreground hover:underline"
+                          className="flex items-center gap-2 text-sm font-medium text-foreground hover:underline"
                         >
+                          <div className="h-8 w-8 rounded-md bg-muted overflow-hidden flex-shrink-0 flex items-center justify-center">
+                            {(outlet as unknown as Record<string, unknown>).profile_photo_url ? (
+                              <img src={(outlet as unknown as Record<string, unknown>).profile_photo_url as string} alt="" className="h-full w-full object-cover" />
+                            ) : (
+                              <Store className="h-4 w-4 text-muted-foreground/40" />
+                            )}
+                          </div>
                           {outlet.name}
                         </Link>
                       </TableCell>

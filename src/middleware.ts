@@ -15,8 +15,14 @@ export async function middleware(request: NextRequest) {
       const redirect = request.nextUrl.searchParams.get("redirect");
       const url = request.nextUrl.clone();
       // Only allow relative paths to prevent open redirect attacks
-      url.pathname = (redirect && redirect.startsWith("/") && !redirect.startsWith("//")) ? redirect : "/";
-      url.search = "";
+      if (redirect && redirect.startsWith("/") && !redirect.startsWith("//")) {
+        const [path, query] = redirect.split("?");
+        url.pathname = path;
+        url.search = query ? `?${query}` : "";
+      } else {
+        url.pathname = "/";
+        url.search = "";
+      }
       return NextResponse.redirect(url);
     }
     // Demo user on any other page — allow through

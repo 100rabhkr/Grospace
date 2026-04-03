@@ -265,7 +265,7 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
     outlet_data = build_outlet_data(req.extraction, org_id)
     agreement_data = build_agreement_data(
         req.extraction, req.document_type, req.risk_flags, req.confidence,
-        req.filename, org_id, req.document_text, req.document_url,
+        req.filename, org_id, req.document_text, req.document_url, req.file_hash,
     )
     obligations_data = build_obligations_data(req.extraction, org_id)
     alerts_data = build_alerts_data(req.extraction, org_id)
@@ -397,6 +397,16 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
         else:
             raise HTTPException(status_code=500, detail=str(rpc_err))
 
+    # Get uploader name for sheets
+    uploader_name = None
+    try:
+        if 'user_result' in dir() and user_result and user_result.user:
+            profile = supabase.table("profiles").select("full_name, email").eq("id", user_result.user.id).single().execute()
+            if profile.data:
+                uploader_name = profile.data.get("full_name") or profile.data.get("email")
+    except Exception:
+        pass
+
     # Write to Google Sheets (non-blocking, outside transaction)
     try:
         premises = get_section(req.extraction, "premises")
@@ -442,6 +452,7 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
             risk_flags_count=len(req.risk_flags),
             status="active",
             document_filename=req.filename,
+            uploaded_by=uploader_name,
         )
     except Exception as sheets_err:
         logger.error(f"Google Sheets write failed: {sheets_err}")
@@ -478,17 +489,32 @@ def create_draft(body: ConfirmActivateRequest, request: Request):
             org_id = get_or_create_demo_org()
         extraction = body.extraction or {}
 
+        # Create a minimal placeholder outlet for the draft (outlet_id is NOT NULL in agreements)
+        from services.extraction import get_val, get_section
+        premises = get_section(extraction, "premises")
+        parties = get_section(extraction, "parties")
+        outlet_id = str(uuid.uuid4())
+        minimal_outlet = {
+            "id": outlet_id,
+            "org_id": org_id,
+            "name": get_val(premises.get("property_name")) or get_val(parties.get("brand_name")) or "Draft Outlet",
+            "status": "fit_out",
+        }
+        supabase.table("outlets").insert(minimal_outlet).execute()
+
         # Create a minimal agreement record in draft status
         agreement_data = {
             "id": str(uuid.uuid4()),
             "org_id": org_id,
+            "outlet_id": outlet_id,
             "type": body.document_type or "lease_loi",
             "extracted_data": extraction,
             "risk_flags": [rf.dict() if hasattr(rf, "dict") else rf for rf in (body.risk_flags or [])],
-            "confidence": body.confidence or {},
-            "filename": body.filename or "unknown",
+            "extraction_confidence": body.confidence or {},
+            "document_filename": body.filename or "unknown",
             "document_text": body.document_text,
             "document_url": body.document_url,
+            "file_hash": body.file_hash,
             "status": "draft",
         }
 
@@ -500,6 +526,9 @@ def create_draft(body: ConfirmActivateRequest, request: Request):
 
         log_activity(
             org_id=org_id,
+            user_id=None,
+            entity_type="agreement",
+            entity_id=agreement_id,
             action="create_draft",
             details={"agreement_id": agreement_id, "filename": body.filename},
         )

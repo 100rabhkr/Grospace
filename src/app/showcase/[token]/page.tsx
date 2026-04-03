@@ -333,7 +333,7 @@ export default function ShowcasePage() {
         {/* Footer */}
         <div className="text-center py-6 border-t border-border">
           <p className="text-xs text-foreground/40">
-            Powered by Grow AI &middot; AI-first Lease Management
+            Powered by Gro AI &middot; AI-first Lease Management
           </p>
         </div>
       </div>

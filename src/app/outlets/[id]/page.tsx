@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { getOutlet, updateOutlet, updateAgreement, getActivityLog, listShowcases, createShowcase, updateShowcase, uploadOutletDocument, deleteDocument, listOutletContacts, addOutletContact, updateContact, deleteContact, calculateMGLR, uploadOutletPhoto, listOutletPhotos, deleteOutletPhoto, uploadRevenueCSV } from "@/lib/api";
+import { getOutlet, updateOutlet, getActivityLog, listShowcases, createShowcase, updateShowcase, uploadOutletDocument, deleteDocument, listOutletContacts, addOutletContact, updateContact, deleteContact, uploadRevenueCSV } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -42,12 +42,10 @@ import {
   Pencil,
   Phone,
   Mail,
-  Calculator,
   TrendingUp,
   ArrowUpDown,
-  ImageIcon,
-  X,
   Camera,
+  Store,
   FileUp,
   Eye,
   CheckCircle2,
@@ -55,6 +53,7 @@ import {
   Info,
   Percent,
   ChevronRight,
+  CalendarClock,
 } from "lucide-react";
 import {
   Dialog,
@@ -72,11 +71,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Timeline } from "@/components/timeline";
+import { useUser } from "@/lib/hooks/use-user";
 import {
-  Tooltip,
-  TooltipContent,
   TooltipProvider,
-  TooltipTrigger,
 } from "@/components/ui/tooltip";
 
 // ---------------------------------------------------------------------------
@@ -154,6 +151,7 @@ interface OutletDetail {
   status: string;
   monthly_net_revenue: number | null;
   revenue_updated_at: string | null;
+  profile_photo_url?: string | null;
 }
 
 interface OutletDocument {
@@ -193,6 +191,7 @@ interface OutletResponse {
   obligations: Obligation[];
   alerts: AlertItem[];
   documents?: OutletDocument[];
+  criticalDates?: Record<string, unknown>[];
 }
 
 const DOCUMENT_CATEGORIES = [
@@ -303,6 +302,10 @@ function formatDate(dateStr: string): string {
 export default function OutletDetailPage() {
   const params = useParams();
   const outletId = params.id as string;
+  const router = useRouter();
+  const { user } = useUser();
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const [data, setData] = useState<OutletResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -332,7 +335,7 @@ export default function OutletDetailPage() {
   const [creatingShowcase, setCreatingShowcase] = useState(false);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
   const [docUploading, setDocUploading] = useState(false);
-  const [docCategory, setDocCategory] = useState("other");
+  const [docCategory, setDocCategory] = useState("");
 
   // Contacts state
   const [contacts, setContacts] = useState<OutletContact[]>([]);
@@ -341,81 +344,25 @@ export default function OutletDetailPage() {
   const [editingContact, setEditingContact] = useState<OutletContact | null>(null);
   const [contactForm, setContactForm] = useState({ name: "", designation: "", phone: "", email: "", notes: "" });
   const [contactSaving, setContactSaving] = useState(false);
-  // MGLR calculator state
-  const [mglrDineIn, setMglrDineIn] = useState<string>("");
-  const [mglrDelivery, setMglrDelivery] = useState<string>("");
-  const [mglrCalculating, setMglrCalculating] = useState(false);
-  const [mglrResult, setMglrResult] = useState<{
-    rent_model: string;
-    mglr?: number;
-    revenue_share_pct?: number;
-    total_revenue?: number;
-    revenue_share_amount?: number;
-    payable_rent: number;
-    higher_of?: string;
-    message?: string;
-  } | null>(null);
-  const [mglrError, setMglrError] = useState<string | null>(null);
 
-  // Rent override state
-  const [rentEditing, setRentEditing] = useState(false);
-  const [rentOverride, setRentOverride] = useState<{
-    monthly_rent: string;
-    rent_model: string;
-    revenue_share_pct: string;
-    escalation_pct: string;
-    escalation_frequency_years: string;
-  }>({ monthly_rent: "", rent_model: "", revenue_share_pct: "", escalation_pct: "", escalation_frequency_years: "" });
-  const [rentSaving, setRentSaving] = useState(false);
   const [showGstBreakdown, setShowGstBreakdown] = useState(false);
 
-  // Photos state
-  const [photos, setPhotos] = useState<{ name: string; path: string; url: string; created_at?: string }[]>([]);
-  const [photosLoading, setPhotosLoading] = useState(false);
-  const [photoUploading, setPhotoUploading] = useState(false);
-  const [viewingPhoto, setViewingPhoto] = useState<string | null>(null);
+  // Reminder creation state
+  const [showCreateReminder, setShowCreateReminder] = useState(false);
+  const [showCreateEvent, setShowCreateEvent] = useState(false);
+  const [eventForm, setEventForm] = useState({ title: "", event_type: "custom", date_value: "", priority: "medium", description: "" });
+  const [eventSaving, setEventSaving] = useState(false);
+  const [reminderForm, setReminderForm] = useState({ title: "", message: "", trigger_date: "", severity: "medium" });
+  const [reminderSaving, setReminderSaving] = useState(false);
 
-  const fetchPhotos = useCallback(async () => {
-    if (!outletId) return;
-    try {
-      setPhotosLoading(true);
-      const result = await listOutletPhotos(outletId);
-      setPhotos(result || []);
-    } catch {
-      // silently handle — bucket may not exist
-    } finally {
-      setPhotosLoading(false);
-    }
-  }, [outletId]);
+  // Rent editing state
+  const [rentEditing, setRentEditing] = useState(false);
+  const [rentOverride, setRentOverride] = useState({ monthly_rent: "", revenue_share_pct: "", escalation_pct: "", escalation_frequency_years: "" });
+  const [rentSaving, setRentSaving] = useState(false);
 
-  useEffect(() => {
-    fetchPhotos();
-  }, [fetchPhotos]);
-
-  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setPhotoUploading(true);
-    try {
-      const result = await uploadOutletPhoto(outletId, file);
-      setPhotos((prev) => [{ name: result.filename, path: result.path, url: result.url }, ...prev]);
-    } catch {
-      // handle silently
-    } finally {
-      setPhotoUploading(false);
-      e.target.value = "";
-    }
-  };
-
-  const handlePhotoDelete = async (path: string) => {
-    if (!confirm("Delete this photo?")) return;
-    try {
-      await deleteOutletPhoto(path);
-      setPhotos((prev) => prev.filter((p) => p.path !== path));
-    } catch {
-      // handle silently
-    }
-  };
+  // Edit outlet state
+  const [showEditOutlet, setShowEditOutlet] = useState(false);
+  const [editOutletData, setEditOutletData] = useState({ name: "", city: "", address: "", property_type: "", floor: "", unit_number: "" });
 
   const fetchContacts = useCallback(async () => {
     if (!outletId) return;
@@ -517,6 +464,20 @@ export default function OutletDetailPage() {
       .finally(() => setActivityLoading(false));
   }, [outletId]);
 
+  // Populate edit outlet form when outlet loads
+  useEffect(() => {
+    if (data?.outlet) {
+      setEditOutletData({
+        name: data.outlet.name || "",
+        city: data.outlet.city || "",
+        address: data.outlet.address || "",
+        property_type: data.outlet.property_type || "",
+        floor: data.outlet.floor || "",
+        unit_number: data.outlet.unit_number || "",
+      });
+    }
+  }, [data?.outlet]);
+
   async function handleSaveRevenue() {
     const value = parseFloat(revenueInput);
     if (isNaN(value) || value < 0) return;
@@ -577,62 +538,6 @@ export default function OutletDetailPage() {
     setCsvHeaders([]);
     setCsvResult(null);
     setShowCsvDialog(false);
-  }
-
-  // MGLR handler
-  async function handleCalculateMGLR() {
-    const dineIn = parseFloat(mglrDineIn) || 0;
-    const delivery = parseFloat(mglrDelivery) || 0;
-    if (dineIn + delivery <= 0) return;
-
-    setMglrCalculating(true);
-    setMglrError(null);
-    try {
-      const result = await calculateMGLR({
-        outlet_id: outletId,
-        dine_in_revenue: dineIn,
-        delivery_revenue: delivery,
-      });
-      setMglrResult(result);
-    } catch (err) {
-      setMglrError(err instanceof Error ? err.message : "Failed to calculate MGLR");
-      setMglrResult(null);
-    } finally {
-      setMglrCalculating(false);
-    }
-  }
-
-  // Rent override handlers
-  function startRentEdit(agr: Agreement) {
-    setRentOverride({
-      monthly_rent: agr.monthly_rent ? String(agr.monthly_rent) : "",
-      rent_model: agr.rent_model || "fixed",
-      revenue_share_pct: agr.revenue_share_pct ? String(agr.revenue_share_pct) : "",
-      escalation_pct: agr.escalation_pct ? String(agr.escalation_pct) : "",
-      escalation_frequency_years: agr.escalation_frequency_years ? String(agr.escalation_frequency_years) : "",
-    });
-    setRentEditing(true);
-  }
-
-  async function saveRentOverride(agrId: string) {
-    setRentSaving(true);
-    try {
-      const updates: Record<string, unknown> = {};
-      if (rentOverride.monthly_rent) updates["rent.monthly_rent"] = rentOverride.monthly_rent;
-      if (rentOverride.rent_model) updates["rent.rent_model"] = rentOverride.rent_model;
-      if (rentOverride.revenue_share_pct) updates["rent.revenue_share_pct"] = rentOverride.revenue_share_pct;
-      if (rentOverride.escalation_pct) updates["rent.escalation_percentage"] = rentOverride.escalation_pct;
-      if (rentOverride.escalation_frequency_years) updates["rent.escalation_frequency_years"] = rentOverride.escalation_frequency_years;
-      await updateAgreement(agrId, { field_updates: updates });
-      // Refresh data
-      const refreshed = await getOutlet(outletId);
-      setData(refreshed);
-      setRentEditing(false);
-    } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to save rent override");
-    } finally {
-      setRentSaving(false);
-    }
   }
 
   // Showcase handlers
@@ -727,6 +632,20 @@ export default function OutletDetailPage() {
     );
   }
 
+  async function handleDeleteOutlet() {
+    setDeleting(true);
+    try {
+      const { deleteOutlet } = await import("@/lib/api");
+      await deleteOutlet(outletId);
+      router.push("/outlets");
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to delete outlet");
+    } finally {
+      setDeleting(false);
+      setShowDeleteDialog(false);
+    }
+  }
+
   const { outlet, agreements, obligations, alerts } = data;
 
   // ---------------------------------------------------------------------------
@@ -745,6 +664,36 @@ export default function OutletDetailPage() {
           >
             <ArrowLeft className="h-5 w-5" />
           </Link>
+          {/* Profile Photo */}
+          <label className="cursor-pointer group relative flex-shrink-0">
+            <input
+              type="file"
+              className="hidden"
+              accept="image/*"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                try {
+                  const { uploadOutletProfilePhoto } = await import("@/lib/api");
+                  const res = await uploadOutletProfilePhoto(outletId, file);
+                  setData((prev) => prev ? { ...prev, outlet: { ...prev.outlet, profile_photo_url: res.url } } : prev);
+                } catch (err) {
+                  alert(err instanceof Error ? err.message : "Failed to upload photo");
+                }
+                e.target.value = "";
+              }}
+            />
+            <div className="h-16 w-16 rounded-xl bg-muted border-2 border-border overflow-hidden flex items-center justify-center group-hover:border-foreground/30 transition-colors">
+              {outlet.profile_photo_url ? (
+                <img src={outlet.profile_photo_url} alt={outlet.name} className="h-full w-full object-cover" />
+              ) : (
+                <Store className="h-7 w-7 text-muted-foreground/50" />
+              )}
+            </div>
+            <div className="absolute inset-0 rounded-xl bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+              <Camera className="h-4 w-4 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+            </div>
+          </label>
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-xl font-semibold tracking-tight">{outlet.name}</h1>
@@ -786,25 +735,44 @@ export default function OutletDetailPage() {
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Link href={`/agreements/upload?outlet_id=${outlet.id}`}>
-            <Button variant="default" size="sm" className="gap-1.5 bg-foreground hover:bg-foreground/90">
-              <Upload className="h-3.5 w-3.5" />
-              Upload Lease
-            </Button>
-          </Link>
-          {agreements.length > 0 && (
-            <Link href={`/agreements/${agreements[0].id}`}>
-              <Button variant="outline" size="sm" className="gap-1.5">
-                <FileText className="h-3.5 w-3.5" />
-                View Agreement
+        {/* Action buttons — 2 rows */}
+        <div className="flex flex-col gap-2 items-end">
+          <div className="flex items-center gap-2">
+            <Link href={`/agreements/upload?outlet_id=${outlet.id}`}>
+              <Button size="sm" className="gap-1.5 bg-foreground hover:bg-foreground/90">
+                <Upload className="h-3.5 w-3.5" />
+                Upload Lease
               </Button>
             </Link>
-          )}
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={openShareDialog}>
-            <Share2 className="h-3.5 w-3.5" />
-            Share
-          </Button>
+            {agreements.length > 0 && (
+              <Link href={`/agreements/${agreements[0].id}`}>
+                <Button variant="outline" size="sm" className="gap-1.5">
+                  <FileText className="h-3.5 w-3.5" />
+                  View Agreement
+                </Button>
+              </Link>
+            )}
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShowCreateEvent(true)}>
+              <CalendarClock className="h-3.5 w-3.5" />
+              Create Event
+            </Button>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShowEditOutlet(true)}>
+              <Pencil className="h-3.5 w-3.5" />
+              Edit Details
+            </Button>
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={openShareDialog}>
+              <Share2 className="h-3.5 w-3.5" />
+              Share
+            </Button>
+            {(user?.role === "platform_admin" || user?.role === "org_admin") && (
+              <Button variant="outline" size="sm" className="gap-1.5 text-rose-600 border-rose-200 hover:bg-rose-50" onClick={() => setShowDeleteDialog(true)}>
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete
+              </Button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1042,100 +1010,7 @@ export default function OutletDetailPage() {
         </CardContent>
       </Card>
 
-      {/* ----------------------------------------------------------------- */}
-      {/* PHOTOS                                                            */}
-      {/* ----------------------------------------------------------------- */}
-      <Card className="border-border">
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-base flex items-center gap-2">
-              <Camera className="h-4 w-4" />
-              Photos
-              {photos.length > 0 && (
-                <Badge variant="secondary" className="text-[10px]">
-                  {photos.length}
-                </Badge>
-              )}
-            </CardTitle>
-            <label className="cursor-pointer">
-              <input
-                type="file"
-                className="hidden"
-                accept="image/*"
-                onChange={handlePhotoUpload}
-                disabled={photoUploading}
-              />
-              <Button size="sm" variant="outline" className="gap-1.5" asChild>
-                <span>
-                  {photoUploading ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Upload className="h-3.5 w-3.5" />
-                  )}
-                  Upload Photo
-                </span>
-              </Button>
-            </label>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {photosLoading ? (
-            <div className="flex items-center gap-2 text-muted-foreground py-4 justify-center">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span className="text-sm">Loading photos...</span>
-            </div>
-          ) : photos.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <ImageIcon className="h-8 w-8 mx-auto mb-2 opacity-50" />
-              <p className="text-sm">No photos uploaded yet</p>
-              <p className="text-xs mt-1">Upload photos of the outlet location</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3">
-              {photos.map((photo) => (
-                <div key={photo.path} className="relative group aspect-square rounded-lg overflow-hidden border border-border bg-muted">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={photo.url}
-                    alt={photo.name}
-                    className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity"
-                    onClick={() => setViewingPhoto(photo.url)}
-                  />
-                  <button
-                    onClick={() => handlePhotoDelete(photo.path)}
-                    className="absolute top-1 right-1 p-1 rounded-full bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/70"
-                    title="Delete photo"
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Photo Viewer Dialog */}
-      {viewingPhoto && (
-        <Dialog open={!!viewingPhoto} onOpenChange={() => setViewingPhoto(null)}>
-          <DialogContent className="max-w-3xl p-0 overflow-hidden">
-            <div className="relative">
-              <button
-                onClick={() => setViewingPhoto(null)}
-                className="absolute top-3 right-3 z-10 p-2 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors"
-              >
-                <X className="h-4 w-4" />
-              </button>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={viewingPhoto}
-                alt="Outlet photo"
-                className="w-full max-h-[80vh] object-contain bg-black"
-              />
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
+      {/* Photos section removed — use Document Storage instead */}
 
       {/* ----------------------------------------------------------------- */}
       {/* REVENUE INPUT                                                     */}
@@ -1248,6 +1123,13 @@ export default function OutletDetailPage() {
                 Columns: <strong>outlet</strong> (or outlet_name), <strong>month</strong> (1-12), <strong>year</strong>, <strong>revenue</strong> (or total_revenue, dine_in, delivery).
                 Outlet names are fuzzy-matched automatically.
               </p>
+              <a
+                href="data:text/csv;charset=utf-8,outlet,month,year,revenue%0AStore%20Name,3,2026,500000%0AStore%20Name,4,2026,750000"
+                download="sample-revenue.csv"
+                className="text-xs text-blue-600 hover:text-blue-800 underline mt-2 inline-block"
+              >
+                Download sample CSV
+              </a>
             </div>
 
             {/* File input */}
@@ -1387,16 +1269,39 @@ export default function OutletDetailPage() {
                     </Badge>
                   </span>
                   {!rentEditing ? (
-                    <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => startRentEdit(agr)}>
+                    <Button variant="outline" size="sm" className="gap-1.5 text-xs ml-auto" onClick={() => {
+                      setRentEditing(true);
+                      setRentOverride({
+                        monthly_rent: String(agr.monthly_rent || ""),
+                        revenue_share_pct: String(agr.revenue_share_pct || revSharePct || ""),
+                        escalation_pct: String(agr.escalation_pct || escalationPct || ""),
+                        escalation_frequency_years: String(agr.escalation_frequency_years || escalationFreq || ""),
+                      });
+                    }}>
                       <Pencil className="h-3 w-3" />
-                      Edit
+                      Edit Values
                     </Button>
                   ) : (
-                    <div className="flex items-center gap-2">
-                      <Button variant="outline" size="sm" className="text-xs" onClick={() => setRentEditing(false)} disabled={rentSaving}>
-                        Cancel
-                      </Button>
-                      <Button size="sm" className="gap-1.5 text-xs" onClick={() => saveRentOverride(agr.id)} disabled={rentSaving}>
+                    <div className="flex items-center gap-2 ml-auto">
+                      <Button variant="outline" size="sm" className="text-xs" onClick={() => setRentEditing(false)}>Cancel</Button>
+                      <Button size="sm" className="gap-1.5 text-xs" onClick={async () => {
+                        setRentSaving(true);
+                        try {
+                          const updates: Record<string, unknown> = {};
+                          if (rentOverride.monthly_rent) updates["rent.monthly_rent"] = parseFloat(rentOverride.monthly_rent);
+                          if (rentOverride.revenue_share_pct) updates["rent.revenue_share_pct"] = parseFloat(rentOverride.revenue_share_pct);
+                          if (rentOverride.escalation_pct) updates["rent.escalation_percentage"] = parseFloat(rentOverride.escalation_pct);
+                          if (rentOverride.escalation_frequency_years) updates["rent.escalation_frequency_years"] = parseFloat(rentOverride.escalation_frequency_years);
+                          const { updateAgreement } = await import("@/lib/api");
+                          await updateAgreement(agr.id, { field_updates: updates });
+                          setRentEditing(false);
+                          window.location.reload();
+                        } catch (err) {
+                          alert(err instanceof Error ? err.message : "Failed to save");
+                        } finally {
+                          setRentSaving(false);
+                        }
+                      }} disabled={rentSaving}>
                         {rentSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
                         Save
                       </Button>
@@ -1405,45 +1310,30 @@ export default function OutletDetailPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {rentEditing ? (
-                  /* ---- EDIT MODE ---- */
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                      <div>
-                        <label className="text-xs text-muted-foreground mb-1 block">Rent Model</label>
-                        <Select value={rentOverride.rent_model} onValueChange={(v) => setRentOverride((p) => ({ ...p, rent_model: v }))}>
-                          <SelectTrigger className="h-9">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="fixed">Fixed</SelectItem>
-                            <SelectItem value="revenue_share">Revenue Share</SelectItem>
-                            <SelectItem value="hybrid_mglr">Guaranteed Rent</SelectItem>
-                            <SelectItem value="percentage_only">Percentage Only</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
+                {rentEditing && (
+                  <div className="space-y-3 mb-4 p-3 rounded-lg border bg-muted/30">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                       <div>
                         <label className="text-xs text-muted-foreground mb-1 block">Monthly Rent (INR)</label>
-                        <Input type="number" min="0" step="1000" placeholder="e.g. 200000" value={rentOverride.monthly_rent} onChange={(e) => setRentOverride((p) => ({ ...p, monthly_rent: e.target.value }))} />
+                        <Input type="number" value={rentOverride.monthly_rent} onChange={(e) => setRentOverride(p => ({ ...p, monthly_rent: e.target.value }))} placeholder="e.g. 200000" />
                       </div>
                       <div>
                         <label className="text-xs text-muted-foreground mb-1 block">Revenue Share %</label>
-                        <Input type="number" min="0" max="100" step="0.5" placeholder="e.g. 8" value={rentOverride.revenue_share_pct} onChange={(e) => setRentOverride((p) => ({ ...p, revenue_share_pct: e.target.value }))} />
+                        <Input type="number" value={rentOverride.revenue_share_pct} onChange={(e) => setRentOverride(p => ({ ...p, revenue_share_pct: e.target.value }))} placeholder="e.g. 8" />
                       </div>
                       <div>
                         <label className="text-xs text-muted-foreground mb-1 block">Escalation %</label>
-                        <Input type="number" min="0" max="100" step="1" placeholder="e.g. 5" value={rentOverride.escalation_pct} onChange={(e) => setRentOverride((p) => ({ ...p, escalation_pct: e.target.value }))} />
+                        <Input type="number" value={rentOverride.escalation_pct} onChange={(e) => setRentOverride(p => ({ ...p, escalation_pct: e.target.value }))} placeholder="e.g. 5" />
                       </div>
                       <div>
-                        <label className="text-xs text-muted-foreground mb-1 block">Escalation Frequency (years)</label>
-                        <Input type="number" min="1" max="10" step="1" placeholder="e.g. 1" value={rentOverride.escalation_frequency_years} onChange={(e) => setRentOverride((p) => ({ ...p, escalation_frequency_years: e.target.value }))} />
+                        <label className="text-xs text-muted-foreground mb-1 block">Escalation Freq (years)</label>
+                        <Input type="number" value={rentOverride.escalation_frequency_years} onChange={(e) => setRentOverride(p => ({ ...p, escalation_frequency_years: e.target.value }))} placeholder="e.g. 1" />
                       </div>
                     </div>
-                    <p className="text-[10px] text-muted-foreground">These values override the auto-extracted rent data from the lease document.</p>
+                    <p className="text-[10px] text-muted-foreground">These values override the auto-extracted rent data.</p>
                   </div>
-                ) : (
-                  /* ---- DISPLAY MODE ---- */
+                )}
+                {(
                   <div className="space-y-4">
                     {/* Rent model specific display */}
                     {rentModel === "fixed" && (
@@ -1592,167 +1482,6 @@ export default function OutletDetailPage() {
       })()}
 
       {/* ----------------------------------------------------------------- */}
-      {/* MGLR CALCULATOR                                                  */}
-      {/* ----------------------------------------------------------------- */}
-      {agreements.length > 0 && (
-        <Card className="border-border">
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Calculator className="h-4 w-4" />
-              Rent Calculator
-              <Badge variant="outline" className="text-[10px] border-border text-muted-foreground font-normal">
-                Hybrid Rent
-              </Badge>
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button className="text-muted-foreground hover:text-foreground">
-                      <Info className="h-3.5 w-3.5" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="right" className="max-w-xs text-xs leading-relaxed">
-                    <p className="font-semibold mb-1">Guaranteed Rent vs Revenue Share</p>
-                    <p>Payable rent = higher of the guaranteed fixed rent or the revenue share %.</p>
-                    <p className="mt-1">Escalation applies annually on the base rent.</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap items-center gap-3 mb-4">
-              <p className="text-xs text-muted-foreground">
-                Compares your guaranteed fixed rent vs revenue share percentage and calculates whichever is higher as the effective payable rent.
-              </p>
-              <div className="flex gap-2">
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Badge variant="outline" className="text-[10px] cursor-help gap-1 border-border text-muted-foreground font-normal">
-                        <Info className="h-2.5 w-2.5" />
-                        Payable Rent
-                      </Badge>
-                    </TooltipTrigger>
-                    <TooltipContent className="max-w-xs text-xs">
-                      Payable rent = higher of guaranteed fixed rent or Revenue Share % applied to actual monthly revenue.
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Badge variant="outline" className="text-[10px] cursor-help gap-1 border-border text-muted-foreground font-normal">
-                        <Info className="h-2.5 w-2.5" />
-                        Escalation
-                      </Badge>
-                    </TooltipTrigger>
-                    <TooltipContent className="max-w-xs text-xs">
-                      Escalation applies annually on the base rent as specified in the lease agreement.
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
-            </div>
-            <div className="flex flex-col sm:flex-row items-start sm:items-end gap-3">
-              <div className="flex-1 max-w-xs">
-                <label className="text-xs text-muted-foreground mb-1 block">Dine-in Revenue (INR)</label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="1000"
-                  placeholder="e.g. 300000"
-                  value={mglrDineIn}
-                  onChange={(e) => setMglrDineIn(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") handleCalculateMGLR(); }}
-                />
-              </div>
-              <div className="flex-1 max-w-xs">
-                <label className="text-xs text-muted-foreground mb-1 block">Delivery Revenue (INR)</label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="1000"
-                  placeholder="e.g. 200000"
-                  value={mglrDelivery}
-                  onChange={(e) => setMglrDelivery(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") handleCalculateMGLR(); }}
-                />
-              </div>
-              <Button
-                onClick={handleCalculateMGLR}
-                disabled={mglrCalculating || ((parseFloat(mglrDineIn) || 0) + (parseFloat(mglrDelivery) || 0) <= 0)}
-                size="sm"
-                className="gap-1.5"
-              >
-                {mglrCalculating ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <TrendingUp className="h-3.5 w-3.5" />
-                )}
-                Calculate
-              </Button>
-            </div>
-
-            {mglrError && (
-              <div className="mt-4 p-3 rounded-lg bg-rose-50 border border-rose-200 text-sm text-rose-700">
-                {mglrError}
-              </div>
-            )}
-
-            {mglrResult && (
-              <div className="mt-4 space-y-3">
-                {mglrResult.rent_model !== "hybrid_mglr" ? (
-                  <div className="p-4 rounded-lg bg-muted border border-border">
-                    <p className="text-sm text-muted-foreground">
-                      {mglrResult.message || "This agreement does not use a hybrid MGLR rent model."}
-                    </p>
-                    {mglrResult.payable_rent > 0 && (
-                      <p className="text-sm mt-2">
-                        Payable Rent: <span className="font-semibold">{formatCurrency(mglrResult.payable_rent)}</span>
-                      </p>
-                    )}
-                  </div>
-                ) : (
-                  <div className="p-4 rounded-lg bg-muted border border-border space-y-3">
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
-                      <div>
-                        <span className="text-muted-foreground text-xs block">MGLR (Fixed)</span>
-                        <span className="font-semibold">{formatCurrency(mglrResult.mglr || 0)}</span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground text-xs block">Revenue Share %</span>
-                        <span className="font-semibold">{mglrResult.revenue_share_pct || 0}%</span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground text-xs block">Total Revenue</span>
-                        <span className="font-semibold">{formatCurrency(mglrResult.total_revenue || 0)}</span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground text-xs block">Revenue Share Amount</span>
-                        <span className="font-semibold">{formatCurrency(mglrResult.revenue_share_amount || 0)}</span>
-                      </div>
-                    </div>
-                    <div className="border-t border-border pt-3 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
-                        <span className="text-sm text-muted-foreground">
-                          Higher of: <span className="font-medium">{mglrResult.higher_of === "revenue_share" ? "Revenue Share" : "MGLR (Fixed)"}</span>
-                        </span>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-xs text-muted-foreground block">Effective Payable Rent</span>
-                        <span className="text-lg font-bold text-foreground">{formatCurrency(mglrResult.payable_rent)}</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* ----------------------------------------------------------------- */}
       {/* AGREEMENTS TABLE                                                  */}
       {/* ----------------------------------------------------------------- */}
       <Card className="border-border">
@@ -1859,11 +1588,15 @@ export default function OutletDetailPage() {
           <CardTitle className="text-base flex items-center gap-2">
             <Clock className="h-4 w-4" />
             Events
-            {obligations.length > 0 && (
+            {(obligations.length + (data?.criticalDates?.length || 0)) > 0 && (
               <Badge variant="secondary" className="ml-2 bg-muted text-muted-foreground">
-                {obligations.length}
+                {obligations.length + (data?.criticalDates?.length || 0)}
               </Badge>
             )}
+            <Button variant="outline" size="sm" className="gap-1.5 text-xs ml-auto" onClick={() => setShowCreateEvent(true)}>
+              <Plus className="h-3.5 w-3.5" />
+              Add Event
+            </Button>
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -1925,6 +1658,28 @@ export default function OutletDetailPage() {
               </Table>
             </div>
           )}
+          {/* Critical Dates / Custom Events */}
+          {(data?.criticalDates || []).length > 0 && (
+            <div className="mt-4 space-y-2">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Custom Events</p>
+              {(data?.criticalDates || []).map((cd: Record<string, unknown>) => (
+                <div key={cd.id as string} className="flex items-center gap-3 p-3 rounded-lg bg-muted border border-border">
+                  <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                    cd.priority === "critical" ? "bg-rose-500" : cd.priority === "high" ? "bg-amber-500" : "bg-blue-400"
+                  }`} />
+                  <div className="flex-1 min-w-0">
+                    <span className="text-sm font-semibold">{cd.label as string}</span>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <Badge variant="outline" className="text-[10px]">{((cd.event_type as string) || "custom").replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}</Badge>
+                      <span className="text-xs text-muted-foreground">{cd.date_value as string}</span>
+                      <Badge variant="outline" className="text-[10px]">{(cd.task_status as string) || "pending"}</Badge>
+                    </div>
+                    {cd.notes ? <p className="text-xs text-muted-foreground mt-1">{String(cd.notes)}</p> : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -1936,21 +1691,33 @@ export default function OutletDetailPage() {
           <CardTitle className="text-base flex items-center gap-2">
             <ShieldAlert className="h-4 w-4" />
             Reminders
-            {alerts.length > 0 && (
+            {alerts.filter(a => { const d = new Date(a.trigger_date); const now = new Date(); return d >= now && d <= new Date(now.getTime() + 90*24*60*60*1000); }).length > 0 && (
               <Badge variant="secondary" className="ml-2 bg-muted text-muted-foreground">
-                {alerts.length}
+                {alerts.filter(a => { const d = new Date(a.trigger_date); const now = new Date(); return d >= now && d <= new Date(now.getTime() + 90*24*60*60*1000); }).length}
               </Badge>
             )}
+            <Button variant="outline" size="sm" className="gap-1.5 text-xs ml-auto" onClick={() => setShowCreateReminder(true)}>
+              <Plus className="h-3.5 w-3.5" />
+              Create Reminder
+            </Button>
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {alerts.length === 0 ? (
+          {(() => {
+            const now = new Date();
+            const cutoff = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
+            const upcomingAlerts = alerts.filter((a) => {
+              if (!a.trigger_date) return true;
+              const d = new Date(a.trigger_date);
+              return d >= now && d <= cutoff;
+            });
+            return upcomingAlerts.length === 0 ? (
             <div className="text-sm text-muted-foreground py-4 text-center">
-              No reminders for this outlet.
+              No reminders in the next 90 days.
             </div>
           ) : (
             <div className="space-y-3">
-              {alerts.map((alert) => (
+              {upcomingAlerts.map((alert) => (
                 <div
                   key={alert.id}
                   className="flex items-start gap-3 p-3 rounded-lg bg-muted border border-border"
@@ -1993,7 +1760,8 @@ export default function OutletDetailPage() {
                 </div>
               ))}
             </div>
-          )}
+          );
+          })()}
         </CardContent>
       </Card>
 
@@ -2013,7 +1781,7 @@ export default function OutletDetailPage() {
             <div className="flex items-center gap-2">
               <Select value={docCategory} onValueChange={setDocCategory}>
                 <SelectTrigger className="w-48">
-                  <SelectValue placeholder="Category" />
+                  <SelectValue placeholder="Select type *" />
                 </SelectTrigger>
                 <SelectContent>
                   {DOCUMENT_CATEGORIES.map((cat) => (
@@ -2029,6 +1797,11 @@ export default function OutletDetailPage() {
                   onChange={async (e) => {
                     const file = e.target.files?.[0];
                     if (!file) return;
+                    if (!docCategory) {
+                      alert("Please select a document type before uploading.");
+                      e.target.value = "";
+                      return;
+                    }
                     setDocUploading(true);
                     try {
                       const res = await uploadOutletDocument(outlet.id, file, docCategory);
@@ -2395,6 +2168,213 @@ export default function OutletDetailPage() {
           )}
         </CardContent>
       </Card>
+      )}
+
+      {/* Edit Outlet Dialog */}
+      {showEditOutlet && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl p-6 max-w-lg mx-4 space-y-4 shadow-xl w-full">
+            <h3 className="text-lg font-semibold">Edit Outlet Details</h3>
+            <div className="grid grid-cols-2 gap-3">
+              {Object.entries(editOutletData).map(([key, val]) => (
+                <div key={key}>
+                  <label className="text-xs text-muted-foreground mb-1 block capitalize">{key.replace(/_/g, " ")}</label>
+                  <Input
+                    value={val}
+                    onChange={(e) => setEditOutletData((p) => ({ ...p, [key]: e.target.value }))}
+                    placeholder={key.replace(/_/g, " ")}
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setShowEditOutlet(false)}>Cancel</Button>
+              <Button size="sm" onClick={async () => {
+                try {
+                  await updateOutlet(outletId, editOutletData as Record<string, unknown>);
+                  setShowEditOutlet(false);
+                  window.location.reload();
+                } catch (err) {
+                  alert(err instanceof Error ? err.message : "Failed to update outlet");
+                }
+              }}>Save Changes</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Event Dialog */}
+      {showCreateEvent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl p-6 max-w-md mx-4 space-y-4 shadow-xl w-full">
+            <h3 className="text-lg font-semibold">Create Event</h3>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Event Title *</label>
+                <Input value={eventForm.title} onChange={(e) => setEventForm(p => ({ ...p, title: e.target.value }))} placeholder="e.g. Rent escalation due" />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Event Type *</label>
+                <Select value={eventForm.event_type} onValueChange={(v) => setEventForm(p => ({ ...p, event_type: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="custom">Custom</SelectItem>
+                    <SelectItem value="rent_escalation">Rent Escalation</SelectItem>
+                    <SelectItem value="renewal_option">Renewal Option</SelectItem>
+                    <SelectItem value="notice_deadline">Notice Deadline</SelectItem>
+                    <SelectItem value="insurance_renewal">Insurance Renewal</SelectItem>
+                    <SelectItem value="license_renewal">License Renewal</SelectItem>
+                    <SelectItem value="registration_deadline">Registration Deadline</SelectItem>
+                    <SelectItem value="security_deposit_topup">Security Deposit Top-up</SelectItem>
+                    <SelectItem value="tds_filing">TDS Filing</SelectItem>
+                    <SelectItem value="cam_reconciliation">CAM Reconciliation</SelectItem>
+                    <SelectItem value="fit_out_end">Fit-Out End</SelectItem>
+                    <SelectItem value="rent_commencement">Rent Commencement</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Date *</label>
+                <Input type="date" value={eventForm.date_value} onChange={(e) => setEventForm(p => ({ ...p, date_value: e.target.value }))} />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Priority</label>
+                <Select value={eventForm.priority} onValueChange={(v) => setEventForm(p => ({ ...p, priority: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="critical">Critical</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="low">Low</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Description</label>
+                <Input value={eventForm.description} onChange={(e) => setEventForm(p => ({ ...p, description: e.target.value }))} placeholder="Optional details" />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setShowCreateEvent(false)}>Cancel</Button>
+              <Button size="sm" disabled={eventSaving || !eventForm.title || !eventForm.date_value} onClick={async () => {
+                setEventSaving(true);
+                try {
+                  const { createCriticalDate } = await import("@/lib/api");
+                  await createCriticalDate({
+                    outlet_id: outletId,
+                    agreement_id: agreements.length > 0 ? agreements[0].id : undefined,
+                    title: eventForm.title,
+                    event_type: eventForm.event_type,
+                    date_value: eventForm.date_value,
+                    priority: eventForm.priority,
+                    description: eventForm.description,
+                  });
+                  setShowCreateEvent(false);
+                  setEventForm({ title: "", event_type: "custom", date_value: "", priority: "medium", description: "" });
+                  window.location.reload();
+                } catch (err) {
+                  alert(err instanceof Error ? err.message : "Failed to create event");
+                } finally {
+                  setEventSaving(false);
+                }
+              }}>
+                {eventSaving ? "Creating..." : "Create Event"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Reminder Dialog */}
+      {showCreateReminder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl p-6 max-w-md mx-4 space-y-4 shadow-xl w-full">
+            <h3 className="text-lg font-semibold">Create Reminder</h3>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Title *</label>
+                <Input value={reminderForm.title} onChange={(e) => setReminderForm(p => ({ ...p, title: e.target.value }))} placeholder="e.g. Rent payment due" />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Message</label>
+                <Input value={reminderForm.message} onChange={(e) => setReminderForm(p => ({ ...p, message: e.target.value }))} placeholder="Optional details" />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Date *</label>
+                <Input type="date" value={reminderForm.trigger_date} onChange={(e) => setReminderForm(p => ({ ...p, trigger_date: e.target.value }))} />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Severity</label>
+                <Select value={reminderForm.severity} onValueChange={(v) => setReminderForm(p => ({ ...p, severity: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="high">High</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="low">Low</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setShowCreateReminder(false)}>Cancel</Button>
+              <Button size="sm" disabled={reminderSaving || !reminderForm.title || !reminderForm.trigger_date} onClick={async () => {
+                setReminderSaving(true);
+                try {
+                  const { createReminder } = await import("@/lib/api");
+                  await createReminder({
+                    title: reminderForm.title,
+                    message: reminderForm.message,
+                    trigger_date: reminderForm.trigger_date,
+                    severity: reminderForm.severity,
+                    outlet_id: outletId,
+                  });
+                  setShowCreateReminder(false);
+                  setReminderForm({ title: "", message: "", trigger_date: "", severity: "medium" });
+                  window.location.reload();
+                } catch (err) {
+                  alert(err instanceof Error ? err.message : "Failed to create reminder");
+                } finally {
+                  setReminderSaving(false);
+                }
+              }}>
+                {reminderSaving ? "Creating..." : "Create Reminder"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDeleteDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl p-6 max-w-md mx-4 space-y-4 shadow-xl">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-full bg-rose-100 flex items-center justify-center">
+                <Trash2 className="h-5 w-5 text-rose-600" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold">Delete Outlet</p>
+                <p className="text-xs text-muted-foreground">This action can be undone from the Recycle Bin</p>
+              </div>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Are you sure you want to delete <strong className="text-foreground">{outlet?.name}</strong>?
+              The outlet and its agreements will be moved to the Recycle Bin.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setShowDeleteDialog(false)}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                disabled={deleting}
+                onClick={handleDeleteOutlet}
+              >
+                {deleting ? "Deleting..." : "Yes, Delete Outlet"}
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

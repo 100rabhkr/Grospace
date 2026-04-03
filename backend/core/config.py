@@ -104,7 +104,8 @@ supabase: Client = create_client(
 )
 
 genai.configure(api_key=os.getenv("GEMINI_API_KEY", ""))
-model = genai.GenerativeModel("gemini-2.5-flash")
+model = genai.GenerativeModel("gemini-2.5-flash")  # Fast model for classification, Q&A, light tasks
+model_pro = genai.GenerativeModel("gemini-3.1-pro-preview")  # Best model for extraction, risk analysis, vision OCR
 
 limiter = Limiter(key_func=get_remote_address)
 

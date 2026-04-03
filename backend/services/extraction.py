@@ -19,7 +19,7 @@ from pdf2image import convert_from_bytes
 import google.generativeai as genai
 
 from core.config import (
-    supabase, model,
+    supabase, model, model_pro,
     SUPPORTED_PDF_EXTENSIONS, SUPPORTED_IMAGE_EXTENSIONS,
     CITY_ABBREVIATIONS,
 )
@@ -48,13 +48,17 @@ LEASE_EXTRACTION_SCHEMA = {
         "city": "string — city name (e.g. Mumbai, Delhi, Bengaluru)",
         "state": "string — Indian state name (e.g. Maharashtra, Karnataka)",
         "pincode": "string — 6-digit Indian PIN code",
-        "property_type": "enum: mall/high_street/cloud_kitchen/metro/transit/cyber_park/hospital/college",
+        "property_type": "enum: mall/high_street/cloud_kitchen/metro/transit/cyber_park/hospital/college/educational_hub",
         "floor": "string — floor number or level (e.g. 'Ground Floor', '2nd Floor', 'Lower Ground')",
         "unit_number": "string — shop/unit/suite number within the property",
         "super_area_sqft": "number — total super built-up area in square feet (includes common areas)",
         "covered_area_sqft": "number — covered/built-up area in square feet",
         "carpet_area_sqft": "number — usable carpet area in square feet (excludes walls, common areas)",
         "loading_factor": "string — loading factor percentage or ratio (super area / carpet area)",
+        "parking_slots": "number — number of parking slots allocated to tenant",
+        "parking_details": "string — parking arrangement details (e.g. 'basement level 2, 4 car slots')",
+        "signage_rights": "string — signage/branding rights description (e.g. 'external facade signage, pylon sign')",
+        "signage_approval_required": "boolean — whether landlord approval needed for signage changes",
     },
     "lease_term": {
         "loi_date": "date — date of the Letter of Intent, in YYYY-MM-DD format",
@@ -88,6 +92,8 @@ LEASE_EXTRACTION_SCHEMA = {
         "electricity_metering": "enum: prepaid/actual/sub_meter — how electricity is billed",
         "operating_hours": "string — permitted operating hours (e.g. '10 AM to 10 PM')",
         "gst_percentage": "number — GST rate applicable on rent/CAM (typically 18% in India for commercial leases)",
+        "marketing_charges_monthly": "number — monthly marketing/promotion charges (mall-specific) in INR",
+        "marketing_charges_per_sqft": "number — marketing charges per sqft if applicable",
     },
     "deposits": {
         "security_deposit_amount": "number — total security deposit amount in INR",
@@ -108,9 +114,18 @@ LEASE_EXTRACTION_SCHEMA = {
         "late_payment_interest_pct": "number",
         "tds_obligations": "boolean",
         "relocation_clause": "boolean",
+        "force_majeure_clause": "boolean — whether force majeure clause exists",
+        "force_majeure_details": "string — force majeure coverage details (pandemic, lockdown, government restrictions)",
+        "exclusivity_clause": "boolean — whether exclusivity/non-compete clause exists for tenant's business category",
+        "exclusivity_details": "string — exclusivity clause details",
+        "co_tenancy_clause": "boolean — whether co-tenancy clause exists (relevant for malls)",
+        "subleasing_allowed": "boolean — whether subleasing/assignment to group entities is permitted",
+        "subleasing_conditions": "string — conditions for subleasing if allowed",
+        "trading_hours": "string — required trading/operating hours (e.g. '10 AM to 10 PM daily')",
+        "title_clear": "boolean — whether landlord has confirmed clear title",
     },
     "franchise": {
-        "franchise_model": "enum: FOFO/FOCO/COCO/direct_lease",
+        "franchise_model": "enum: FOFO/FOCO/COCO/FICO/direct_lease",
         "profit_split": "string",
         "operator_entity": "string",
         "investor_entity": "string",
@@ -389,7 +404,7 @@ async def focused_retry_extraction(text: str, extraction: dict, confidence: dict
     )
 
     try:
-        response = model.generate_content(
+        response = model_pro.generate_content(
             retry_prompt,
             generation_config=genai.GenerationConfig(
                 response_mime_type="application/json",
@@ -1197,7 +1212,7 @@ async def extract_structured_data(text: str, doc_type: str) -> dict:
                 )
                 print(f"[EXTRACTION] Retrying with simplified prompt (attempt {attempt + 1})")
 
-            response = model.generate_content(
+            response = model_pro.generate_content(
                 use_prompt,
                 generation_config=genai.GenerationConfig(
                     response_mime_type="application/json",
@@ -1242,7 +1257,7 @@ async def extract_structured_data(text: str, doc_type: str) -> dict:
             f"Original text (first 8000 chars):\n{text[:8000]}"
         )
         try:
-            verify_resp = model.generate_content(
+            verify_resp = model_pro.generate_content(
                 verify_prompt,
                 generation_config=genai.GenerationConfig(
                     response_mime_type="application/json",
@@ -1290,7 +1305,7 @@ async def extract_structured_data_vision(images: list, doc_type: str) -> dict:
         "3. For dates: Use YYYY-MM-DD format. Handle Indian formats: DD/MM/YYYY, DD-MM-YYYY.\n"
         "4. For rent: Always return MONTHLY values.\n"
         "5. Distinguish lessor (owner/licensor) from lessee (tenant/licensee) carefully.\n"
-        "6. For each field, return a confidence score: 'high', 'medium', 'low', or 'not_found'.\n"
+        "6. For each field, return an object with: {\"value\": ..., \"confidence\": \"high\"|\"medium\"|\"low\"|\"not_found\", \"source_page\": N} where source_page is the page number (1-indexed) where you found this data.\n"
         "7. If handwritten, do your best to read accurately.\n"
         "8. If a value is a formula (e.g., '60 days from handover'), return as string.\n"
         "9. EXTRACT ALL FIELDS even if confidence is low — mark as 'low' confidence rather than skipping.\n"
@@ -1319,7 +1334,7 @@ async def extract_structured_data_vision(images: list, doc_type: str) -> dict:
         result = None
         try:
             content = [prompt] + page_images
-            response = model.generate_content(
+            response = model_pro.generate_content(
                 content,
                 generation_config=genai.GenerationConfig(
                     response_mime_type="application/json",
@@ -1341,7 +1356,7 @@ async def extract_structured_data_vision(images: list, doc_type: str) -> dict:
         if result is None:
             print("[VISION EXTRACT] Retrying without JSON mode...")
             try:
-                response2 = model.generate_content(
+                response2 = model_pro.generate_content(
                     [prompt + "\n\nIMPORTANT: Return ONLY valid JSON. No markdown fences, no explanation."] + page_images,
                     generation_config=genai.GenerationConfig(temperature=0),
                 )
@@ -1363,7 +1378,7 @@ async def extract_structured_data_vision(images: list, doc_type: str) -> dict:
                     "Transcribe everything you can see, preserving the structure. "
                     "Include all names, dates, numbers, addresses, and terms."
                 )
-                ocr_response = model.generate_content(
+                ocr_response = model_pro.generate_content(
                     [ocr_prompt] + page_images,
                     generation_config=genai.GenerationConfig(temperature=0),
                 )
@@ -1507,12 +1522,12 @@ async def detect_risk_flags(text: str, extraction: dict) -> list:
         "8. Uncapped revenue share: Revenue share with no cap/maximum\n\n"
         "For each flag found, return a JSON object with a top-level key 'flags' containing an array of objects with: "
         "flag_id (1-8), severity ('high' or 'medium'), explanation (one-line summary), "
-        "clause_text (relevant text from document)\n\n"
+        "clause_text (relevant text from document), source_page (page number where the clause appears, 1-indexed)\n\n"
         f"Extracted lease data:\n{json.dumps(extraction, indent=2)}\n\n"
         f"Full document text:\n{text[:8000]}"
     )
 
-    response = model.generate_content(
+    response = model_pro.generate_content(
         prompt,
         generation_config=genai.GenerationConfig(
             response_mime_type="application/json",
@@ -1543,11 +1558,11 @@ async def detect_risk_flags_vision(images: list, extraction: dict) -> list:
             "8. Uncapped revenue share: Revenue share with no cap/maximum\n\n"
             "For each flag found, return a JSON object with a top-level key 'flags' containing an array of objects with: "
             "flag_id (1-8), severity ('high' or 'medium'), explanation (one-line summary), "
-            "clause_text (relevant text from document)\n\n"
+            "clause_text (relevant text from document), source_page (page number where the clause appears, 1-indexed)\n\n"
             f"Extracted lease data:\n{json.dumps(extraction, indent=2)}"
         )
         content = [prompt] + images[:10]
-        response = model.generate_content(
+        response = model_pro.generate_content(
             content,
             generation_config=genai.GenerationConfig(
                 response_mime_type="application/json",
@@ -1560,6 +1575,118 @@ async def detect_risk_flags_vision(images: list, extraction: dict) -> list:
         return result.get("flags", result.get("risk_flags", []))
     except Exception:
         return []
+
+
+def _detect_india_specific_risk_flags(extraction: dict) -> list:
+    """Detect India-specific commercial lease risk flags from extracted structured data."""
+    flags = []
+    flag_id_start = 100  # Use 100+ range to avoid collision with AI-generated flag IDs (1-8)
+
+    # Helper to reach into nested sections (unwraps {value, confidence} objects)
+    def _get(section: str, key: str, default=None):
+        sec = extraction.get(section, {})
+        if not isinstance(sec, dict):
+            return default
+        val = sec.get(key, default)
+        if isinstance(val, dict) and "value" in val:
+            return val["value"]
+        return val
+
+    # --- 1. No force majeure clause ---
+    force_majeure = _get("legal", "force_majeure_clause")
+    if not force_majeure:
+        flags.append({
+            "flag_id": flag_id_start + 1,
+            "severity": "medium",
+            "explanation": "No force majeure clause found. Rent obligations may continue during pandemics, lockdowns, or government restrictions.",
+            "clause_text": "",
+        })
+
+    # --- 2. No exclusivity clause ---
+    exclusivity = _get("legal", "exclusivity_clause")
+    if not exclusivity:
+        flags.append({
+            "flag_id": flag_id_start + 2,
+            "severity": "medium",
+            "explanation": "No exclusivity clause. Landlord may lease adjacent spaces to direct competitors.",
+            "clause_text": "",
+        })
+
+    # --- 3. No co-tenancy clause (mall only) ---
+    property_type = _get("premises", "property_type")
+    prop_type_lower = (property_type or "").lower().strip()
+    co_tenancy = _get("legal", "co_tenancy_clause")
+    if prop_type_lower == "mall" and not co_tenancy:
+        flags.append({
+            "flag_id": flag_id_start + 3,
+            "severity": "low",
+            "explanation": "No co-tenancy clause for mall property. No rent relief if anchor tenants leave.",
+            "clause_text": "",
+        })
+
+    # --- 4. Long lock-in period (> 36 months) ---
+    lock_in_months = _get("lease_term", "lock_in_months")
+    try:
+        lock_in_val = float(lock_in_months) if lock_in_months is not None else None
+    except (ValueError, TypeError):
+        lock_in_val = None
+    if lock_in_val is not None and lock_in_val > 36:
+        flags.append({
+            "flag_id": flag_id_start + 4,
+            "severity": "medium",
+            "explanation": f"Lock-in period exceeds 3 years ({int(lock_in_val)} months). Consider negotiating shorter lock-in to reduce risk.",
+            "clause_text": "",
+        })
+
+    # --- 5. No subleasing allowed ---
+    subleasing = _get("legal", "subleasing_allowed")
+    if subleasing is False or (isinstance(subleasing, str) and subleasing.lower() in ("false", "no", "not permitted")):
+        flags.append({
+            "flag_id": flag_id_start + 5,
+            "severity": "low",
+            "explanation": "Subleasing/assignment not permitted. May limit flexibility for franchise or group entity transfers.",
+            "clause_text": "",
+        })
+
+    # --- 6. High escalation (> 10%) ---
+    escalation_pct = _get("rent", "escalation_percentage")
+    try:
+        esc_val = float(escalation_pct) if escalation_pct is not None else None
+    except (ValueError, TypeError):
+        esc_val = None
+    if esc_val is not None and esc_val > 10:
+        flags.append({
+            "flag_id": flag_id_start + 6,
+            "severity": "medium",
+            "explanation": f"Escalation rate of {esc_val}% exceeds typical market range (5-7% annually).",
+            "clause_text": "",
+        })
+
+    # --- 7. No parking allocation (mall or high_street) ---
+    parking_slots = _get("premises", "parking_slots")
+    if prop_type_lower in ("mall", "high_street") and (parking_slots is None or parking_slots == "" or parking_slots == 0):
+        flags.append({
+            "flag_id": flag_id_start + 7,
+            "severity": "low",
+            "explanation": "No parking slots allocated. Customer access may be affected.",
+            "clause_text": "",
+        })
+
+    # --- 8. Security deposit > 6 months ---
+    sd_months = _get("deposits", "security_deposit_months")
+    try:
+        sd_val = float(sd_months) if sd_months is not None else None
+    except (ValueError, TypeError):
+        sd_val = None
+    if sd_val is not None and sd_val > 6:
+        flags.append({
+            "flag_id": flag_id_start + 8,
+            "severity": "medium",
+            "explanation": f"Security deposit equivalent to {int(sd_val)} months exceeds typical range (3-6 months).",
+            "clause_text": "",
+        })
+
+    return flags
 
 
 # ============================================
@@ -1766,12 +1893,16 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
 
             print(f"[PROCESS] Dual extraction: {len(text.strip())} chars, tables: {len(table_text.strip())} chars")
 
-            if len(text.strip()) >= 100:
+            # Need at least 500 chars of actual content for text-based extraction
+            # Scanned PDFs often have ~100-200 chars of metadata but no real content
+            min_text_threshold = 500
+            if len(text.strip()) >= min_text_threshold:
                 extraction_method = "text+cloud_vision" if cv_text else "text"
                 # Append table data to text for Gemini context (preserving page markers)
                 if table_text.strip():
                     text = text + "\n\n" + table_text
             else:
+                print(f"[PROCESS] Text too sparse ({len(text.strip())} chars < {min_text_threshold}), falling back to vision...")
                 images = pdf_bytes_to_images(file_bytes)
                 print(f"[PROCESS] Converted PDF to {len(images)} page images")
                 if images:
@@ -1843,6 +1974,36 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
             extraction = await extract_structured_data(text, doc_type)
         elif extraction_method == "vision":
             extraction = await extract_structured_data_vision(images, doc_type)
+            # Also do OCR pass to get raw text for OCR view + Q&A
+            if images and len((text or "").strip()) < 500:
+                try:
+                    ocr_prompt = (
+                        "You are an OCR specialist. Transcribe ALL visible text from these document page images.\n"
+                        "Rules:\n"
+                        "- Before each page's text, write: --- PAGE X ---\n"
+                        "- Include EVERY word, number, date, address, and clause exactly as written\n"
+                        "- Preserve paragraph structure and line breaks\n"
+                        "- For tables, format as aligned text\n"
+                        "- If handwritten, do your best to read it\n"
+                        "- Do NOT summarize or skip any content\n"
+                        "Begin transcription:"
+                    )
+                    # Process in batches of 5 pages to avoid token limits
+                    all_ocr_text = ""
+                    for batch_start in range(0, len(images), 5):
+                        batch = images[batch_start:batch_start + 5]
+                        batch_prompt = ocr_prompt if batch_start == 0 else f"Continue transcribing from page {batch_start + 1}:"
+                        ocr_content = [batch_prompt] + batch
+                        ocr_response = model.generate_content(
+                            ocr_content,
+                            generation_config=genai.GenerationConfig(temperature=0, max_output_tokens=16000),
+                        )
+                        all_ocr_text += (ocr_response.text or "") + "\n"
+                    text = all_ocr_text.strip()
+                    text = ocr_response.text or ""
+                    print(f"[PROCESS] Gemini OCR pass: {len(text)} chars extracted for OCR view")
+                except Exception as ocr_err:
+                    print(f"[PROCESS] Gemini OCR pass failed: {ocr_err}")
         print(f"[PROCESS] Extraction result: {len(extraction)} top-level keys")
 
         # --- Step 4: Calculate confidence ---
@@ -1942,6 +2103,16 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
                     risk_flags = await detect_risk_flags_vision(images, extraction)
             except Exception:
                 risk_flags = []
+
+            # --- Step 5.1: Add India-specific code-based risk flags ---
+            india_flags = _detect_india_specific_risk_flags(extraction)
+            if india_flags:
+                # Deduplicate: avoid adding a code-based flag if the AI already flagged a similar concern
+                existing_explanations = {f.get("explanation", "").lower()[:40] for f in risk_flags if isinstance(f, dict)}
+                for flag in india_flags:
+                    short_key = flag["explanation"].lower()[:40]
+                    if short_key not in existing_explanations:
+                        risk_flags.append(flag)
 
         if extraction_method == "failed":
             error_message = "Could not extract content from this file. The file may be empty, corrupt, or in an unsupported format."
@@ -2065,14 +2236,14 @@ def build_outlet_data(extraction: dict, org_id: str) -> dict:
     franchise = get_section(extraction, "franchise")
 
     prop_type = get_val(premises.get("property_type"))
-    valid_types = {"mall", "high_street", "cloud_kitchen", "metro", "transit", "cyber_park", "hospital", "college"}
+    valid_types = {"mall", "high_street", "cloud_kitchen", "metro", "transit", "cyber_park", "hospital", "college", "educational_hub"}
     if prop_type and prop_type.lower() in valid_types:
         prop_type = prop_type.lower()
     else:
         prop_type = None
 
     fm = get_val(franchise.get("franchise_model"))
-    valid_fm = {"FOFO", "FOCO", "COCO", "direct_lease"}
+    valid_fm = {"FOFO", "FOCO", "COCO", "FICO", "direct_lease"}
     if fm and fm.upper() in valid_fm:
         fm = fm.upper()
     else:
@@ -2107,7 +2278,7 @@ def build_outlet_data(extraction: dict, org_id: str) -> dict:
 
 def build_agreement_data(extraction: dict, doc_type: str, risk_flags: list, confidence: dict,
                          filename: str, org_id: str, document_text: Optional[str] = None,
-                         document_url: Optional[str] = None) -> dict:
+                         document_url: Optional[str] = None, file_hash: Optional[str] = None) -> dict:
     """Build agreement data dict without inserting. For use with transactional RPC."""
     parties = get_section(extraction, "parties")
     lease_term = get_section(extraction, "lease_term")
@@ -2161,6 +2332,7 @@ def build_agreement_data(extraction: dict, doc_type: str, risk_flags: list, conf
         "security_deposit": security_deposit,
         "late_payment_interest_pct": get_num(legal.get("late_payment_interest_pct")),
         "document_text": document_text,
+        "file_hash": file_hash,
         "confirmed_at": datetime.utcnow().isoformat(),
     }
 
@@ -2375,14 +2547,14 @@ def create_outlet_from_extraction(extraction: dict, org_id: str) -> str:
     franchise = get_section(extraction, "franchise")
 
     prop_type = get_val(premises.get("property_type"))
-    valid_types = {"mall", "high_street", "cloud_kitchen", "metro", "transit", "cyber_park", "hospital", "college"}
+    valid_types = {"mall", "high_street", "cloud_kitchen", "metro", "transit", "cyber_park", "hospital", "college", "educational_hub"}
     if prop_type and prop_type.lower() in valid_types:
         prop_type = prop_type.lower()
     else:
         prop_type = None
 
     fm = get_val(franchise.get("franchise_model"))
-    valid_fm = {"FOFO", "FOCO", "COCO", "direct_lease"}
+    valid_fm = {"FOFO", "FOCO", "COCO", "FICO", "direct_lease"}
     if fm and fm.upper() in valid_fm:
         fm = fm.upper()
     else:

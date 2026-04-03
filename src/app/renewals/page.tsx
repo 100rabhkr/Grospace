@@ -4,64 +4,100 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
-  Calendar,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Building2,
-  IndianRupee,
   Loader2,
   RefreshCw,
+  MapPin,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { listAgreements } from "@/lib/api";
 
 type Agreement = {
   id: string;
+  outlet_id: string;
   lessor_name: string | null;
   lessee_name: string | null;
   brand_name: string | null;
   lease_expiry_date: string | null;
   monthly_rent: number | null;
+  security_deposit: number | null;
   renewal_status: string | null;
   status: string;
   outlets: { name: string; city: string } | null;
 };
 
-const KANBAN_STAGES = [
-  { key: "not_started", label: "Not Started", color: "bg-slate-100 text-slate-700" },
-  { key: "option_decision", label: "Option Decision", color: "bg-blue-100 text-blue-700" },
-  { key: "exercise", label: "Exercise", color: "bg-indigo-100 text-indigo-700" },
-  { key: "negotiation", label: "Negotiation", color: "bg-amber-100 text-amber-700" },
-  { key: "execution", label: "Execution", color: "bg-emerald-100 text-emerald-700" },
-  { key: "complete", label: "Complete", color: "bg-green-100 text-green-800" },
+const RENEWAL_STAGES = [
+  { value: "not_started", label: "Not Started", color: "bg-slate-100 text-slate-700" },
+  { value: "under_review", label: "Under Review", color: "bg-blue-100 text-blue-700" },
+  { value: "negotiation", label: "Negotiation", color: "bg-amber-100 text-amber-700" },
+  { value: "approved", label: "Approved", color: "bg-emerald-100 text-emerald-700" },
+  { value: "renewed", label: "Renewed", color: "bg-green-100 text-green-800" },
+  { value: "not_renewing", label: "Not Renewing", color: "bg-rose-100 text-rose-700" },
 ];
 
 function daysUntil(dateStr: string | null): number | null {
   if (!dateStr) return null;
-  const diff = Math.ceil((new Date(dateStr).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-  return diff;
+  return Math.ceil((new Date(dateStr).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
 }
 
 function urgencyBadge(days: number | null) {
-  if (days === null) return null;
-  if (days < 0) return <Badge variant="outline" className="text-[9px] border-slate-300 text-slate-500">Expired</Badge>;
-  if (days <= 30) return <Badge className="text-[9px] bg-rose-100 text-rose-700 border-0">{days}d left</Badge>;
-  if (days <= 90) return <Badge className="text-[9px] bg-amber-100 text-amber-700 border-0">{days}d left</Badge>;
-  if (days <= 180) return <Badge className="text-[9px] bg-blue-100 text-blue-700 border-0">{days}d left</Badge>;
-  return <Badge variant="outline" className="text-[9px]">{days}d</Badge>;
+  if (days === null) return <Badge variant="outline" className="text-[10px]">No expiry</Badge>;
+  if (days < 0) return <Badge className="text-[10px] bg-rose-100 text-rose-700 border-0">Expired {Math.abs(days)}d ago</Badge>;
+  if (days <= 30) return <Badge className="text-[10px] bg-rose-100 text-rose-700 border-0">{days}d left</Badge>;
+  if (days <= 90) return <Badge className="text-[10px] bg-amber-100 text-amber-700 border-0">{days}d left</Badge>;
+  if (days <= 180) return <Badge className="text-[10px] bg-blue-100 text-blue-700 border-0">{days}d left</Badge>;
+  if (days <= 365) return <Badge variant="outline" className="text-[10px]">{days}d left</Badge>;
+  return <Badge variant="outline" className="text-[10px] text-muted-foreground">{Math.round(days / 365)}y+</Badge>;
+}
+
+function formatCurrency(n: number) {
+  return `₹${n.toLocaleString("en-IN")}`;
 }
 
 export default function RenewalsPage() {
   const [agreements, setAgreements] = useState<Agreement[]>([]);
   const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<string>("all");
 
   useEffect(() => {
     (async () => {
       try {
-        const data = await listAgreements();
-        const items = (data.agreements || []).filter(
+        const data = await listAgreements({ page: 1, page_size: 200 });
+        const items = (data.items || []).filter(
           (a: Agreement) => a.status === "active" || a.status === "expiring"
         );
-        setAgreements(items);
+        // Deduplicate by outlet_id — keep only the latest agreement per outlet
+        const byOutlet: Record<string, Agreement> = {};
+        for (const a of items) {
+          const key = a.outlet_id || a.id;
+          if (!byOutlet[key] || (a.lease_expiry_date && (!byOutlet[key].lease_expiry_date || a.lease_expiry_date > byOutlet[key].lease_expiry_date))) {
+            byOutlet[key] = a;
+          }
+        }
+        // Sort by expiry date (soonest first)
+        const deduped = Object.values(byOutlet).sort((a, b) => {
+          if (!a.lease_expiry_date) return 1;
+          if (!b.lease_expiry_date) return -1;
+          return a.lease_expiry_date.localeCompare(b.lease_expiry_date);
+        });
+        setAgreements(deduped);
       } catch (e) {
         console.error(e);
       } finally {
@@ -69,6 +105,17 @@ export default function RenewalsPage() {
       }
     })();
   }, []);
+
+  const filtered = filter === "all"
+    ? agreements
+    : filter === "expiring_soon"
+      ? agreements.filter(a => { const d = daysUntil(a.lease_expiry_date); return d !== null && d >= 0 && d <= 180; })
+      : filter === "expired"
+        ? agreements.filter(a => { const d = daysUntil(a.lease_expiry_date); return d !== null && d < 0; })
+        : agreements.filter(a => (a.renewal_status || "not_started") === filter);
+
+  const expiringCount = agreements.filter(a => { const d = daysUntil(a.lease_expiry_date); return d !== null && d >= 0 && d <= 180; }).length;
+  const expiredCount = agreements.filter(a => { const d = daysUntil(a.lease_expiry_date); return d !== null && d < 0; }).length;
 
   if (loading) {
     return (
@@ -78,88 +125,158 @@ export default function RenewalsPage() {
     );
   }
 
-  // Group agreements by renewal_status
-  const byStage: Record<string, Agreement[]> = {};
-  for (const stage of KANBAN_STAGES) {
-    byStage[stage.key] = [];
-  }
-  for (const agr of agreements) {
-    const stage = agr.renewal_status || "not_started";
-    if (byStage[stage]) {
-      byStage[stage].push(agr);
-    } else {
-      byStage["not_started"].push(agr);
-    }
-  }
-
   return (
     <div className="space-y-6">
       <PageHeader
         title="Lease Renewals"
         description="Track renewal progress across your portfolio"
-      />
+      >
+        <Badge variant="secondary" className="bg-muted text-foreground font-medium">
+          {agreements.length} leases
+        </Badge>
+      </PageHeader>
 
-      {agreements.length === 0 ? (
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <Card className="cursor-pointer hover:shadow-sm transition-shadow" onClick={() => setFilter("all")}>
+          <CardContent className="p-4 text-center">
+            <p className="text-2xl font-bold">{agreements.length}</p>
+            <p className="text-xs text-muted-foreground">Total Active</p>
+          </CardContent>
+        </Card>
+        <Card className={`cursor-pointer hover:shadow-sm transition-shadow ${expiringCount > 0 ? "border-amber-200" : ""}`} onClick={() => setFilter("expiring_soon")}>
+          <CardContent className="p-4 text-center">
+            <p className="text-2xl font-bold text-amber-600">{expiringCount}</p>
+            <p className="text-xs text-muted-foreground">Expiring in 6 months</p>
+          </CardContent>
+        </Card>
+        <Card className={`cursor-pointer hover:shadow-sm transition-shadow ${expiredCount > 0 ? "border-rose-200" : ""}`} onClick={() => setFilter("expired")}>
+          <CardContent className="p-4 text-center">
+            <p className="text-2xl font-bold text-rose-600">{expiredCount}</p>
+            <p className="text-xs text-muted-foreground">Expired</p>
+          </CardContent>
+        </Card>
+        <Card className="cursor-pointer hover:shadow-sm transition-shadow" onClick={() => setFilter("renewed")}>
+          <CardContent className="p-4 text-center">
+            <p className="text-2xl font-bold text-emerald-600">{agreements.filter(a => a.renewal_status === "renewed").length}</p>
+            <p className="text-xs text-muted-foreground">Renewed</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Filter Chips */}
+      <div className="flex flex-wrap gap-2">
+        {[
+          { value: "all", label: "All" },
+          { value: "expiring_soon", label: `Expiring Soon (${expiringCount})` },
+          { value: "expired", label: `Expired (${expiredCount})` },
+          ...RENEWAL_STAGES,
+        ].map((f) => (
+          <button
+            key={f.value}
+            onClick={() => setFilter(f.value)}
+            className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-colors ${
+              filter === f.value
+                ? "bg-foreground text-white border-foreground"
+                : "bg-white text-slate-600 border-slate-200 hover:bg-muted"
+            }`}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Table */}
+      {filtered.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16">
             <RefreshCw className="h-10 w-10 text-muted-foreground/30 mb-3" />
-            <p className="text-sm text-muted-foreground">No active agreements to renew</p>
+            <p className="text-sm text-muted-foreground">No agreements match this filter</p>
+            <Button variant="outline" size="sm" className="mt-3" onClick={() => setFilter("all")}>Show All</Button>
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
-          {KANBAN_STAGES.map((stage) => (
-            <div key={stage.key} className="space-y-2">
-              <div className="flex items-center justify-between px-1">
-                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  {stage.label}
-                </span>
-                <Badge variant="outline" className="text-[10px]">
-                  {byStage[stage.key].length}
-                </Badge>
-              </div>
-              <div className="space-y-2 min-h-[200px]">
-                {byStage[stage.key].map((agr) => {
+        <Card>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted hover:bg-muted">
+                  <TableHead className="text-xs font-semibold uppercase">Outlet</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase">City</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase">Lease Expiry</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase">Time Left</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase text-right">Monthly Rent</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase">Lessor</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase">Renewal Status</TableHead>
+                  <TableHead className="text-xs font-semibold uppercase"></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filtered.map((agr) => {
                   const days = daysUntil(agr.lease_expiry_date);
                   return (
-                    <Link key={agr.id} href={`/agreements/${agr.id}`}>
-                      <Card className="hover:shadow-md transition-shadow cursor-pointer">
-                        <CardContent className="p-3 space-y-2">
-                          <div className="flex items-start justify-between">
-                            <div className="flex items-center gap-1.5 min-w-0">
-                              <Building2 className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-                              <span className="text-xs font-medium truncate">
-                                {agr.outlets?.name || agr.brand_name || "Unknown"}
-                              </span>
-                            </div>
-                            {urgencyBadge(days)}
-                          </div>
-                          {agr.outlets?.city && (
-                            <p className="text-[10px] text-muted-foreground">{agr.outlets.city}</p>
-                          )}
-                          <div className="flex items-center justify-between text-[10px]">
-                            <span className="flex items-center gap-1 text-muted-foreground">
-                              <Calendar className="h-2.5 w-2.5" />
-                              {agr.lease_expiry_date
-                                ? new Date(agr.lease_expiry_date).toLocaleDateString("en-IN", { month: "short", year: "numeric" })
-                                : "No expiry"}
-                            </span>
-                            {agr.monthly_rent && (
-                              <span className="flex items-center gap-0.5 font-medium tabular-nums">
-                                <IndianRupee className="h-2.5 w-2.5" />
-                                {Number(agr.monthly_rent).toLocaleString("en-IN")}
-                              </span>
-                            )}
-                          </div>
-                        </CardContent>
-                      </Card>
-                    </Link>
+                    <TableRow key={agr.id} className={`hover:bg-muted/50 ${days !== null && days < 0 ? "bg-rose-50/30" : days !== null && days <= 90 ? "bg-amber-50/30" : ""}`}>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Building2 className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                          <span className="text-sm font-medium">{agr.outlets?.name || agr.brand_name || "Unknown"}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                          <MapPin className="h-3 w-3" />
+                          {agr.outlets?.city || "--"}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-sm">
+                        {agr.lease_expiry_date
+                          ? new Date(agr.lease_expiry_date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+                          : "--"}
+                      </TableCell>
+                      <TableCell>{urgencyBadge(days)}</TableCell>
+                      <TableCell className="text-sm font-medium text-right tabular-nums">
+                        {agr.monthly_rent ? formatCurrency(agr.monthly_rent) : "--"}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {agr.lessor_name || "--"}
+                      </TableCell>
+                      <TableCell>
+                        <Select
+                          value={agr.renewal_status || "not_started"}
+                          onValueChange={async (val) => {
+                            try {
+                              const { updateAgreement } = await import("@/lib/api");
+                              await updateAgreement(agr.id, { field_updates: { "renewal_status": val } });
+                              setAgreements(prev => prev.map(a => a.id === agr.id ? { ...a, renewal_status: val } : a));
+                            } catch {
+                              // Silently handle
+                            }
+                          }}
+                        >
+                          <SelectTrigger className="h-7 w-36 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {RENEWAL_STAGES.map(s => (
+                              <SelectItem key={s.value} value={s.value}>
+                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${s.color}`}>{s.label}</span>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+                      <TableCell>
+                        <Link href={`/agreements/${agr.id}`}>
+                          <Button variant="ghost" size="sm" className="text-xs h-7">View</Button>
+                        </Link>
+                      </TableCell>
+                    </TableRow>
                   );
                 })}
-              </div>
-            </div>
-          ))}
-        </div>
+              </TableBody>
+            </Table>
+          </div>
+        </Card>
       )}
     </div>
   );

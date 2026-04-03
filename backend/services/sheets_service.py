@@ -17,12 +17,17 @@ SHEET_HEADERS = [
     "Lease Start", "Lease End", "Lock-in (months)",
     "Escalation %", "Rent Model", "Area (sqft)",
     "Rent/sqft", "Total Monthly Outflow", "Risk Flags",
-    "Status", "Document Filename",
+    "Status", "Document Filename", "Uploaded By",
 ]
 
 FEEDBACK_HEADERS = [
     "Timestamp", "Agreement ID", "Field Name",
     "Original Value", "Corrected Value", "Comment", "Status",
+]
+
+DELETION_HEADERS = [
+    "Timestamp", "Outlet ID", "Outlet Name", "City", "Brand",
+    "Deleted By", "Org ID",
 ]
 
 
@@ -65,6 +70,20 @@ def _get_spreadsheet():
         return None
 
 
+def _format_sheet_headers(sheet):
+    """Apply professional formatting to the header row."""
+    try:
+        # Bold + gray background for header row
+        sheet.format("1:1", {
+            "textFormat": {"bold": True},
+            "backgroundColor": {"red": 0.95, "green": 0.96, "blue": 0.97},
+        })
+        # Freeze header row
+        sheet.freeze(rows=1)
+    except Exception as e:
+        logger.warning(f"Failed to format sheet headers: {e}")
+
+
 def _get_sheet():
     """Get the main agreements sheet (Sheet1)."""
     spreadsheet = _get_spreadsheet()
@@ -78,8 +97,10 @@ def _get_sheet():
         first_row = sheet.row_values(1)
         if not first_row or first_row[0] != SHEET_HEADERS[0]:
             sheet.insert_row(SHEET_HEADERS, 1)
+            _format_sheet_headers(sheet)
     except Exception:
         sheet.insert_row(SHEET_HEADERS, 1)
+        _format_sheet_headers(sheet)
 
     return sheet
 
@@ -96,6 +117,7 @@ def _get_feedback_sheet():
         # Sheet doesn't exist — create it
         sheet = spreadsheet.add_worksheet(title="Feedback", rows=1000, cols=len(FEEDBACK_HEADERS))
         sheet.insert_row(FEEDBACK_HEADERS, 1)
+        _format_sheet_headers(sheet)
         return sheet
 
     # Ensure headers exist
@@ -103,8 +125,10 @@ def _get_feedback_sheet():
         first_row = sheet.row_values(1)
         if not first_row or first_row[0] != FEEDBACK_HEADERS[0]:
             sheet.insert_row(FEEDBACK_HEADERS, 1)
+            _format_sheet_headers(sheet)
     except Exception:
         sheet.insert_row(FEEDBACK_HEADERS, 1)
+        _format_sheet_headers(sheet)
 
     return sheet
 
@@ -132,6 +156,7 @@ def write_agreement_to_sheet(
     risk_flags_count: int = 0,
     status: str = "active",
     document_filename: Optional[str] = None,
+    uploaded_by: Optional[str] = None,
 ) -> bool:
     """Append a row to Google Sheet. Returns True on success."""
     sheet = _get_sheet()
@@ -143,27 +168,28 @@ def write_agreement_to_sheet(
         row = [
             datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
             agreement_id,
-            outlet_name or "",
-            city or "",
-            state or "",
-            landlord or "",
-            tenant or "",
-            brand or "",
-            property_type or "",
-            monthly_rent or "",
-            security_deposit or "",
-            cam_monthly or "",
-            lease_start or "",
-            lease_end or "",
-            lock_in_months or "",
-            escalation_pct or "",
-            rent_model or "",
-            area_sqft or "",
-            rent_per_sqft or "",
-            total_monthly_outflow or "",
+            outlet_name or "--",
+            city or "--",
+            state or "--",
+            landlord or "--",
+            tenant or "--",
+            brand or "--",
+            property_type or "--",
+            monthly_rent or "--",
+            security_deposit or "--",
+            cam_monthly or "--",
+            lease_start or "--",
+            lease_end or "--",
+            lock_in_months or "--",
+            escalation_pct or "--",
+            rent_model or "--",
+            area_sqft or "--",
+            rent_per_sqft or "--",
+            total_monthly_outflow or "--",
             risk_flags_count,
             status,
-            document_filename or "",
+            document_filename or "--",
+            uploaded_by or "",
         ]
         sheet.append_row(row, value_input_option="USER_ENTERED")
         logger.info(f"Wrote agreement {agreement_id} to Google Sheet")
@@ -204,4 +230,115 @@ def write_feedback_to_sheet(
 
     except Exception as e:
         logger.error(f"Failed to write feedback to Google Sheet: {e}")
+        return False
+
+
+def _get_deletions_sheet():
+    """Get or create the Deletions sheet tab."""
+    spreadsheet = _get_spreadsheet()
+    if not spreadsheet:
+        return None
+    try:
+        sheet = spreadsheet.worksheet("Deletions")
+    except Exception:
+        sheet = spreadsheet.add_worksheet(title="Deletions", rows=1000, cols=len(DELETION_HEADERS))
+        sheet.insert_row(DELETION_HEADERS, 1)
+        _format_sheet_headers(sheet)
+        return sheet
+    try:
+        first_row = sheet.row_values(1)
+        if not first_row or first_row[0] != DELETION_HEADERS[0]:
+            sheet.insert_row(DELETION_HEADERS, 1)
+            _format_sheet_headers(sheet)
+    except Exception:
+        sheet.insert_row(DELETION_HEADERS, 1)
+    return sheet
+
+
+def write_deletion_to_sheet(
+    outlet_id: str,
+    outlet_name: str,
+    city: str,
+    brand: str,
+    deleted_by: str,
+    org_id: str,
+) -> bool:
+    """Append a deletion log row to the Deletions sheet tab."""
+    sheet = _get_deletions_sheet()
+    if sheet is None:
+        return False
+    try:
+        row = [
+            datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+            outlet_id,
+            outlet_name or "--",
+            city or "--",
+            brand or "--",
+            deleted_by or "--",
+            org_id,
+        ]
+        sheet.append_row(row, value_input_option="USER_ENTERED")
+        logger.info(f"Wrote deletion of outlet {outlet_id} to Google Sheet")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to write deletion to Google Sheet: {e}")
+        return False
+
+
+CHANGELOG_HEADERS = [
+    "Timestamp", "Outlet ID", "Outlet Name", "Action", "Changed By",
+    "Field", "Old Value", "New Value",
+]
+
+
+def _get_changelog_sheet():
+    """Get or create the Change Log sheet tab."""
+    spreadsheet = _get_spreadsheet()
+    if not spreadsheet:
+        return None
+    try:
+        sheet = spreadsheet.worksheet("Change Log")
+    except Exception:
+        sheet = spreadsheet.add_worksheet(title="Change Log", rows=5000, cols=len(CHANGELOG_HEADERS))
+        sheet.insert_row(CHANGELOG_HEADERS, 1)
+        _format_sheet_headers(sheet)
+        return sheet
+    try:
+        first_row = sheet.row_values(1)
+        if not first_row or first_row[0] != CHANGELOG_HEADERS[0]:
+            sheet.insert_row(CHANGELOG_HEADERS, 1)
+            _format_sheet_headers(sheet)
+    except Exception:
+        sheet.insert_row(CHANGELOG_HEADERS, 1)
+    return sheet
+
+
+def write_changelog_to_sheet(
+    outlet_id: str,
+    outlet_name: str,
+    action: str,
+    changed_by: str,
+    field: str = "",
+    old_value: str = "",
+    new_value: str = "",
+) -> bool:
+    """Append a change log entry to the Change Log sheet tab."""
+    sheet = _get_changelog_sheet()
+    if sheet is None:
+        return False
+    try:
+        row = [
+            datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+            outlet_id,
+            outlet_name or "--",
+            action,
+            changed_by or "--",
+            field or "--",
+            old_value or "--",
+            new_value or "--",
+        ]
+        sheet.append_row(row, value_input_option="USER_ENTERED")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to write changelog: {e}")
         return False

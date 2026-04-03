@@ -44,49 +44,69 @@ function ProcessingAnimation() {
     return () => clearTimeout(timeout);
   }, []);
 
+  const progress = Math.min((activeStep / processingSteps.length) * 100, 100);
+
   return (
-    <Card className="max-w-md mx-auto">
-      <CardContent className="pt-8 pb-10 flex flex-col items-center text-center">
-        <div className="mb-6">
-          <div className="h-16 w-16 rounded-full bg-foreground flex items-center justify-center">
-            <Loader2 className="h-8 w-8 text-white animate-spin" />
+    <Card className="max-w-md mx-auto shadow-lg border-border/50">
+      <CardContent className="pt-10 pb-10 flex flex-col items-center text-center">
+        <div className="mb-6 relative">
+          <div className="h-20 w-20 rounded-full bg-gradient-to-br from-foreground to-foreground/80 flex items-center justify-center shadow-lg">
+            <Sparkles className="h-8 w-8 text-white animate-pulse" />
+          </div>
+          <div className="absolute -bottom-1 -right-1 h-6 w-6 rounded-full bg-emerald-500 flex items-center justify-center border-2 border-white">
+            <Loader2 className="h-3 w-3 text-white animate-spin" />
           </div>
         </div>
 
-        <h2 className="text-lg font-semibold mb-1 text-foreground">
+        <h2 className="text-xl font-bold mb-1 text-foreground">
           Analyzing your lease...
         </h2>
-        <p className="text-sm text-[#6b7280] mb-6">
+        <p className="text-sm text-[#6b7280] mb-2">
           AI-powered analysis in progress
         </p>
+
+        {/* Progress bar */}
+        <div className="w-full max-w-xs mb-6">
+          <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+            <div
+              className="h-full bg-foreground rounded-full transition-all duration-1000 ease-out"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
 
         <div className="text-left w-full max-w-xs space-y-3">
           {processingSteps.map((item, i) => (
             <div
               key={item.label}
-              className={`flex items-center gap-2.5 text-sm transition-all duration-300 ${
+              className={`flex items-center gap-3 text-sm transition-all duration-500 ${
                 i < activeStep
                   ? "text-foreground"
                   : i === activeStep
                   ? "text-foreground"
-                  : "text-[#9ca3af] opacity-40"
+                  : "text-[#9ca3af] opacity-30"
               }`}
             >
               {i < activeStep ? (
-                <Check className="h-4 w-4 text-emerald-600 flex-shrink-0" />
+                <div className="h-5 w-5 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
+                  <Check className="h-3 w-3 text-emerald-600" />
+                </div>
               ) : i === activeStep ? (
-                <Loader2 className="h-4 w-4 text-foreground animate-spin flex-shrink-0" />
+                <div className="h-5 w-5 rounded-full bg-foreground/10 flex items-center justify-center flex-shrink-0">
+                  <Loader2 className="h-3 w-3 text-foreground animate-spin" />
+                </div>
               ) : (
-                <div className="h-4 w-4 rounded-full border border-[#d1d5db] flex-shrink-0" />
+                <div className="h-5 w-5 rounded-full border-2 border-[#e5e7eb] flex-shrink-0" />
               )}
-              <span className={i < activeStep ? "font-medium" : ""}>{item.label}</span>
+              <span className={i < activeStep ? "font-medium" : i === activeStep ? "font-medium" : ""}>{item.label}</span>
             </div>
           ))}
         </div>
 
-        <p className="mt-6 text-xs text-[#9ca3af]">
-          This usually takes 60-90 seconds
-        </p>
+        <div className="mt-6 flex items-center gap-2 text-xs text-[#9ca3af]">
+          <Clock className="h-3 w-3" />
+          <span>Usually takes 60-90 seconds</span>
+        </div>
       </CardContent>
     </Card>
   );
@@ -169,8 +189,13 @@ export default function LeasebotPage() {
 
   if (isProcessing) {
     return (
-      <div className="min-h-screen bg-card flex items-center justify-center p-4">
-        <ProcessingAnimation />
+      <div className="min-h-screen bg-gradient-to-b from-card to-muted/30 flex items-center justify-center p-4">
+        <div className="text-center">
+          <ProcessingAnimation />
+          <p className="mt-6 text-xs text-[#9ca3af] max-w-xs mx-auto">
+            We&apos;re reading every clause, extracting key terms, and checking for risks based on India commercial leasing standards.
+          </p>
+        </div>
       </div>
     );
   }
