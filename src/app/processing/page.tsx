@@ -81,12 +81,15 @@ export default function ProcessingPage() {
 
   useEffect(() => {
     fetchJobs();
-    // Auto-refresh every 5 seconds if any jobs are processing
-    const interval = setInterval(() => {
-      fetchJobs();
-    }, 5000);
-    return () => clearInterval(interval);
   }, []);
+
+  // Only poll when there are active processing jobs
+  useEffect(() => {
+    const hasProcessing = jobs.some((j) => j.status === "processing");
+    if (!hasProcessing) return;
+    const interval = setInterval(fetchJobs, 5000);
+    return () => clearInterval(interval);
+  }, [jobs]);
 
   async function handleMarkSeen(jobId: string) {
     try {
