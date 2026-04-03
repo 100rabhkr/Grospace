@@ -354,15 +354,20 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
             maxY = Math.max(maxY, rect.bottom - layerRect.top);
           }
 
-          const pad = 6;
+          const pad = 4;
+          // Clamp to text layer bounds
+          const clampedLeft = Math.max(0, minX - pad);
+          const clampedTop = Math.max(0, minY - pad);
+          const clampedW = Math.min(layerRect.width - clampedLeft, maxX - minX + pad * 2);
+          const clampedH = Math.min(layerRect.height - clampedTop, maxY - minY + pad * 2);
           const spotlight = document.createElement("div");
           spotlight.className = "source-highlight";
           spotlight.style.cssText = `
             position: absolute;
-            left: ${minX - pad}px;
-            top: ${minY - pad}px;
-            width: ${maxX - minX + pad * 2}px;
-            height: ${maxY - minY + pad * 2}px;
+            left: ${clampedLeft}px;
+            top: ${clampedTop}px;
+            width: ${clampedW}px;
+            height: ${clampedH}px;
             background: rgba(59, 130, 246, 0.08);
             border: 2px solid rgba(59, 130, 246, 0.6);
             border-radius: 6px;
@@ -513,18 +518,20 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
                 </div>
               }
             >
-              <Page
-                pageNumber={pageNumber}
-                scale={scale}
-                renderTextLayer={true}
-                renderAnnotationLayer={true}
-                loading={
-                  <div className="flex items-center gap-2 text-neutral-400 py-8">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    <span className="text-xs">Rendering page...</span>
-                  </div>
-                }
-              />
+              <div style={{ position: "relative", overflow: "hidden", borderRadius: "4px" }}>
+                <Page
+                  pageNumber={pageNumber}
+                  scale={scale}
+                  renderTextLayer={true}
+                  renderAnnotationLayer={true}
+                  loading={
+                    <div className="flex items-center gap-2 text-neutral-400 py-8">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span className="text-xs">Rendering page...</span>
+                    </div>
+                  }
+                />
+              </div>
             </Document>
           )}
         </div>
