@@ -518,20 +518,19 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
                 </div>
               }
             >
-              <div style={{ position: "relative", overflow: "hidden", borderRadius: "4px" }}>
-                <Page
-                  pageNumber={pageNumber}
-                  scale={scale}
-                  renderTextLayer={true}
-                  renderAnnotationLayer={true}
-                  loading={
-                    <div className="flex items-center gap-2 text-neutral-400 py-8">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      <span className="text-xs">Rendering page...</span>
-                    </div>
-                  }
-                />
-              </div>
+              <Page
+                pageNumber={pageNumber}
+                scale={scale}
+                renderTextLayer={true}
+                renderAnnotationLayer={true}
+                className="[&>.react-pdf__Page]:overflow-hidden"
+                loading={
+                  <div className="flex items-center gap-2 text-neutral-400 py-8">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span className="text-xs">Rendering page...</span>
+                  </div>
+                }
+              />
             </Document>
           )}
         </div>
