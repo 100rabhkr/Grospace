@@ -579,7 +579,8 @@ async def upload_and_extract_async(
     clean_job = {k: v for k, v in job_data.items() if v is not None}
     supabase.table("extraction_jobs").insert(clean_job).execute()
 
-    # Run extraction in background
+    # Run extraction in background — create_task keeps it on the event loop
+    # With --workers 2 in Dockerfile, other worker handles API calls while this blocks
     asyncio.create_task(_process_extraction_job(job_id, file_bytes, filename, file_ext))
 
     return {"job_id": job_id, "status": "processing", "filename": filename}

@@ -1276,14 +1276,27 @@ async def portfolio_qa_endpoint(request: Request, req: PortfolioQARequest, autho
         if generated_sql.lower().startswith("sql"):
             generated_sql = generated_sql[3:].strip()
 
+        # Strict SQL validation — only allow safe SELECT queries
         sql_upper = generated_sql.upper().strip()
         if not sql_upper.startswith("SELECT"):
             raise HTTPException(status_code=400, detail="Only SELECT queries are allowed")
-        forbidden = ["INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "TRUNCATE", "CREATE", "GRANT", "REVOKE"]
+        # Block ALL dangerous keywords anywhere in the query
+        forbidden = ["INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "TRUNCATE", "CREATE",
+                      "GRANT", "REVOKE", "EXEC", "EXECUTE", "INTO", "COPY", "LOAD",
+                      "SET ", "CALL", "DO ", "PERFORM", "VACUUM", "CLUSTER", "REINDEX",
+                      "SECURITY", "OWNER", "DEFINER", "LANGUAGE"]
         for keyword in forbidden:
-            if keyword in sql_upper.split("SELECT", 1)[0] or f" {keyword} " in f" {sql_upper} ":
-                if sql_upper.index(keyword) < sql_upper.index("FROM") if "FROM" in sql_upper else True:
-                    raise HTTPException(status_code=400, detail=f"Forbidden SQL operation: {keyword}")
+            if keyword in sql_upper:
+                raise HTTPException(status_code=400, detail=f"Forbidden SQL operation: {keyword}")
+        # Block semicolons (multi-statement attacks)
+        if ";" in generated_sql:
+            raise HTTPException(status_code=400, detail="Multi-statement queries are not allowed")
+        # Block comments (can hide malicious SQL)
+        if "--" in generated_sql or "/*" in generated_sql:
+            raise HTTPException(status_code=400, detail="SQL comments are not allowed")
+        # Limit query length
+        if len(generated_sql) > 2000:
+            raise HTTPException(status_code=400, detail="Query too long")
 
         try:
             query_result = supabase.rpc("exec_readonly_sql", {"query_text": generated_sql}).execute()

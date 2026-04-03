@@ -1503,18 +1503,18 @@ export default function UploadAgreementPage() {
                   </div>
                 </div>
                 <div style={{ height: "calc(100vh - 320px)", minHeight: "400px" }} className="relative">
-                  {fileUrl && (selectedFile?.type === "application/pdf" || (!selectedFile && result?.filename?.toLowerCase().endsWith(".pdf"))) ? (
+                  {(fileUrl || result?.document_url) && (selectedFile?.type === "application/pdf" || (!selectedFile && result?.filename?.toLowerCase().endsWith(".pdf"))) ? (
                     <PdfViewer
-                      url={fileUrl}
+                      url={fileUrl || result?.document_url || ""}
                       activePage={pdfHighlightPage}
                       highlightQuote={pdfHighlightQuote}
                       ocrPages={result?.ocr_pages}
                     />
-                  ) : fileUrl && (selectedFile?.type?.startsWith("image/") || (!selectedFile && /\.(png|jpe?g|webp|gif|bmp|tiff?)$/i.test(result?.filename || ""))) ? (
+                  ) : (fileUrl || result?.document_url) && (selectedFile?.type?.startsWith("image/") || (!selectedFile && /\.(png|jpe?g|webp|gif|bmp|tiff?)$/i.test(result?.filename || ""))) ? (
                     <div className="flex items-center justify-center p-4 h-full">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
-                        src={fileUrl}
+                        src={fileUrl || result?.document_url || ""}
                         alt="Uploaded document"
                         className="max-w-full object-contain"
                         style={{

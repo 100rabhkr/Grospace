@@ -5,7 +5,7 @@
 
 import { createClient } from "@/lib/supabase/client";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 async function getAuthToken(): Promise<string | null> {
   try {
@@ -31,7 +31,8 @@ const LONG_TIMEOUT_PATTERNS = [
   "/api/cron",
 ];
 
-async function apiFetch(endpoint: string, options: RequestInit = {}) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function apiFetch(endpoint: string, options: RequestInit = {}, retryCount = 0): Promise<any> {
   const token = await getAuthToken();
   const isFormData = options.body instanceof FormData;
   const headers: Record<string, string> = {
@@ -43,8 +44,9 @@ async function apiFetch(endpoint: string, options: RequestInit = {}) {
   }
 
   const isLongRunning = LONG_TIMEOUT_PATTERNS.some((p) => endpoint.startsWith(p));
+  // 120s for normal calls (Railway cold start can take 90s), 10min for AI processing
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), isLongRunning ? 600000 : 15000);
+  const timeoutId = setTimeout(() => controller.abort(), isLongRunning ? 600000 : 120000);
 
   let response: Response;
   try {
@@ -55,14 +57,25 @@ async function apiFetch(endpoint: string, options: RequestInit = {}) {
     });
   } catch (err: unknown) {
     clearTimeout(timeoutId);
+    // Auto-retry once on network error (handles Railway cold start)
+    if (retryCount === 0 && !(err instanceof Error && err.name === "AbortError")) {
+      console.log(`[API] Retrying ${endpoint} after network error...`);
+      return apiFetch(endpoint, options, 1);
+    }
     if (err instanceof Error && err.name === "AbortError") {
-      throw new Error("Request timed out — server may be starting up. Please retry in a moment.");
+      throw new Error("Request timed out — server may be starting up. Please refresh the page.");
     }
     throw new Error("Network error — unable to reach the server. Please check your connection and try again.");
   }
   clearTimeout(timeoutId);
 
   if (!response.ok) {
+    // Auto-retry once on 502/503/504 (Railway restarting)
+    if (retryCount === 0 && [502, 503, 504].includes(response.status)) {
+      console.log(`[API] Retrying ${endpoint} after ${response.status}...`);
+      await new Promise(r => setTimeout(r, 2000));
+      return apiFetch(endpoint, options, 1);
+    }
     const error = await response.json().catch(() => ({ detail: "Request failed" }));
     const detail = typeof error.detail === "string" ? error.detail : JSON.stringify(error.detail) || `API error: ${response.status}`;
     throw new Error(detail);
