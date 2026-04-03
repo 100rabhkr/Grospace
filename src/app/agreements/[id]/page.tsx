@@ -680,8 +680,16 @@ export default function AgreementDetailPage() {
 
   // Check for escalation dates in rent section
   const rentSection = extractedData?.rent as Record<string, unknown> | undefined;
-  if (rentSection?.rent_schedule && Array.isArray(rentSection.rent_schedule)) {
-    (rentSection.rent_schedule as Array<Record<string, unknown>>).forEach((item, idx) => {
+  // Unwrap {value} wrapper if present
+  const rawRentSchedule = rentSection?.rent_schedule;
+  const rentScheduleArr = rawRentSchedule
+    ? Array.isArray(rawRentSchedule) ? rawRentSchedule
+    : typeof rawRentSchedule === "object" && rawRentSchedule !== null && "value" in (rawRentSchedule as Record<string, unknown>)
+      ? (rawRentSchedule as Record<string, unknown>).value
+    : null
+    : null;
+  if (rentScheduleArr && Array.isArray(rentScheduleArr)) {
+    (rentScheduleArr as Array<Record<string, unknown>>).forEach((item, idx) => {
       const period = item.year || item.period || item.years;
       if (typeof period === "string" && /^\d{4}-\d{2}-\d{2}/.test(period)) {
         timelineDates.push({ label: `Escalation ${idx + 1}`, date: period, type: classifyDate(period) });
