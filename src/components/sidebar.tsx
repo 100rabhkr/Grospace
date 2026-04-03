@@ -18,6 +18,7 @@ import {
   Bot,
   Map,
   RefreshCw,
+  Cpu,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -64,6 +65,7 @@ const navItems: NavItem[] = [
       { label: "Upload Document", href: "/agreements/upload", minRole: "org_admin" },
     ],
   },
+  { label: "Extractions", href: "/processing", icon: Cpu },
   { label: "Reminders", href: "/alerts", icon: Bell },
   { label: "Pipeline", href: "/pipeline", icon: Kanban, minRole: "org_admin" },
   { label: "Renewals", href: "/renewals", icon: RefreshCw, minRole: "org_admin" },

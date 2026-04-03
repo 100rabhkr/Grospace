@@ -1212,22 +1212,47 @@ async def extract_structured_data(text: str, doc_type: str) -> dict:
                 )
                 print(f"[EXTRACTION] Retrying with simplified prompt (attempt {attempt + 1})")
 
+            # Truncate document text to avoid exceeding context window
+            # Keep first 15K chars — covers most lease content (typically 5-8K for core clauses)
+            if attempt == 0 and len(use_prompt) > 20000:
+                # Find the "DOCUMENT TEXT:" marker and truncate after it
+                marker = "DOCUMENT TEXT:"
+                marker_pos = use_prompt.find(marker)
+                if marker_pos > 0:
+                    preamble = use_prompt[:marker_pos + len(marker)]
+                    doc_text = use_prompt[marker_pos + len(marker):]
+                    use_prompt = preamble + doc_text[:15000]
+                    print(f"[EXTRACTION] Truncated prompt from {len(prompt)} to {len(use_prompt)} chars")
+
+            # Use Pro model for maximum accuracy — quality over speed
+            print(f"[EXTRACTION] Attempt {attempt + 1}: Sending prompt ({len(use_prompt)} chars) to {model_pro.model_name}...")
             response = model_pro.generate_content(
                 use_prompt,
                 generation_config=genai.GenerationConfig(
                     response_mime_type="application/json",
                     temperature=0,
+                    max_output_tokens=16384,
                 ),
             )
 
+            if not response.text:
+                print(f"[EXTRACTION] Attempt {attempt + 1}: Empty response! Candidates: {response.candidates}, Feedback: {getattr(response, 'prompt_feedback', 'N/A')}")
+                continue
+
+            print(f"[EXTRACTION] Attempt {attempt + 1}: Got {len(response.text)} chars response")
             parsed = json.loads(response.text)
             if isinstance(parsed, list) and len(parsed) > 0:
                 parsed = parsed[0]
             if isinstance(parsed, dict) and parsed:
+                print(f"[EXTRACTION] Attempt {attempt + 1}: Extracted {len(parsed)} top-level keys: {list(parsed.keys())}")
                 result = parsed
                 break
+            else:
+                print(f"[EXTRACTION] Attempt {attempt + 1}: Parsed but empty/invalid: {type(parsed)}")
         except (json.JSONDecodeError, Exception) as e:
             print(f"[EXTRACTION] Attempt {attempt + 1} failed: {type(e).__name__}: {e}")
+            if hasattr(e, 'response'):
+                print(f"[EXTRACTION] Response details: {getattr(e, 'response', 'N/A')}")
             if attempt == 1:
                 result = {}  # Give up after retry
 
@@ -1244,6 +1269,10 @@ async def extract_structured_data(text: str, doc_type: str) -> dict:
             "CRITICAL FIELDS TO VERIFY:\n"
             "- Monthly rent amount (must be MONTHLY, not annual)\n"
             "- Party names (who is lessor/licensor vs lessee/licensee — do NOT swap them)\n"
+            "- Property name / mall name — OCR may have misread stylized fonts. "
+            "Use context clues from the full document to correct obvious OCR errors in names. "
+            "Example: 'PELX PLAZA' is likely 'FELIX PLAZA', 'HLUX MALL' is likely 'FLUX MALL'. "
+            "Check if the name appears correctly elsewhere in the document.\n"
             "- Lease commencement and expiry dates (commencement must be BEFORE expiry)\n"
             "- Lock-in period (in months)\n"
             "- Security deposit (amount and number of months)\n"
@@ -1902,6 +1931,20 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
                 # Append table data to text for Gemini context (preserving page markers)
                 if table_text.strip():
                     text = text + "\n\n" + table_text
+                # Extract bboxes for highlighting if Cloud Vision was used
+                # Run in background — don't block extraction
+                if cv_text and not ocr_pages:
+                    try:
+                        if not images:
+                            images = pdf_bytes_to_images(file_bytes)
+                        if images:
+                            # Only extract bboxes for first 5 pages to save time
+                            bbox_images = images  # All pages for complete highlighting
+                            bbox_result = extract_text_with_bboxes(bbox_images)
+                            ocr_pages = bbox_result.get("pages", [])
+                            print(f"[PROCESS] BBox extraction: {sum(len(p.get('words', [])) for p in ocr_pages)} words across {len(ocr_pages)} pages (of {len(images)} total)")
+                    except Exception as bbox_err:
+                        print(f"[PROCESS] BBox extraction failed: {bbox_err}")
             else:
                 print(f"[PROCESS] Text too sparse ({len(text.strip())} chars < {min_text_threshold}), falling back to vision...")
                 images = pdf_bytes_to_images(file_bytes)
@@ -1965,18 +2008,18 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
                     extraction_method = "failed"
 
         # --- Step 1.5: Clean OCR text ---
-        if extraction_method in ("text", "cloud_vision") and text:
+        if extraction_method in ("text", "cloud_vision", "text+cloud_vision", "document_ai") and text:
             text = clean_ocr_text(text)
 
         # --- Step 2: Classify ---
-        if extraction_method in ("text", "cloud_vision"):
+        if extraction_method in ("text", "cloud_vision", "text+cloud_vision", "document_ai"):
             doc_type = await classify_document(text)
         elif extraction_method == "vision":
             doc_type = await classify_document_vision(images)
 
         # --- Step 3: Extract structured data ---
         print(f"[PROCESS] Using extraction method: {extraction_method}, doc_type: {doc_type}")
-        if extraction_method in ("text", "cloud_vision"):
+        if extraction_method in ("text", "cloud_vision", "text+cloud_vision", "document_ai"):
             extraction = await extract_structured_data(text, doc_type)
         elif extraction_method == "vision":
             extraction = await extract_structured_data_vision(images, doc_type)
@@ -2020,7 +2063,7 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
         _step4_elapsed = _time.time() - _extraction_start
         if (
             _step4_elapsed < 60
-            and extraction_method == "text"
+            and extraction_method in ("text", "text+cloud_vision")
             and extraction
             and doc_type in ("lease_loi", "franchise_agreement")
         ):
