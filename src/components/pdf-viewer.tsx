@@ -162,9 +162,18 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
                 const pageRect = pageEl.getBoundingClientRect();
                 const renderedW = pageRect.width;
                 const renderedH = pageRect.height;
-                const endIdx = Math.min(startWordIdx + 25, words.length);
 
-                // Calculate bounding box around ALL matched words
+                // Only include words within a tight vertical cluster (max ~5 lines)
+                const firstWord = words[startWordIdx];
+                const lineHeight = firstWord.bbox.h * 2.5; // ~2.5x word height = max cluster
+                const maxY_limit = firstWord.bbox.y + lineHeight;
+                let endIdx = startWordIdx;
+                for (let wi = startWordIdx; wi < Math.min(startWordIdx + 25, words.length); wi++) {
+                  if (words[wi].bbox.y > maxY_limit) break;
+                  endIdx = wi + 1;
+                }
+
+                // Calculate bounding box around clustered words only
                 let minX = Infinity, minY = Infinity, maxX = 0, maxY = 0;
                 for (let wi = startWordIdx; wi < endIdx; wi++) {
                   const w = words[wi];
@@ -175,7 +184,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
                 }
 
                 // Add padding
-                const pad = 0.008;
+                const pad = 0.006;
                 minX = Math.max(0, minX - pad);
                 minY = Math.max(0, minY - pad);
                 maxX = Math.min(1, maxX + pad);
@@ -342,11 +351,19 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
           charCount = spanEnd + 1; // +1 for the space between spans
         }
 
-        // Spotlight window around all matching spans
+        // Spotlight window around matching spans — limit to tight vertical cluster
         if (matchingSpans.length > 0) {
           const layerRect = textLayer.getBoundingClientRect();
+          // Filter to spans within ~5 line heights of the first match
+          const firstRect = matchingSpans[0].getBoundingClientRect();
+          const maxClusterHeight = (firstRect.height || 16) * 6;
+          const clusteredSpans = matchingSpans.filter((span) => {
+            const rect = span.getBoundingClientRect();
+            return rect.top - firstRect.top < maxClusterHeight;
+          });
+
           let minX = Infinity, minY = Infinity, maxX = 0, maxY = 0;
-          for (const span of matchingSpans) {
+          for (const span of clusteredSpans) {
             const rect = span.getBoundingClientRect();
             minX = Math.min(minX, rect.left - layerRect.left);
             minY = Math.min(minY, rect.top - layerRect.top);
@@ -355,7 +372,6 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
           }
 
           const pad = 4;
-          // Clamp to text layer bounds
           const clampedLeft = Math.max(0, minX - pad);
           const clampedTop = Math.max(0, minY - pad);
           const clampedW = Math.min(layerRect.width - clampedLeft, maxX - minX + pad * 2);
