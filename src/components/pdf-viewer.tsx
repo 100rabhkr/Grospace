@@ -88,16 +88,28 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
     useEffect(() => {
       if (!activeQuote || !containerRef.current) return;
 
-      // Wait for page to render, then try highlighting
+      // Wait for correct page to render before highlighting
       let attempts = 0;
       const tryHighlight = () => {
         attempts++;
-        const textLayer = containerRef.current?.querySelector(".react-pdf__Page__textContent");
         const pageEl = containerRef.current?.querySelector(".react-pdf__Page");
         if (!pageEl) {
-          if (attempts < 4) setTimeout(tryHighlight, 500);
+          if (attempts < 8) setTimeout(tryHighlight, 300);
           return;
         }
+
+        // Verify the correct page is rendered by checking the page data attribute
+        const renderedPageNum = pageEl.getAttribute("data-page-number");
+        if (renderedPageNum && parseInt(renderedPageNum) !== pageNumber) {
+          // Wrong page still showing — wait for correct page
+          if (attempts < 8) setTimeout(tryHighlight, 300);
+          return;
+        }
+
+        // Clear ALL previous highlights
+        pageEl.querySelectorAll(".source-highlight").forEach((el) => el.remove());
+        const textLayer = containerRef.current?.querySelector(".react-pdf__Page__textContent");
+        textLayer?.querySelectorAll(".source-highlight").forEach((el) => el.remove());
         // If no text layer (scanned PDF), skip directly to bbox fallback
         if (!textLayer || textLayer.querySelectorAll("span").length === 0) {
           // Use OCR bbox highlighting for scanned documents
@@ -128,11 +140,11 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
                 }
               }
 
-              // Strategy 2: Match any 3 consecutive words from the quote
+              // Strategy 2: Match any 4 consecutive significant words from the quote
               if (startWordIdx === -1) {
                 const quoteWords = rawQuote.split(" ").filter(w => w.length > 2);
-                for (let qi = 0; qi <= quoteWords.length - 3; qi++) {
-                  const chunk = quoteWords.slice(qi, qi + 3).join(" ");
+                for (let qi = 0; qi <= quoteWords.length - 4; qi++) {
+                  const chunk = quoteWords.slice(qi, qi + 4).join(" ");
                   const idx = joined.indexOf(chunk);
                   if (idx !== -1) {
                     let charPos = 0;
@@ -143,14 +155,6 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
                     });
                     break;
                   }
-                }
-              }
-
-              // Strategy 3: Match the first significant word (>4 chars) from the quote
-              if (startWordIdx === -1) {
-                const firstSigWord = rawQuote.split(" ").find(w => w.length > 4);
-                if (firstSigWord) {
-                  startWordIdx = wordTexts.findIndex((wt) => wt.includes(firstSigWord));
                 }
               }
 
@@ -384,7 +388,8 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
           }
         }
       };
-      const timer = setTimeout(tryHighlight, 600);
+      // Wait longer for page change + render before highlighting
+      const timer = setTimeout(tryHighlight, 800);
 
       return () => clearTimeout(timer);
     }, [activeQuote, pageNumber, highlightTrigger, ocrPages]);
