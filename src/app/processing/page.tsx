@@ -112,7 +112,7 @@ export default function ProcessingPage() {
   return (
     <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
       <PageHeader
-        title="Document Processing"
+        title="Extractions"
         description="Track your document extractions — processing happens in the background"
       >
         <Button

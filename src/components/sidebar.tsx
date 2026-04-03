@@ -65,7 +65,7 @@ const navItems: NavItem[] = [
       { label: "Upload Document", href: "/agreements/upload", minRole: "org_admin" },
     ],
   },
-  { label: "Processing", href: "/processing", icon: Cpu },
+  { label: "Extractions", href: "/processing", icon: Cpu },
   { label: "Reminders", href: "/alerts", icon: Bell },
   { label: "Pipeline", href: "/pipeline", icon: Kanban, minRole: "org_admin" },
   { label: "Renewals", href: "/renewals", icon: RefreshCw, minRole: "org_admin" },
