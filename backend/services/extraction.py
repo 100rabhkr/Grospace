@@ -1269,6 +1269,10 @@ async def extract_structured_data(text: str, doc_type: str) -> dict:
             "CRITICAL FIELDS TO VERIFY:\n"
             "- Monthly rent amount (must be MONTHLY, not annual)\n"
             "- Party names (who is lessor/licensor vs lessee/licensee — do NOT swap them)\n"
+            "- Property name / mall name — OCR may have misread stylized fonts. "
+            "Use context clues from the full document to correct obvious OCR errors in names. "
+            "Example: 'PELX PLAZA' is likely 'FELIX PLAZA', 'HLUX MALL' is likely 'FLUX MALL'. "
+            "Check if the name appears correctly elsewhere in the document.\n"
             "- Lease commencement and expiry dates (commencement must be BEFORE expiry)\n"
             "- Lock-in period (in months)\n"
             "- Security deposit (amount and number of months)\n"
@@ -1927,6 +1931,20 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
                 # Append table data to text for Gemini context (preserving page markers)
                 if table_text.strip():
                     text = text + "\n\n" + table_text
+                # Extract bboxes for highlighting if Cloud Vision was used
+                # Run in background — don't block extraction
+                if cv_text and not ocr_pages:
+                    try:
+                        if not images:
+                            images = pdf_bytes_to_images(file_bytes)
+                        if images:
+                            # Only extract bboxes for first 5 pages to save time
+                            bbox_images = images[:5]
+                            bbox_result = extract_text_with_bboxes(bbox_images)
+                            ocr_pages = bbox_result.get("pages", [])
+                            print(f"[PROCESS] BBox extraction: {sum(len(p.get('words', [])) for p in ocr_pages)} words across {len(ocr_pages)} pages (of {len(images)} total)")
+                    except Exception as bbox_err:
+                        print(f"[PROCESS] BBox extraction failed: {bbox_err}")
             else:
                 print(f"[PROCESS] Text too sparse ({len(text.strip())} chars < {min_text_threshold}), falling back to vision...")
                 images = pdf_bytes_to_images(file_bytes)
