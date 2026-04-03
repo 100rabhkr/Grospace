@@ -29,6 +29,7 @@ const LONG_TIMEOUT_PATTERNS = [
   "/api/seed",
   "/api/leasebot/analyze",
   "/api/cron",
+  "/api/extraction-jobs",
 ];
 
 async function apiFetch(endpoint: string, options: RequestInit = {}) {

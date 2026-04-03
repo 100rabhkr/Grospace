@@ -2,12 +2,16 @@
 FastAPI dependencies: authentication, permissions, rate limiter.
 """
 
+import os
 from typing import Optional
 from fastapi import Header, HTTPException
 from starlette.requests import Request
 
 from core.config import supabase, ROLE_PERMISSIONS
 from core.models import CurrentUser
+
+# Demo mode: when DEMO_MODE=true, allow unauthenticated access (for demo/development only)
+DEMO_MODE = os.getenv("DEMO_MODE", "true").lower() == "true"
 
 
 def get_current_user(authorization: Optional[str] = Header(None)) -> Optional[CurrentUser]:
@@ -36,7 +40,9 @@ def get_current_user(authorization: Optional[str] = Header(None)) -> Optional[Cu
 def get_org_filter(user: Optional[CurrentUser]) -> Optional[str]:
     """Get org_id filter. Platform admins see all, org users see their org only."""
     if not user:
-        return None  # No auth — show all (backward compat for demo)
+        if DEMO_MODE:
+            return None  # Demo mode: show all data for unauthenticated users
+        raise HTTPException(status_code=401, detail="Authentication required")
     if user.role == "platform_admin":
         return None  # Platform admins see everything
     return user.org_id
@@ -66,8 +72,10 @@ def require_permission(action: str):
                 pass
 
         if not user:
-            # Allow unauthenticated for now (demo mode) but log warning
-            return None
+            if DEMO_MODE:
+                # Demo mode: allow unauthenticated access with org_member permissions
+                return None
+            raise HTTPException(status_code=401, detail="Authentication required")
 
         if not check_role_permission(user["role"], action):
             raise HTTPException(status_code=403, detail=f"Insufficient permissions. Required: {action}")

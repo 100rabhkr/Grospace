@@ -361,7 +361,7 @@ async def dashboard_stats():
 # SEED DEMO DATA
 # ============================================
 
-@router.post("/seed", dependencies=[Depends(require_permission("manage_org_settings"))])
+@router.post("/admin/seed", dependencies=[Depends(require_permission("manage_org_settings"))])
 def seed_demo_data():
     """Seed 6 realistic demo outlets with agreements, obligations, and alerts."""
     try:
@@ -658,7 +658,7 @@ def seed_demo_data():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.delete("/seed", dependencies=[Depends(require_permission("manage_org_settings"))])
+@router.delete("/admin/seed", dependencies=[Depends(require_permission("manage_org_settings"))])
 def remove_seed_data():
     """Remove only demo/seeded data by looking up IDs stored during seeding."""
     try:
@@ -752,7 +752,7 @@ CITY_STATE_MAP = {
 }
 
 
-@router.post("/admin/create-pilot")
+@router.post("/admin/create-pilot", dependencies=[Depends(require_permission("manage_org_settings"))])
 def create_pilot(req: CreatePilotRequest):
     """
     Create a pilot/demo account for a client: org, auth users, outlets,
@@ -1607,7 +1607,9 @@ def unified_cron(cron_secret: Optional[str] = Header(None, alias="X-Cron-Secret"
     Secured via CRON_SECRET env var.
     """
     expected_secret = os.getenv("CRON_SECRET")
-    if expected_secret and cron_secret != expected_secret:
+    if not expected_secret:
+        raise HTTPException(status_code=503, detail="CRON_SECRET not configured. Set it in environment variables.")
+    if cron_secret != expected_secret:
         raise HTTPException(status_code=401, detail="Invalid cron secret")
 
     results = {}
@@ -1756,7 +1758,7 @@ ROLE_TIER_INFO = {
 }
 
 
-@router.get("/api/role-tiers")
+@router.get("/role-tiers")
 def get_role_tiers():
     """Return role tier metadata for frontend display."""
     return ROLE_TIER_INFO
@@ -1849,7 +1851,7 @@ def list_feedback(
 # PROCESSING STATS
 # ============================================
 
-@router.get("/api/processing-stats", dependencies=[Depends(require_permission("view_reports"))])
+@router.get("/processing-stats", dependencies=[Depends(require_permission("view_reports"))])
 def get_processing_stats():
     """Return average processing time stats."""
     # Access the processing times from the documents route
