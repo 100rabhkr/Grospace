@@ -302,8 +302,11 @@ async def qa_endpoint(request: Request, req: QARequest):
                 "- If the answer is not in the document, say so clearly.\n"
                 "- Keep answers concise but complete.\n"
                 "- Use simple language, avoid unnecessary legal jargon.\n"
+                "- For financial questions (rent, CAM, maintenance, deposits, charges), search the ENTIRE document carefully. "
+                "CAM/maintenance charges are often in sections titled 'Other Charges', 'Maintenance', 'Common Area', or within the rent section. "
+                "They may be expressed as: Rs X/sqft, a monthly amount, or a percentage.\n"
                 f"{history_block}\n"
-                f"Document text:\n{document_text[:12000]}\n\n"
+                f"Document text:\n{document_text[:15000]}\n\n"
                 f"Extracted data summary:\n{extraction_summary[:4000]}\n\n"
                 f"User question: {req.question}"
             )
