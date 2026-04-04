@@ -259,15 +259,41 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
         // Try progressively shorter prefixes of the quote
         let matchIdx = -1;
         let matchLen = 0;
-        const tryLengths = [rawQuote.length, 100, 60, 40, 25];
+        const tryLengths = [rawQuote.length, 100, 60, 40, 25, 15, 10];
         for (const len of tryLengths) {
           if (rawQuote.length < len) continue;
           const prefix = rawQuote.slice(0, len);
           const idx = normalizedFull.indexOf(prefix);
           if (idx !== -1) {
             matchIdx = idx;
-            matchLen = prefix.length;
+            matchLen = Math.min(prefix.length, 120);
             break;
+          }
+        }
+
+        // Fallback: try matching any 3 significant words from the quote
+        if (matchIdx === -1) {
+          const quoteWords = rawQuote.split(" ").filter(w => w.length > 2);
+          for (let qi = 0; qi <= quoteWords.length - 3; qi++) {
+            const chunk = quoteWords.slice(qi, qi + 3).join(" ");
+            const idx = normalizedFull.indexOf(chunk);
+            if (idx !== -1) {
+              matchIdx = idx;
+              matchLen = chunk.length;
+              break;
+            }
+          }
+        }
+
+        // Last resort: match first significant word (>5 chars)
+        if (matchIdx === -1) {
+          const sigWord = rawQuote.split(" ").find(w => w.length > 5);
+          if (sigWord) {
+            const idx = normalizedFull.indexOf(sigWord);
+            if (idx !== -1) {
+              matchIdx = idx;
+              matchLen = sigWord.length + 20; // highlight some context around it
+            }
           }
         }
 
@@ -348,6 +374,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
           const spanEnd = charCount + spanNorm.length;
           if (spanEnd > matchIdx && charCount < matchIdx + limitedMatchLen) {
             matchingSpans.push(span);
+            if (matchingSpans.length >= 12) break; // Cap at 12 spans max
           }
           charCount = spanEnd + 1;
         }
