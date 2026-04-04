@@ -1247,7 +1247,7 @@ async def extract_structured_data(text: str, doc_type: str) -> dict:
                     # Keep first 80K + last 40K for very large docs
                     doc_text = doc_text[:80000] + "\n\n--- [TRUNCATED — END OF DOCUMENT] ---\n\n" + doc_text[-40000:]
                     use_prompt = preamble + doc_text
-                    print(f"[EXTRACTION] Very large doc truncated to ~120K chars")
+                    print("[EXTRACTION] Very large doc truncated to ~120K chars")
 
             # Use Pro model for maximum accuracy — quality over speed
             print(f"[EXTRACTION] Attempt {attempt + 1}: Sending prompt ({len(use_prompt)} chars) to {model_pro.model_name}...")
