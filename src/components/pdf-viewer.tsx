@@ -337,6 +337,8 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
         // Map back to original positions — find spans that overlap
         // Since we stripped non-alphanumeric, we need to map normalized positions to original spans
         // Simpler approach: find spans whose normalized text overlaps the match
+        // Limit match length to prevent highlighting entire paragraphs
+        const limitedMatchLen = Math.min(matchLen, 120);
         let charCount = 0;
         const matchingSpans: Element[] = [];
 
@@ -344,19 +346,17 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
           const spanNorm = normalize(span.textContent || "");
           if (spanNorm.length === 0) continue;
           const spanEnd = charCount + spanNorm.length;
-          // Check if this span's normalized text overlaps with match region
-          if (spanEnd > matchIdx && charCount < matchIdx + matchLen) {
+          if (spanEnd > matchIdx && charCount < matchIdx + limitedMatchLen) {
             matchingSpans.push(span);
           }
-          charCount = spanEnd + 1; // +1 for the space between spans
+          charCount = spanEnd + 1;
         }
 
-        // Spotlight window around matching spans — limit to tight vertical cluster
+        // Spotlight window — limit to max 3 lines from first match
         if (matchingSpans.length > 0) {
           const layerRect = textLayer.getBoundingClientRect();
-          // Filter to spans within ~5 line heights of the first match
           const firstRect = matchingSpans[0].getBoundingClientRect();
-          const maxClusterHeight = (firstRect.height || 16) * 6;
+          const maxClusterHeight = (firstRect.height || 16) * 3.5;
           const clusteredSpans = matchingSpans.filter((span) => {
             const rect = span.getBoundingClientRect();
             return rect.top - firstRect.top < maxClusterHeight;
