@@ -1232,21 +1232,22 @@ async def extract_structured_data(text: str, doc_type: str) -> dict:
                 use_prompt = (
                     f"Extract ALL fields from this {doc_type_label} as JSON.\n"
                     f"Schema:\n{json.dumps(schema, indent=2)}\n\n"
-                    f"DOCUMENT TEXT (first 10000 chars):\n{text[:10000]}"
+                    f"DOCUMENT TEXT:\n{text[:50000]}"
                 )
                 print(f"[EXTRACTION] Retrying with simplified prompt (attempt {attempt + 1})")
 
-            # Truncate document text to avoid exceeding context window
-            # Keep first 15K chars — covers most lease content (typically 5-8K for core clauses)
-            if attempt == 0 and len(use_prompt) > 20000:
-                # Find the "DOCUMENT TEXT:" marker and truncate after it
+            # Gemini 3.1 Pro supports 1M tokens (~4M chars) — send full document
+            # Only truncate for extremely long documents (>200K chars / ~200+ pages)
+            if attempt == 0 and len(use_prompt) > 200000:
                 marker = "DOCUMENT TEXT:"
                 marker_pos = use_prompt.find(marker)
                 if marker_pos > 0:
                     preamble = use_prompt[:marker_pos + len(marker)]
                     doc_text = use_prompt[marker_pos + len(marker):]
-                    use_prompt = preamble + doc_text[:15000]
-                    print(f"[EXTRACTION] Truncated prompt from {len(prompt)} to {len(use_prompt)} chars")
+                    # Keep first 80K + last 40K for very large docs
+                    doc_text = doc_text[:80000] + "\n\n--- [TRUNCATED — END OF DOCUMENT] ---\n\n" + doc_text[-40000:]
+                    use_prompt = preamble + doc_text
+                    print(f"[EXTRACTION] Very large doc truncated to ~120K chars")
 
             # Use Pro model for maximum accuracy — quality over speed
             print(f"[EXTRACTION] Attempt {attempt + 1}: Sending prompt ({len(use_prompt)} chars) to {model_pro.model_name}...")
