@@ -570,6 +570,31 @@ async def upload_and_extract_async(
         from services.extraction import get_or_create_demo_org
         org_id = get_or_create_demo_org()
 
+    # Check if same file is already being processed — prevent duplicate extractions
+    try:
+        existing = supabase.table("extraction_jobs").select("id, status").eq(
+            "filename", filename
+        ).eq("status", "processing").execute()
+        if existing.data and len(existing.data) > 0:
+            existing_job = existing.data[0]
+            print(f"[UPLOAD] Duplicate prevented: {filename} already processing as job {existing_job['id']}")
+            return {"job_id": existing_job["id"], "status": "processing", "filename": filename, "duplicate": True}
+    except Exception:
+        pass
+
+    # Also check by file hash if available
+    try:
+        file_hash = hashlib.sha256(file_bytes).hexdigest()
+        recent_completed = supabase.table("extraction_jobs").select("id, status, result").eq(
+            "status", "completed"
+        ).order("created_at", desc=True).limit(5).execute()
+        for job in (recent_completed.data or []):
+            if job.get("result", {}).get("file_hash") == file_hash:
+                print(f"[UPLOAD] Same file already extracted: {filename} (hash match)")
+                return {"job_id": job["id"], "status": "completed", "filename": filename, "duplicate": True}
+    except Exception:
+        pass
+
     # Create job record
     job_id = str(uuid.uuid4())
     job_data = {
