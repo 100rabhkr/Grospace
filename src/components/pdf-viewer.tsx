@@ -335,11 +335,13 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
                       hl.className = "source-highlight";
                       hl.style.cssText = `
                         position: absolute;
-                        left: ${word.bbox.x * renderedW}px;
-                        top: ${word.bbox.y * renderedH}px;
-                        width: ${word.bbox.w * renderedW}px;
-                        height: ${word.bbox.h * renderedH}px;
-                        background: rgba(16, 185, 129, 0.25);
+                        left: ${word.bbox.x * renderedW - 3}px;
+                        top: ${word.bbox.y * renderedH - 2}px;
+                        width: ${word.bbox.w * renderedW + 6}px;
+                        height: ${word.bbox.h * renderedH + 4}px;
+                        background: rgba(59, 130, 246, 0.35);
+                        border: 2px solid rgba(59, 130, 246, 0.5);
+                        border-radius: 3px;
                         pointer-events: none;
                         z-index: 5;
                       `;
@@ -398,12 +400,13 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
             hl.className = "source-highlight";
             hl.style.cssText = `
               position: absolute;
-              left: ${rect.left - layerRect.left - 2}px;
-              top: ${rect.top - layerRect.top - 1}px;
-              width: ${rect.width + 4}px;
-              height: ${rect.height + 2}px;
-              background: rgba(59, 130, 246, 0.25);
-              border-radius: 2px;
+              left: ${rect.left - layerRect.left - 4}px;
+              top: ${rect.top - layerRect.top - 3}px;
+              width: ${rect.width + 8}px;
+              height: ${rect.height + 6}px;
+              background: rgba(59, 130, 246, 0.35);
+              border: 2px solid rgba(59, 130, 246, 0.5);
+              border-radius: 4px;
               pointer-events: none;
               z-index: 5;
               animation: highlightPulse 2s ease-in-out infinite;
