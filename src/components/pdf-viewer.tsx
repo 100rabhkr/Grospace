@@ -352,59 +352,45 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
           charCount = spanEnd + 1;
         }
 
-        // Spotlight window — limit to max 3 lines from first match
+        // Highlight each matching span individually with a clean background
         if (matchingSpans.length > 0) {
           const layerRect = textLayer.getBoundingClientRect();
-          const firstRect = matchingSpans[0].getBoundingClientRect();
-          const maxClusterHeight = (firstRect.height || 16) * 3.5;
-          const clusteredSpans = matchingSpans.filter((span) => {
-            const rect = span.getBoundingClientRect();
-            return rect.top - firstRect.top < maxClusterHeight;
-          });
 
-          let minX = Infinity, minY = Infinity, maxX = 0, maxY = 0;
-          for (const span of clusteredSpans) {
-            const rect = span.getBoundingClientRect();
-            minX = Math.min(minX, rect.left - layerRect.left);
-            minY = Math.min(minY, rect.top - layerRect.top);
-            maxX = Math.max(maxX, rect.right - layerRect.left);
-            maxY = Math.max(maxY, rect.bottom - layerRect.top);
-          }
-
-          const pad = 4;
-          const clampedLeft = Math.max(0, minX - pad);
-          const clampedTop = Math.max(0, minY - pad);
-          const clampedW = Math.min(layerRect.width - clampedLeft, maxX - minX + pad * 2);
-          const clampedH = Math.min(layerRect.height - clampedTop, maxY - minY + pad * 2);
-          const spotlight = document.createElement("div");
-          spotlight.className = "source-highlight";
-          spotlight.style.cssText = `
-            position: absolute;
-            left: ${clampedLeft}px;
-            top: ${clampedTop}px;
-            width: ${clampedW}px;
-            height: ${clampedH}px;
-            background: rgba(59, 130, 246, 0.08);
-            border: 2px solid rgba(59, 130, 246, 0.6);
-            border-radius: 6px;
-            box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1), 0 0 20px rgba(59, 130, 246, 0.15);
-            pointer-events: none;
-            z-index: 5;
-            animation: highlightPulse 2s ease-in-out infinite;
-          `;
-          textLayer.appendChild(spotlight);
-
+          // Add pulse animation style if not present
           if (!document.getElementById("highlight-pulse-style")) {
             const style = document.createElement("style");
             style.id = "highlight-pulse-style";
-            style.textContent = "@keyframes highlightPulse { 0%,100% { box-shadow: 0 0 0 4px rgba(59,130,246,0.1), 0 0 20px rgba(59,130,246,0.15); } 50% { box-shadow: 0 0 0 6px rgba(59,130,246,0.15), 0 0 30px rgba(59,130,246,0.2); } }";
+            style.textContent = "@keyframes highlightPulse { 0%,100% { opacity: 0.85; } 50% { opacity: 1; } }";
             document.head.appendChild(style);
           }
 
+          // Highlight each span with a blue background
+          for (const span of matchingSpans) {
+            const rect = span.getBoundingClientRect();
+            const hl = document.createElement("div");
+            hl.className = "source-highlight";
+            hl.style.cssText = `
+              position: absolute;
+              left: ${rect.left - layerRect.left - 2}px;
+              top: ${rect.top - layerRect.top - 1}px;
+              width: ${rect.width + 4}px;
+              height: ${rect.height + 2}px;
+              background: rgba(59, 130, 246, 0.25);
+              border-radius: 2px;
+              pointer-events: none;
+              z-index: 5;
+              animation: highlightPulse 2s ease-in-out infinite;
+            `;
+            textLayer.appendChild(hl);
+          }
+
+          // Scroll to first highlighted span
           const container = containerRef.current;
-          if (container) {
+          if (container && matchingSpans[0]) {
+            const firstSpan = matchingSpans[0];
+            const spanRect = firstSpan.getBoundingClientRect();
             const containerRect = container.getBoundingClientRect();
-            const scrollTop = container.scrollTop + (minY - containerRect.height / 3);
+            const scrollTop = container.scrollTop + (spanRect.top - containerRect.top) - containerRect.height / 3;
             container.scrollTo({ top: scrollTop, behavior: "smooth" });
           }
         }
