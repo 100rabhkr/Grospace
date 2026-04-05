@@ -446,9 +446,14 @@ export default function UploadAgreementPage() {
   const sectionKeys = useMemo(() => {
     if (!result?.extraction) return [];
     const preferred = ["parties", "premises", "lease_term", "rent", "charges", "deposits", "legal"];
-    const keys = Object.keys(result.extraction).filter(
-      (k) => typeof result.extraction[k] === "object" && result.extraction[k] !== null
-    );
+    const keys = Object.keys(result.extraction).filter((k) => {
+      const section = result.extraction[k];
+      if (typeof section !== "object" || section === null) return false;
+      // Only include sections that have at least one field with actual data
+      return Object.values(section as Record<string, unknown>).some(
+        (val) => parseField(val).displayVal !== "Not found"
+      );
+    });
     return preferred.filter((k) => keys.includes(k)).concat(keys.filter((k) => !preferred.includes(k)));
   }, [result?.extraction]);
 
@@ -1684,7 +1689,7 @@ export default function UploadAgreementPage() {
                           </div>
                           <CardContent className="pt-3 pb-3">
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-3">
-                              {fields.map(([fieldKey, fieldVal]) => {
+                              {fields.filter(([, fv]) => parseField(fv).displayVal !== "Not found").map(([fieldKey, fieldVal]) => {
                                 const { displayVal, confidence } = parseField(fieldVal);
                                 const isNotFound = displayVal === "Not found";
                                 const isCurrency = /rent|deposit|cam_monthly|outflow|amount|revenue/.test(fieldKey);
