@@ -16,7 +16,6 @@ import {
   IndianRupee,
   Trash2,
   Loader2,
-  Calendar,
 } from "lucide-react";
 import { listRentSchedule, deleteRentScheduleEntry } from "@/lib/api";
 
@@ -106,15 +105,7 @@ export function RentScheduleTable({ agreementId }: { agreementId: string }) {
   }
 
   if (entries.length === 0) {
-    return (
-      <div className="text-center py-8 text-sm text-muted-foreground">
-        <Calendar className="h-8 w-8 mx-auto mb-2 opacity-40" />
-        <p>No rent schedule data available.</p>
-        <p className="text-xs mt-1">
-          Rent schedule is auto-populated when you confirm an extraction.
-        </p>
-      </div>
-    );
+    return null; // Don't show empty state — rent data is in extracted fields
   }
 
   // Calculate totals

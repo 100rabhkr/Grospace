@@ -1146,15 +1146,45 @@ async def extract_structured_data(text: str, doc_type: str) -> dict:
         "7. If a field's value is calculated from a formula (e.g., '60 days from handover'), "
         "return the formula as a string rather than guessing a date.\n"
         "8. For each field, also return a confidence score: 'high', 'medium', 'low', or 'not_found'.\n"
-        "8b. SOURCE REFERENCES: For each extracted field, ALSO return 'source_page' (the page number where you found it, "
-        "starting from 1) and 'source_quote' (the exact 10-30 word quote from the document where this value appears). "
-        "Format each field as: {\"value\": <extracted_value>, \"confidence\": \"high|medium|low\", \"source_page\": <int>, "
-        "\"source_quote\": \"<exact text from document>\"}. If you cannot identify the page, omit source_page.\n"
+        "8b. SOURCE REFERENCES — MANDATORY FOR EVERY FIELD: For EVERY extracted field, you MUST return:\n"
+        "  - 'source_page': the page number (1-indexed) where you found this value. "
+        "Look for page markers like '--- PAGE X ---' in the text. NEVER skip source_page.\n"
+        "  - 'source_quote': the exact 10-30 word quote from the document. Copy the EXACT text, don't paraphrase.\n"
+        "  Format: {\"value\": <val>, \"confidence\": \"high|medium|low\", \"source_page\": <int>, \"source_quote\": \"<exact text>\"}\n"
+        "  If the document has page markers (--- PAGE 1 ---, --- PAGE 2 ---), use those to determine page numbers.\n"
         "9. Cross-verify extracted values — if rent is 2,85,000/month, total outflow should be >= that.\n"
         "10. Pay special attention to: party names (lessor vs lessee), lock-in periods, notice periods.\n"
         "11. EXTRACT ALL FIELDS even if confidence is low — mark as 'low' confidence rather than skipping. "
         "Only use 'not_found' if the field is truly absent from the document.\n"
-        "12. If the document is bilingual (Hindi/English), extract data from BOTH languages. "
+        "12. NEVER RETURN EMPTY SECTIONS. Every section (parties, premises, lease_term, rent, charges, deposits, legal) "
+        "MUST have at least some data. If you can infer a value from context, do so with 'low' confidence. "
+        "An incomplete extraction is far better than an empty one.\n"
+        "13. CRITICAL FIELDS that MUST be extracted if they exist ANYWHERE in the document: "
+        "lessor_name, lessee_name, brand_name, city, property_name, monthly_rent, lease_term_years, "
+        "commencement_date, expiry_date, security_deposit_amount, lock_in_months, escalation_percentage. "
+        "Search the ENTIRE document including schedules, annexures, addendums, and signature pages.\n"
+        "14. For DEPOSITS section — look for: security deposit, CAM deposit, utility deposit, advance rent. "
+        "These are often in a separate section titled 'Security Deposit' or 'Financial Terms'.\n"
+        "15. For LEGAL section — look for: usage restriction, brand change, structural alterations, "
+        "subletting, jurisdiction, arbitration, late payment interest, force majeure, exclusivity, co-tenancy. "
+        "These clauses are often near the end of the document.\n"
+        "16. For FRANCHISE section — look for: 'FOFO', 'FOCO', 'COCO', 'franchise model', 'profit split', "
+        "'franchisee', 'franchisor', 'operator entity', 'investor entity', 'brand owner'. "
+        "These terms appear in franchise/brand agreement sections, often near the end of the document. "
+        "If the document mentions ANY franchise arrangement, extract the model and profit split.\n"
+        "17. For CHARGES section — THIS IS CRITICAL, DO NOT SKIP:\n"
+        "  - CAM (Common Area Maintenance): Look for 'CAM', 'maintenance charges', 'common area', "
+        "'maintenance fee', 'service charges'. It is ALWAYS present in Indian lease agreements. "
+        "CAM may be expressed as: Rs X per sq ft per month, Rs X per month, X% of rent, or a fixed amount. "
+        "Common variations: 'CAM charges @ Rs. 32/- per sq. ft.', 'Monthly CAM: Rs. 59,200/-', "
+        "'CAM Area Basis: Super Built-Up Area', 'CAM Escalation: 5% per annum'. "
+        "If you see ANY maintenance-related charge, extract it as cam_rate_per_sqft or cam_monthly.\n"
+        "  - HVAC: Look for 'HVAC', 'air conditioning', 'AC charges'. Extract rate per sq ft.\n"
+        "  - Electricity: Look for 'electricity', 'power', 'load', 'KW', 'metering'. Extract load and metering type.\n"
+        "  - GST: Look for 'GST', 'tax', '18%'. Almost all Indian commercial leases have GST at 18%.\n"
+        "  - Operating Hours: Look for 'operating hours', 'business hours', 'mall timings'.\n"
+        "  - Marketing Charges: Look for 'marketing', 'promotion', 'advertising fund'.\n"
+        "17. If the document is bilingual (Hindi/English), extract data from BOTH languages. "
         "Hindi terms to recognize: किरायेदार (tenant/lessee), मकान मालिक (lessor/landlord), "
         "किराया (rent), जमा राशि (deposit), अवधि (term/period), नवीनीकरण (renewal).\n\n"
         "INDIAN LEASE TERMINOLOGY TO WATCH FOR:\n"
@@ -1196,6 +1226,19 @@ async def extract_structured_data(text: str, doc_type: str) -> dict:
     if template_key and template_key in INDIAN_LEASE_TEMPLATES:
         prompt += f"DOCUMENT TYPE HINT:\n{INDIAN_LEASE_TEMPLATES[template_key]}\n\n"
 
+    # CRITICAL FORMAT REMINDER — placed right before document to ensure Gemini follows it
+    prompt += (
+        "\n\nIMPORTANT REMINDER — OUTPUT FORMAT:\n"
+        "For EVERY field, return a JSON object with these keys:\n"
+        '  {"value": <extracted_value>, "confidence": "high|medium|low", '
+        '"source_page": <page_number_integer>, "source_quote": "<exact 10-30 word quote from document>"}\n'
+        "DO NOT return raw strings. EVERY field MUST be an object with value, confidence, source_page, and source_quote.\n"
+        "The document has page markers like '--- PAGE 1 ---'. Use those to determine source_page numbers.\n"
+        "For fields NOT FOUND in the document:\n"
+        '  {"value": "not_found", "confidence": "not_found", "source_page": 1, '
+        '"source_quote": "Not explicitly mentioned in this document"}\n'
+        "EVERY field must have ALL 4 keys. No exceptions.\n\n"
+    )
     prompt += f"DOCUMENT TEXT:\n{text}"
 
     # First extraction pass (with retry on failure)
@@ -1208,21 +1251,22 @@ async def extract_structured_data(text: str, doc_type: str) -> dict:
                 use_prompt = (
                     f"Extract ALL fields from this {doc_type_label} as JSON.\n"
                     f"Schema:\n{json.dumps(schema, indent=2)}\n\n"
-                    f"DOCUMENT TEXT (first 10000 chars):\n{text[:10000]}"
+                    f"DOCUMENT TEXT:\n{text[:50000]}"
                 )
                 print(f"[EXTRACTION] Retrying with simplified prompt (attempt {attempt + 1})")
 
-            # Truncate document text to avoid exceeding context window
-            # Keep first 15K chars — covers most lease content (typically 5-8K for core clauses)
-            if attempt == 0 and len(use_prompt) > 20000:
-                # Find the "DOCUMENT TEXT:" marker and truncate after it
+            # Gemini 3.1 Pro supports 1M tokens (~4M chars) — send full document
+            # Only truncate for extremely long documents (>200K chars / ~200+ pages)
+            if attempt == 0 and len(use_prompt) > 200000:
                 marker = "DOCUMENT TEXT:"
                 marker_pos = use_prompt.find(marker)
                 if marker_pos > 0:
                     preamble = use_prompt[:marker_pos + len(marker)]
                     doc_text = use_prompt[marker_pos + len(marker):]
-                    use_prompt = preamble + doc_text[:15000]
-                    print(f"[EXTRACTION] Truncated prompt from {len(prompt)} to {len(use_prompt)} chars")
+                    # Keep first 80K + last 40K for very large docs
+                    doc_text = doc_text[:80000] + "\n\n--- [TRUNCATED — END OF DOCUMENT] ---\n\n" + doc_text[-40000:]
+                    use_prompt = preamble + doc_text
+                    print("[EXTRACTION] Very large doc truncated to ~120K chars")
 
             # Use Pro model for maximum accuracy — quality over speed
             print(f"[EXTRACTION] Attempt {attempt + 1}: Sending prompt ({len(use_prompt)} chars) to {model_pro.model_name}...")
@@ -1277,7 +1321,11 @@ async def extract_structured_data(text: str, doc_type: str) -> dict:
             "- Lock-in period (in months)\n"
             "- Security deposit (amount and number of months)\n"
             "- Area measurements (carpet vs super area)\n"
-            "- CAM / maintenance charges (monthly amount)\n"
+            "- CAM / maintenance charges — THIS IS THE MOST COMMONLY MISSED FIELD. "
+            "Search the ENTIRE document for 'CAM', 'maintenance', 'common area', 'service charge'. "
+            "If cam_rate_per_sqft or cam_monthly is 'not_found' but the document mentions ANY maintenance charges, "
+            "you MUST extract them. CAM is present in virtually every Indian commercial lease. "
+            "Return the monthly amount. If given as rate/sqft, calculate: rate * area.\n"
             "- Escalation percentage (should be reasonable: typically 3-25%. If > 25%, double-check.)\n"
             "- Notice period (in months)\n"
             "- Total monthly outflow should approximately equal: rent + CAM + maintenance + other charges. "
@@ -1873,13 +1921,17 @@ def _get_nested_num(section: dict, key: str) -> Optional[float]:
 
 async def process_document(file_bytes: bytes, filename: str) -> dict:
     """
-    Universal document processor. Handles PDFs (text-based, scanned, mixed)
-    and image files. Never raises — always returns a result dict.
+    Universal document processor — Clean 2-tool pipeline:
+    1. Document AI (or PyMuPDF fallback) for text + bounding boxes
+    2. Gemini 3.1 Pro for AI extraction + verification + risk flags
+
+    Handles PDFs (text-based, scanned, mixed) and image files.
+    Never raises — always returns a result dict.
     """
     extraction_method = "unknown"
     text = ""
     images = []
-    ocr_pages = []  # Word-level bounding boxes for scanned doc highlighting
+    ocr_pages = []  # Word-level bounding boxes for highlighting
     doc_type = "lease_loi"
     extraction = {}
     confidence = {}
@@ -1889,81 +1941,139 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
     try:
         file_type = get_file_type(filename)
 
-        # --- Step 1: Get content — DUAL EXTRACTION (Improvement #1) ---
         import time as _time
         _extraction_start = _time.time()
 
-        table_text = ""
         if file_type == "pdf":
-            # Run dual extraction: PyMuPDF + Cloud Vision
-            try:
-                text, pymupdf_text, cv_text = await extract_text_dual(file_bytes)
-            except Exception:
-                text = ""
-                pymupdf_text = ""
-                cv_text = ""
+            # ── PRIMARY: Document AI (best accuracy + tables + bboxes) ──
+            docai_processor = os.getenv("DOCUMENT_AI_PROCESSOR")
+            docai_success = False
 
-            # Extract tables with pdfplumber (Improvement #2)
-            try:
-                table_text = extract_tables_from_pdf(file_bytes)
-            except Exception as e:
-                print(f"[PROCESS] Table extraction failed: {e}")
+            if docai_processor:
+                try:
+                    import json as _json
+                    from google.cloud import documentai_v1 as documentai
+                    from google.oauth2.service_account import Credentials as SACreds
 
-            # Try Document AI if configured (best quality for tables/forms)
-            docai_text = ""
-            try:
-                docai_text = await extract_with_document_ai(file_bytes)
-                if docai_text and len(docai_text.strip()) > len(text.strip()) * 1.2:
-                    print(f"[PROCESS] Document AI produced better results ({len(docai_text)} vs {len(text.strip())} chars)")
-                    text = docai_text
-                    table_text = ""  # Already included in docai_text
-                    extraction_method = "document_ai"
-            except Exception as e:
-                print(f"[PROCESS] Document AI skipped: {e}")
-
-            print(f"[PROCESS] Dual extraction: {len(text.strip())} chars, tables: {len(table_text.strip())} chars")
-
-            # Need at least 500 chars of actual content for text-based extraction
-            # Scanned PDFs often have ~100-200 chars of metadata but no real content
-            min_text_threshold = 500
-            if len(text.strip()) >= min_text_threshold:
-                extraction_method = "text+cloud_vision" if cv_text else "text"
-                # Append table data to text for Gemini context (preserving page markers)
-                if table_text.strip():
-                    text = text + "\n\n" + table_text
-                # Extract bboxes for highlighting if Cloud Vision was used
-                # Run in background — don't block extraction
-                if cv_text and not ocr_pages:
-                    try:
-                        if not images:
-                            images = pdf_bytes_to_images(file_bytes)
-                        if images:
-                            # Only extract bboxes for first 5 pages to save time
-                            bbox_images = images  # All pages for complete highlighting
-                            bbox_result = extract_text_with_bboxes(bbox_images)
-                            ocr_pages = bbox_result.get("pages", [])
-                            print(f"[PROCESS] BBox extraction: {sum(len(p.get('words', [])) for p in ocr_pages)} words across {len(ocr_pages)} pages (of {len(images)} total)")
-                    except Exception as bbox_err:
-                        print(f"[PROCESS] BBox extraction failed: {bbox_err}")
-            else:
-                print(f"[PROCESS] Text too sparse ({len(text.strip())} chars < {min_text_threshold}), falling back to vision...")
-                images = pdf_bytes_to_images(file_bytes)
-                print(f"[PROCESS] Converted PDF to {len(images)} page images")
-                if images:
-                    # Extract text + bounding boxes together
-                    bbox_result = extract_text_with_bboxes(images)
-                    cloud_vision_text = bbox_result.get("text", "")
-                    ocr_pages = bbox_result.get("pages", [])
-                    print(f"[PROCESS] Cloud Vision OCR: {len(cloud_vision_text.strip())} chars, {sum(len(p.get('words', [])) for p in ocr_pages)} words with bboxes")
-                    if len(cloud_vision_text.strip()) >= 100:
-                        text = cloud_vision_text
-                        if table_text.strip():
-                            text = text + "\n\n" + table_text
-                        extraction_method = "cloud_vision"
+                    creds_json = os.getenv("GOOGLE_CLOUD_CREDENTIALS_JSON")
+                    if creds_json:
+                        creds_info = _json.loads(creds_json)
+                        creds = SACreds.from_service_account_info(creds_info)
+                        docai_client = documentai.DocumentProcessorServiceClient(credentials=creds)
                     else:
-                        extraction_method = "vision"
-                else:
-                    extraction_method = "text" if text.strip() else "failed"
+                        docai_client = documentai.DocumentProcessorServiceClient()
+
+                    raw_doc = documentai.RawDocument(content=file_bytes, mime_type="application/pdf")
+                    docai_result = docai_client.process_document(
+                        request=documentai.ProcessRequest(name=docai_processor, raw_document=raw_doc)
+                    )
+                    document = docai_result.document
+
+                    # Extract text with page markers
+                    doc_text = ""
+                    for page_idx, page in enumerate(document.pages):
+                        doc_text += f"\n--- PAGE {page_idx + 1} ---\n"
+                        # Get all text for this page via text segments
+                        for block in page.blocks:
+                            if block.layout.text_anchor.text_segments:
+                                start = int(block.layout.text_anchor.text_segments[0].start_index) if block.layout.text_anchor.text_segments[0].start_index else 0
+                                end = int(block.layout.text_anchor.text_segments[-1].end_index)
+                                doc_text += document.text[start:end] + "\n"
+                        # Extract tables
+                        for table in page.tables:
+                            doc_text += "\n[TABLE]\n"
+                            for row in list(table.header_rows) + list(table.body_rows):
+                                cells = []
+                                for cell in row.cells:
+                                    if cell.layout.text_anchor.text_segments:
+                                        s = int(cell.layout.text_anchor.text_segments[0].start_index) if cell.layout.text_anchor.text_segments[0].start_index else 0
+                                        e = int(cell.layout.text_anchor.text_segments[-1].end_index)
+                                        cells.append(document.text[s:e].strip())
+                                    else:
+                                        cells.append("")
+                                doc_text += " | ".join(cells) + "\n"
+                            doc_text += "[/TABLE]\n"
+
+                    # Extract word-level bounding boxes from Document AI tokens
+                    for page_idx, page in enumerate(document.pages):
+                        page_words = []
+                        for token in page.tokens:
+                            segs = token.layout.text_anchor.text_segments
+                            if not segs:
+                                continue
+                            s = int(segs[0].start_index) if segs[0].start_index else 0
+                            e = int(segs[0].end_index)
+                            word_text = document.text[s:e].strip()
+                            if not word_text:
+                                continue
+                            verts = token.layout.bounding_poly.normalized_vertices
+                            if len(verts) >= 4:
+                                x = float(verts[0].x)
+                                y = float(verts[0].y)
+                                w = max(float(verts[1].x - verts[0].x), 0.001)
+                                h = max(float(verts[2].y - verts[0].y), 0.001)
+                                page_words.append({"text": word_text, "bbox": {"x": x, "y": y, "w": w, "h": h}})
+                        ocr_pages.append({
+                            "page_number": page_idx + 1,
+                            "width": int(page.dimension.width) if page.dimension else 0,
+                            "height": int(page.dimension.height) if page.dimension else 0,
+                            "words": page_words,
+                        })
+
+                    if len(doc_text.strip()) > 200:
+                        text = doc_text
+                        extraction_method = "document_ai"
+                        docai_success = True
+                        total_words = sum(len(p["words"]) for p in ocr_pages)
+                        print(f"[PROCESS] Document AI: {len(text)} chars, {len(document.pages)} pages, {total_words} words with bboxes")
+                    else:
+                        print(f"[PROCESS] Document AI returned sparse text ({len(doc_text.strip())} chars), falling back")
+
+                except Exception as e:
+                    print(f"[PROCESS] Document AI failed: {type(e).__name__}: {e}")
+
+            # ── FALLBACK: PyMuPDF (if Document AI not configured or failed) ──
+            if not docai_success:
+                try:
+                    pymupdf_text = extract_text_from_pdf(file_bytes)
+                    print(f"[PROCESS] PyMuPDF: {len(pymupdf_text)} chars")
+
+                    if len(pymupdf_text.strip()) >= 500:
+                        text = pymupdf_text
+                        extraction_method = "text"
+                    else:
+                        # Scanned PDF — try Cloud Vision as last resort
+                        print(f"[PROCESS] PyMuPDF sparse ({len(pymupdf_text.strip())} chars), trying Cloud Vision...")
+                        cv_images = pdf_bytes_to_images(file_bytes)
+                        if cv_images:
+                            bbox_result = extract_text_with_bboxes(cv_images)
+                            cv_text = bbox_result.get("text", "")
+                            ocr_pages = bbox_result.get("pages", [])
+                            if len(cv_text.strip()) >= 100:
+                                text = cv_text
+                                extraction_method = "cloud_vision"
+                                print(f"[PROCESS] Cloud Vision: {len(cv_text)} chars, {sum(len(p.get('words', [])) for p in ocr_pages)} words")
+                            else:
+                                # Last resort: Gemini vision
+                                images = cv_images
+                                extraction_method = "vision"
+                                print(f"[PROCESS] Falling back to Gemini vision ({len(cv_images)} page images)")
+                except Exception as e:
+                    print(f"[PROCESS] Fallback extraction failed: {e}")
+
+            # Add pdfplumber tables if not already from Document AI
+            if extraction_method != "document_ai":
+                try:
+                    table_text = extract_tables_from_pdf(file_bytes)
+                    if table_text.strip():
+                        text = text + "\n\n" + table_text
+                        print(f"[PROCESS] pdfplumber tables: {len(table_text)} chars")
+                except Exception:
+                    pass
+
+            # Document AI bboxes are more accurate — use them for highlighting
+            if docai_success:
+                extraction_method = "document_ai"
 
         elif file_type == "image":
             images = load_image_bytes(file_bytes)

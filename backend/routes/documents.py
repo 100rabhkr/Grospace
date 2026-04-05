@@ -302,8 +302,11 @@ async def qa_endpoint(request: Request, req: QARequest):
                 "- If the answer is not in the document, say so clearly.\n"
                 "- Keep answers concise but complete.\n"
                 "- Use simple language, avoid unnecessary legal jargon.\n"
+                "- For financial questions (rent, CAM, maintenance, deposits, charges), search the ENTIRE document carefully. "
+                "CAM/maintenance charges are often in sections titled 'Other Charges', 'Maintenance', 'Common Area', or within the rent section. "
+                "They may be expressed as: Rs X/sqft, a monthly amount, or a percentage.\n"
                 f"{history_block}\n"
-                f"Document text:\n{document_text[:12000]}\n\n"
+                f"Document text:\n{document_text[:15000]}\n\n"
                 f"Extracted data summary:\n{extraction_summary[:4000]}\n\n"
                 f"User question: {req.question}"
             )
@@ -567,6 +570,31 @@ async def upload_and_extract_async(
         from services.extraction import get_or_create_demo_org
         org_id = get_or_create_demo_org()
 
+    # Check if same file is already being processed — prevent duplicate extractions
+    try:
+        existing = supabase.table("extraction_jobs").select("id, status").eq(
+            "filename", filename
+        ).eq("status", "processing").execute()
+        if existing.data and len(existing.data) > 0:
+            existing_job = existing.data[0]
+            print(f"[UPLOAD] Duplicate prevented: {filename} already processing as job {existing_job['id']}")
+            return {"job_id": existing_job["id"], "status": "processing", "filename": filename, "duplicate": True}
+    except Exception:
+        pass
+
+    # Also check by file hash if available
+    try:
+        file_hash = hashlib.sha256(file_bytes).hexdigest()
+        recent_completed = supabase.table("extraction_jobs").select("id, status, result").eq(
+            "status", "completed"
+        ).order("created_at", desc=True).limit(5).execute()
+        for job in (recent_completed.data or []):
+            if job.get("result", {}).get("file_hash") == file_hash:
+                print(f"[UPLOAD] Same file already extracted: {filename} (hash match)")
+                return {"job_id": job["id"], "status": "completed", "filename": filename, "duplicate": True}
+    except Exception:
+        pass
+
     # Create job record
     job_id = str(uuid.uuid4())
     job_data = {
@@ -647,6 +675,22 @@ def mark_job_seen(job_id: str):
     if not result.data:
         raise HTTPException(status_code=404, detail="Job not found")
     return {"job": result.data[0]}
+
+
+@router.patch("/extraction-jobs/{job_id}/cancel", dependencies=[Depends(require_permission("view_agreements"))])
+def cancel_extraction_job(job_id: str):
+    """Cancel a processing extraction job."""
+    # Check current status
+    current = supabase.table("extraction_jobs").select("id, status").eq("id", job_id).single().execute()
+    if not current.data:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if current.data["status"] != "processing":
+        raise HTTPException(status_code=400, detail="Only processing jobs can be cancelled")
+    result = supabase.table("extraction_jobs").update({
+        "status": "cancelled",
+        "error": "Cancelled by user",
+    }).eq("id", job_id).execute()
+    return {"job": result.data[0] if result.data else {"id": job_id, "status": "cancelled"}}
 
 
 @router.get("/extraction-jobs/{job_id}", dependencies=[Depends(require_permission("view_agreements"))])

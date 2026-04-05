@@ -244,22 +244,19 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
       .catch(() => {});
   }, []);
 
-  // Smart time estimation formula:
-  // - Base: 30s (model init + classification)
-  // - Text PDF: ~8s/page (Gemini 3.1 Pro text extraction)
-  // - Scanned PDF: ~15s/page (Gemini 3.1 Pro vision extraction)
-  // - Risk flags: 20s
-  // - Upload: 5s
-  // Detection: scanned if file > 500KB/page estimate
+  // Accurate time estimation based on real extraction data:
+  // Document AI OCR: ~15s
+  // Gemini extraction: ~40-60s (depends on doc length)
+  // Gemini verification: ~20s
+  // Gemini risk flags: ~15s
+  // Total base: ~90-110s + ~2s per page for bbox extraction
   const isImage = fileName ? /\.(png|jpe?g|webp|gif|bmp|tiff?)$/i.test(fileName) : false;
   const estimatedPages = fileSizeMB
     ? isImage ? 1
-      : fileSizeMB < 0.5 ? Math.max(1, Math.round(fileSizeMB * 8))  // text PDF ~60KB/page
-      : Math.max(1, Math.round(fileSizeMB * 1.5))  // scanned PDF ~700KB/page
-    : 3;
-  const isLikelyScanned = fileSizeMB ? fileSizeMB / Math.max(estimatedPages, 1) > 0.3 : false;
-  const perPageTime = isImage ? 15 : isLikelyScanned ? 15 : 8;
-  const fallbackEstimate = 30 + (estimatedPages * perPageTime) + 20 + 5;
+      : fileSizeMB < 0.5 ? Math.max(1, Math.round(fileSizeMB * 8))
+      : Math.max(1, Math.round(fileSizeMB * 1.5))
+    : 5;
+  const fallbackEstimate = 90 + (estimatedPages * 2);
 
   const estimatedTotalSec = backendEstimate ? Math.round(backendEstimate.avg) : fallbackEstimate;
 
@@ -435,14 +432,9 @@ export default function UploadAgreementPage() {
   const [customNotes, setCustomNotes] = useState("");
 
   const handleSourceClick = (sourcePage?: number, sourceQuote?: string) => {
-    // Clear first to force React re-render even if same value
-    setPdfHighlightPage(undefined);
-    setPdfHighlightQuote(undefined);
-    // Set in next tick to ensure state change is detected
-    setTimeout(() => {
-      setPdfHighlightPage(sourcePage);
-      setPdfHighlightQuote(sourceQuote);
-    }, 50);
+    // Append timestamp to force React to detect change even for same quote
+    setPdfHighlightPage(sourcePage);
+    setPdfHighlightQuote(sourceQuote ? `${sourceQuote}__t${Date.now()}` : undefined);
   };
 
   // Section-by-section stepper state
@@ -454,9 +446,14 @@ export default function UploadAgreementPage() {
   const sectionKeys = useMemo(() => {
     if (!result?.extraction) return [];
     const preferred = ["parties", "premises", "lease_term", "rent", "charges", "deposits", "legal"];
-    const keys = Object.keys(result.extraction).filter(
-      (k) => typeof result.extraction[k] === "object" && result.extraction[k] !== null
-    );
+    const keys = Object.keys(result.extraction).filter((k) => {
+      const section = result.extraction[k];
+      if (typeof section !== "object" || section === null) return false;
+      // Only include sections that have at least one field with actual data
+      return Object.values(section as Record<string, unknown>).some(
+        (val) => parseField(val).displayVal !== "Not found"
+      );
+    });
     return preferred.filter((k) => keys.includes(k)).concat(keys.filter((k) => !preferred.includes(k)));
   }, [result?.extraction]);
 
@@ -847,21 +844,23 @@ export default function UploadAgreementPage() {
   // Count stats from extraction
   const stats = result
     ? (() => {
-        let total = 0;
+        let extracted = 0;
         let highConf = 0;
         let medConf = 0;
         let lowConf = 0;
         Object.values(result.extraction).forEach((section) => {
           if (typeof section !== "object" || section === null) return;
           Object.entries(section as Record<string, unknown>).forEach(([, val]) => {
-            const { confidence } = parseField(val);
-            total++;
+            const { displayVal, confidence } = parseField(val);
+            // Only count fields that have actual data (not "Not found")
+            if (displayVal === "Not found" || confidence === "not_found") return;
+            extracted++;
             if (confidence === "high") highConf++;
             else if (confidence === "medium") medConf++;
             else if (confidence === "low") lowConf++;
           });
         });
-        return { total, highConf, medConf, lowConf };
+        return { total: extracted, highConf, medConf, lowConf };
       })()
     : null;
 
@@ -1313,7 +1312,20 @@ export default function UploadAgreementPage() {
       )}
 
       {/* Step 2: Processing */}
-      {step === 2 && <ProcessingStep fileSizeMB={selectedFile ? selectedFile.size / (1024 * 1024) : undefined} fileName={selectedFile?.name} />}
+      {step === 2 && (
+        <div className="space-y-4">
+          <ProcessingStep fileSizeMB={selectedFile ? selectedFile.size / (1024 * 1024) : undefined} fileName={selectedFile?.name} />
+          <div className="text-center">
+            <Button variant="outline" size="sm" className="text-xs text-muted-foreground" onClick={() => {
+              // Cancel — go back to step 1
+              setStep(1);
+              setError(null);
+            }}>
+              Cancel Extraction
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Step 3: Review — Split-Screen Layout */}
       {step === 3 && result && (
@@ -1389,19 +1401,23 @@ export default function UploadAgreementPage() {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="text-center p-3 rounded-lg border bg-card">
                 <p className="text-2xl font-semibold font-mono tracking-tighter">{stats.total}</p>
-                <p className="text-[11px] text-muted-foreground">Fields Extracted</p>
+                <p className="text-[11px] font-medium text-muted-foreground">Fields Extracted</p>
+                <p className="text-[9px] text-muted-foreground/60">Data points found in document</p>
               </div>
               <div className="text-center p-3 rounded-lg border bg-card">
-                <p className="text-2xl font-bold text-emerald-600">{stats.highConf}</p>
-                <p className="text-[11px] text-muted-foreground">High Confidence</p>
+                <p className="text-2xl font-semibold font-mono tracking-tighter text-emerald-600">{stats.highConf}</p>
+                <p className="text-[11px] font-medium text-muted-foreground">High Confidence</p>
+                <p className="text-[9px] text-muted-foreground/60">Gro AI is confident these are correct</p>
               </div>
               <div className="text-center p-3 rounded-lg border bg-card">
-                <p className="text-2xl font-bold text-amber-600">{stats.medConf + stats.lowConf}</p>
-                <p className="text-[11px] text-muted-foreground">Needs Review</p>
+                <p className="text-2xl font-semibold font-mono tracking-tighter text-amber-600">{stats.medConf + stats.lowConf}</p>
+                <p className="text-[11px] font-medium text-muted-foreground">Needs Review</p>
+                <p className="text-[9px] text-muted-foreground/60">Please verify these values manually</p>
               </div>
               <div className="text-center p-3 rounded-lg border bg-card">
-                <p className="text-2xl font-bold text-rose-600">{result.risk_flags.length}</p>
-                <p className="text-[11px] text-muted-foreground">Risk Flags</p>
+                <p className="text-2xl font-semibold font-mono tracking-tighter text-rose-600">{result.risk_flags.length}</p>
+                <p className="text-[11px] font-medium text-muted-foreground">Risk Flags</p>
+                <p className="text-[9px] text-muted-foreground/60">Potential issues found in the lease</p>
               </div>
             </div>
           )}
@@ -1409,7 +1425,7 @@ export default function UploadAgreementPage() {
           {/* Section Stepper Navigation */}
           <div className="p-3 rounded-xl border bg-card space-y-3">
             {/* Section progress dots */}
-            <div className="flex items-center gap-1 justify-center flex-wrap">
+            <div className="flex items-center gap-1 overflow-x-auto pb-1 scrollbar-hide">
               {/* Risk flags dot (if any) */}
               {result.risk_flags.length > 0 && (
                 <button
@@ -1502,7 +1518,7 @@ export default function UploadAgreementPage() {
                     )}
                   </div>
                 </div>
-                <div style={{ height: "calc(100vh - 320px)", minHeight: "400px" }} className="relative">
+                <div style={{ height: "calc(100vh - 200px)", minHeight: "500px" }} className="relative">
                   {(fileUrl || result?.document_url) && (selectedFile?.type === "application/pdf" || (!selectedFile && result?.filename?.toLowerCase().endsWith(".pdf"))) ? (
                     <PdfViewer
                       url={fileUrl || result?.document_url || ""}
@@ -1673,7 +1689,7 @@ export default function UploadAgreementPage() {
                           </div>
                           <CardContent className="pt-3 pb-3">
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-3">
-                              {fields.map(([fieldKey, fieldVal]) => {
+                              {fields.filter(([, fv]) => parseField(fv).displayVal !== "Not found").map(([fieldKey, fieldVal]) => {
                                 const { displayVal, confidence } = parseField(fieldVal);
                                 const isNotFound = displayVal === "Not found";
                                 const isCurrency = /rent|deposit|cam_monthly|outflow|amount|revenue/.test(fieldKey);

@@ -680,8 +680,16 @@ export default function AgreementDetailPage() {
 
   // Check for escalation dates in rent section
   const rentSection = extractedData?.rent as Record<string, unknown> | undefined;
-  if (rentSection?.rent_schedule && Array.isArray(rentSection.rent_schedule)) {
-    (rentSection.rent_schedule as Array<Record<string, unknown>>).forEach((item, idx) => {
+  // Unwrap {value} wrapper if present
+  const rawRentSchedule = rentSection?.rent_schedule;
+  const rentScheduleArr = rawRentSchedule
+    ? Array.isArray(rawRentSchedule) ? rawRentSchedule
+    : typeof rawRentSchedule === "object" && rawRentSchedule !== null && "value" in (rawRentSchedule as Record<string, unknown>)
+      ? (rawRentSchedule as Record<string, unknown>).value
+    : null
+    : null;
+  if (rentScheduleArr && Array.isArray(rentScheduleArr)) {
+    (rentScheduleArr as Array<Record<string, unknown>>).forEach((item, idx) => {
       const period = item.year || item.period || item.years;
       if (typeof period === "string" && /^\d{4}-\d{2}-\d{2}/.test(period)) {
         timelineDates.push({ label: `Escalation ${idx + 1}`, date: period, type: classifyDate(period) });
@@ -776,18 +784,28 @@ export default function AgreementDetailPage() {
         </div>
       </div>
 
-      {/* Agreement Timeline */}
-      {timelineDates.length >= 2 && (
-        <Card>
-          <CardContent className="pt-4 pb-3">
-            <div className="flex items-center gap-2 mb-2">
-              <CalendarClock className="h-4 w-4 text-[#6b7280]" />
-              <h3 className="text-sm font-semibold">Lease Timeline</h3>
-            </div>
-            <AgreementTimeline dates={timelineDates} />
-          </CardContent>
-        </Card>
-      )}
+      {/* Agreement Timeline — only show if we have valid dates */}
+      {(() => {
+        const validDates = timelineDates.filter((d) => {
+          if (!d.date) return false;
+          const parsed = new Date(d.date);
+          return !isNaN(parsed.getTime()) && parsed.getFullYear() > 2000;
+        });
+        if (validDates.length < 2) return null;
+        return (
+          <Card>
+            <CardContent className="pt-4 pb-3 overflow-hidden">
+              <div className="flex items-center gap-2 mb-2">
+                <CalendarClock className="h-4 w-4 text-[#6b7280]" />
+                <h3 className="text-sm font-semibold">Lease Timeline</h3>
+              </div>
+              <div className="overflow-x-auto">
+                <AgreementTimeline dates={validDates} />
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {/* Tabs */}
       <Tabs defaultValue="extracted" className="space-y-4">
@@ -843,8 +861,8 @@ export default function AgreementDetailPage() {
             </Card>
           ) : (
             <div className="space-y-4">
-              {/* Verification progress */}
-              {(() => {
+              {/* Verification progress — only show when user has started verifying */}
+              {verifiedFields.size > 0 && (() => {
                 let totalFields = 0;
                 Object.values(extractedData).forEach((section) => {
                   if (typeof section === "object" && section !== null) {
