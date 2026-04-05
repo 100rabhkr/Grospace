@@ -839,21 +839,23 @@ export default function UploadAgreementPage() {
   // Count stats from extraction
   const stats = result
     ? (() => {
-        let total = 0;
+        let extracted = 0;
         let highConf = 0;
         let medConf = 0;
         let lowConf = 0;
         Object.values(result.extraction).forEach((section) => {
           if (typeof section !== "object" || section === null) return;
           Object.entries(section as Record<string, unknown>).forEach(([, val]) => {
-            const { confidence } = parseField(val);
-            total++;
+            const { displayVal, confidence } = parseField(val);
+            // Only count fields that have actual data (not "Not found")
+            if (displayVal === "Not found" || confidence === "not_found") return;
+            extracted++;
             if (confidence === "high") highConf++;
             else if (confidence === "medium") medConf++;
             else if (confidence === "low") lowConf++;
           });
         });
-        return { total, highConf, medConf, lowConf };
+        return { total: extracted, highConf, medConf, lowConf };
       })()
     : null;
 
@@ -1394,19 +1396,23 @@ export default function UploadAgreementPage() {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="text-center p-3 rounded-lg border bg-card">
                 <p className="text-2xl font-semibold font-mono tracking-tighter">{stats.total}</p>
-                <p className="text-[11px] text-muted-foreground">Fields Extracted</p>
+                <p className="text-[11px] font-medium text-muted-foreground">Fields Extracted</p>
+                <p className="text-[9px] text-muted-foreground/60">Data points found in document</p>
               </div>
               <div className="text-center p-3 rounded-lg border bg-card">
-                <p className="text-2xl font-bold text-emerald-600">{stats.highConf}</p>
-                <p className="text-[11px] text-muted-foreground">High Confidence</p>
+                <p className="text-2xl font-semibold font-mono tracking-tighter text-emerald-600">{stats.highConf}</p>
+                <p className="text-[11px] font-medium text-muted-foreground">High Confidence</p>
+                <p className="text-[9px] text-muted-foreground/60">Gro AI is confident these are correct</p>
               </div>
               <div className="text-center p-3 rounded-lg border bg-card">
-                <p className="text-2xl font-bold text-amber-600">{stats.medConf + stats.lowConf}</p>
-                <p className="text-[11px] text-muted-foreground">Needs Review</p>
+                <p className="text-2xl font-semibold font-mono tracking-tighter text-amber-600">{stats.medConf + stats.lowConf}</p>
+                <p className="text-[11px] font-medium text-muted-foreground">Needs Review</p>
+                <p className="text-[9px] text-muted-foreground/60">Please verify these values manually</p>
               </div>
               <div className="text-center p-3 rounded-lg border bg-card">
-                <p className="text-2xl font-bold text-rose-600">{result.risk_flags.length}</p>
-                <p className="text-[11px] text-muted-foreground">Risk Flags</p>
+                <p className="text-2xl font-semibold font-mono tracking-tighter text-rose-600">{result.risk_flags.length}</p>
+                <p className="text-[11px] font-medium text-muted-foreground">Risk Flags</p>
+                <p className="text-[9px] text-muted-foreground/60">Potential issues found in the lease</p>
               </div>
             </div>
           )}
