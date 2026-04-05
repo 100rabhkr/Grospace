@@ -15,6 +15,8 @@ import {
   Kanban,
   Bot,
   Map,
+  Cpu,
+  RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/lib/hooks/use-user";
@@ -44,9 +46,11 @@ const navItems: { label: string; href: string; icon: typeof LayoutDashboard; min
   { label: "Gro AI", href: "/ai-assistant", icon: Bot },
   { label: "Outlets", href: "/outlets", icon: Store },
   { label: "Agreements", href: "/agreements", icon: FileText },
-  { label: "Upload Documents", href: "/agreements/upload", icon: FileText, minRole: "org_admin" },
+  { label: "Upload Document", href: "/agreements/upload", icon: FileText, minRole: "org_admin" },
+  { label: "Extractions", href: "/processing", icon: Cpu },
   { label: "Reminders", href: "/alerts", icon: Bell },
   { label: "Pipeline", href: "/pipeline", icon: Kanban, minRole: "org_admin" },
+  { label: "Renewals", href: "/renewals", icon: RefreshCw, minRole: "org_admin" },
   { label: "Payments", href: "/payments", icon: Wallet },
   { label: "Reports", href: "/reports", icon: BarChart3 },
   { label: "Settings", href: "/settings", icon: Settings, minRole: "org_admin" },

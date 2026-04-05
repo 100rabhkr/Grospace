@@ -677,6 +677,22 @@ def mark_job_seen(job_id: str):
     return {"job": result.data[0]}
 
 
+@router.patch("/extraction-jobs/{job_id}/cancel", dependencies=[Depends(require_permission("view_agreements"))])
+def cancel_extraction_job(job_id: str):
+    """Cancel a processing extraction job."""
+    # Check current status
+    current = supabase.table("extraction_jobs").select("id, status").eq("id", job_id).single().execute()
+    if not current.data:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if current.data["status"] != "processing":
+        raise HTTPException(status_code=400, detail="Only processing jobs can be cancelled")
+    result = supabase.table("extraction_jobs").update({
+        "status": "cancelled",
+        "error": "Cancelled by user",
+    }).eq("id", job_id).execute()
+    return {"job": result.data[0] if result.data else {"id": job_id, "status": "cancelled"}}
+
+
 @router.get("/extraction-jobs/{job_id}", dependencies=[Depends(require_permission("view_agreements"))])
 def get_extraction_job(job_id: str):
     """Get the status and result of an extraction job."""

@@ -244,22 +244,19 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
       .catch(() => {});
   }, []);
 
-  // Smart time estimation formula:
-  // - Base: 30s (model init + classification)
-  // - Text PDF: ~8s/page (Gemini 3.1 Pro text extraction)
-  // - Scanned PDF: ~15s/page (Gemini 3.1 Pro vision extraction)
-  // - Risk flags: 20s
-  // - Upload: 5s
-  // Detection: scanned if file > 500KB/page estimate
+  // Accurate time estimation based on real extraction data:
+  // Document AI OCR: ~15s
+  // Gemini extraction: ~40-60s (depends on doc length)
+  // Gemini verification: ~20s
+  // Gemini risk flags: ~15s
+  // Total base: ~90-110s + ~2s per page for bbox extraction
   const isImage = fileName ? /\.(png|jpe?g|webp|gif|bmp|tiff?)$/i.test(fileName) : false;
   const estimatedPages = fileSizeMB
     ? isImage ? 1
-      : fileSizeMB < 0.5 ? Math.max(1, Math.round(fileSizeMB * 8))  // text PDF ~60KB/page
-      : Math.max(1, Math.round(fileSizeMB * 1.5))  // scanned PDF ~700KB/page
-    : 3;
-  const isLikelyScanned = fileSizeMB ? fileSizeMB / Math.max(estimatedPages, 1) > 0.3 : false;
-  const perPageTime = isImage ? 15 : isLikelyScanned ? 15 : 8;
-  const fallbackEstimate = 30 + (estimatedPages * perPageTime) + 20 + 5;
+      : fileSizeMB < 0.5 ? Math.max(1, Math.round(fileSizeMB * 8))
+      : Math.max(1, Math.round(fileSizeMB * 1.5))
+    : 5;
+  const fallbackEstimate = 90 + (estimatedPages * 2);
 
   const estimatedTotalSec = backendEstimate ? Math.round(backendEstimate.avg) : fallbackEstimate;
 
@@ -435,14 +432,9 @@ export default function UploadAgreementPage() {
   const [customNotes, setCustomNotes] = useState("");
 
   const handleSourceClick = (sourcePage?: number, sourceQuote?: string) => {
-    // Clear first to force React re-render even if same value
-    setPdfHighlightPage(undefined);
-    setPdfHighlightQuote(undefined);
-    // Set in next tick to ensure state change is detected
-    setTimeout(() => {
-      setPdfHighlightPage(sourcePage);
-      setPdfHighlightQuote(sourceQuote);
-    }, 50);
+    // Append timestamp to force React to detect change even for same quote
+    setPdfHighlightPage(sourcePage);
+    setPdfHighlightQuote(sourceQuote ? `${sourceQuote}__t${Date.now()}` : undefined);
   };
 
   // Section-by-section stepper state
@@ -1313,7 +1305,20 @@ export default function UploadAgreementPage() {
       )}
 
       {/* Step 2: Processing */}
-      {step === 2 && <ProcessingStep fileSizeMB={selectedFile ? selectedFile.size / (1024 * 1024) : undefined} fileName={selectedFile?.name} />}
+      {step === 2 && (
+        <div className="space-y-4">
+          <ProcessingStep fileSizeMB={selectedFile ? selectedFile.size / (1024 * 1024) : undefined} fileName={selectedFile?.name} />
+          <div className="text-center">
+            <Button variant="outline" size="sm" className="text-xs text-muted-foreground" onClick={() => {
+              // Cancel — go back to step 1
+              setStep(1);
+              setError(null);
+            }}>
+              Cancel Extraction
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Step 3: Review — Split-Screen Layout */}
       {step === 3 && result && (
@@ -1409,7 +1414,7 @@ export default function UploadAgreementPage() {
           {/* Section Stepper Navigation */}
           <div className="p-3 rounded-xl border bg-card space-y-3">
             {/* Section progress dots */}
-            <div className="flex items-center gap-1 justify-center flex-wrap">
+            <div className="flex items-center gap-1 overflow-x-auto pb-1 scrollbar-hide">
               {/* Risk flags dot (if any) */}
               {result.risk_flags.length > 0 && (
                 <button
@@ -1502,7 +1507,7 @@ export default function UploadAgreementPage() {
                     )}
                   </div>
                 </div>
-                <div style={{ height: "calc(100vh - 320px)", minHeight: "400px" }} className="relative">
+                <div style={{ height: "calc(100vh - 200px)", minHeight: "500px" }} className="relative">
                   {(fileUrl || result?.document_url) && (selectedFile?.type === "application/pdf" || (!selectedFile && result?.filename?.toLowerCase().endsWith(".pdf"))) ? (
                     <PdfViewer
                       url={fileUrl || result?.document_url || ""}

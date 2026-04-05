@@ -1226,6 +1226,19 @@ async def extract_structured_data(text: str, doc_type: str) -> dict:
     if template_key and template_key in INDIAN_LEASE_TEMPLATES:
         prompt += f"DOCUMENT TYPE HINT:\n{INDIAN_LEASE_TEMPLATES[template_key]}\n\n"
 
+    # CRITICAL FORMAT REMINDER — placed right before document to ensure Gemini follows it
+    prompt += (
+        "\n\nIMPORTANT REMINDER — OUTPUT FORMAT:\n"
+        "For EVERY field, return a JSON object with these keys:\n"
+        '  {"value": <extracted_value>, "confidence": "high|medium|low", '
+        '"source_page": <page_number_integer>, "source_quote": "<exact 10-30 word quote from document>"}\n'
+        "DO NOT return raw strings. EVERY field MUST be an object with value, confidence, source_page, and source_quote.\n"
+        "The document has page markers like '--- PAGE 1 ---'. Use those to determine source_page numbers.\n"
+        "For fields NOT FOUND in the document:\n"
+        '  {"value": "not_found", "confidence": "not_found", "source_page": 1, '
+        '"source_quote": "Not explicitly mentioned in this document"}\n'
+        "EVERY field must have ALL 4 keys. No exceptions.\n\n"
+    )
     prompt += f"DOCUMENT TEXT:\n{text}"
 
     # First extraction pass (with retry on failure)
@@ -1908,13 +1921,17 @@ def _get_nested_num(section: dict, key: str) -> Optional[float]:
 
 async def process_document(file_bytes: bytes, filename: str) -> dict:
     """
-    Universal document processor. Handles PDFs (text-based, scanned, mixed)
-    and image files. Never raises — always returns a result dict.
+    Universal document processor — Clean 2-tool pipeline:
+    1. Document AI (or PyMuPDF fallback) for text + bounding boxes
+    2. Gemini 3.1 Pro for AI extraction + verification + risk flags
+
+    Handles PDFs (text-based, scanned, mixed) and image files.
+    Never raises — always returns a result dict.
     """
     extraction_method = "unknown"
     text = ""
     images = []
-    ocr_pages = []  # Word-level bounding boxes for scanned doc highlighting
+    ocr_pages = []  # Word-level bounding boxes for highlighting
     doc_type = "lease_loi"
     extraction = {}
     confidence = {}
@@ -1924,81 +1941,139 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
     try:
         file_type = get_file_type(filename)
 
-        # --- Step 1: Get content — DUAL EXTRACTION (Improvement #1) ---
         import time as _time
         _extraction_start = _time.time()
 
-        table_text = ""
         if file_type == "pdf":
-            # Run dual extraction: PyMuPDF + Cloud Vision
-            try:
-                text, pymupdf_text, cv_text = await extract_text_dual(file_bytes)
-            except Exception:
-                text = ""
-                pymupdf_text = ""
-                cv_text = ""
+            # ── PRIMARY: Document AI (best accuracy + tables + bboxes) ──
+            docai_processor = os.getenv("DOCUMENT_AI_PROCESSOR")
+            docai_success = False
 
-            # Extract tables with pdfplumber (Improvement #2)
-            try:
-                table_text = extract_tables_from_pdf(file_bytes)
-            except Exception as e:
-                print(f"[PROCESS] Table extraction failed: {e}")
+            if docai_processor:
+                try:
+                    import json as _json
+                    from google.cloud import documentai_v1 as documentai
+                    from google.oauth2.service_account import Credentials as SACreds
 
-            # Try Document AI if configured (best quality for tables/forms)
-            docai_text = ""
-            try:
-                docai_text = await extract_with_document_ai(file_bytes)
-                if docai_text and len(docai_text.strip()) > len(text.strip()) * 1.2:
-                    print(f"[PROCESS] Document AI produced better results ({len(docai_text)} vs {len(text.strip())} chars)")
-                    text = docai_text
-                    table_text = ""  # Already included in docai_text
-                    extraction_method = "document_ai"
-            except Exception as e:
-                print(f"[PROCESS] Document AI skipped: {e}")
-
-            print(f"[PROCESS] Dual extraction: {len(text.strip())} chars, tables: {len(table_text.strip())} chars")
-
-            # Need at least 500 chars of actual content for text-based extraction
-            # Scanned PDFs often have ~100-200 chars of metadata but no real content
-            min_text_threshold = 500
-            if len(text.strip()) >= min_text_threshold:
-                extraction_method = "text+cloud_vision" if cv_text else "text"
-                # Append table data to text for Gemini context (preserving page markers)
-                if table_text.strip():
-                    text = text + "\n\n" + table_text
-                # Extract bboxes for highlighting if Cloud Vision was used
-                # Run in background — don't block extraction
-                if cv_text and not ocr_pages:
-                    try:
-                        if not images:
-                            images = pdf_bytes_to_images(file_bytes)
-                        if images:
-                            # Only extract bboxes for first 5 pages to save time
-                            bbox_images = images  # All pages for complete highlighting
-                            bbox_result = extract_text_with_bboxes(bbox_images)
-                            ocr_pages = bbox_result.get("pages", [])
-                            print(f"[PROCESS] BBox extraction: {sum(len(p.get('words', [])) for p in ocr_pages)} words across {len(ocr_pages)} pages (of {len(images)} total)")
-                    except Exception as bbox_err:
-                        print(f"[PROCESS] BBox extraction failed: {bbox_err}")
-            else:
-                print(f"[PROCESS] Text too sparse ({len(text.strip())} chars < {min_text_threshold}), falling back to vision...")
-                images = pdf_bytes_to_images(file_bytes)
-                print(f"[PROCESS] Converted PDF to {len(images)} page images")
-                if images:
-                    # Extract text + bounding boxes together
-                    bbox_result = extract_text_with_bboxes(images)
-                    cloud_vision_text = bbox_result.get("text", "")
-                    ocr_pages = bbox_result.get("pages", [])
-                    print(f"[PROCESS] Cloud Vision OCR: {len(cloud_vision_text.strip())} chars, {sum(len(p.get('words', [])) for p in ocr_pages)} words with bboxes")
-                    if len(cloud_vision_text.strip()) >= 100:
-                        text = cloud_vision_text
-                        if table_text.strip():
-                            text = text + "\n\n" + table_text
-                        extraction_method = "cloud_vision"
+                    creds_json = os.getenv("GOOGLE_CLOUD_CREDENTIALS_JSON")
+                    if creds_json:
+                        creds_info = _json.loads(creds_json)
+                        creds = SACreds.from_service_account_info(creds_info)
+                        docai_client = documentai.DocumentProcessorServiceClient(credentials=creds)
                     else:
-                        extraction_method = "vision"
-                else:
-                    extraction_method = "text" if text.strip() else "failed"
+                        docai_client = documentai.DocumentProcessorServiceClient()
+
+                    raw_doc = documentai.RawDocument(content=file_bytes, mime_type="application/pdf")
+                    docai_result = docai_client.process_document(
+                        request=documentai.ProcessRequest(name=docai_processor, raw_document=raw_doc)
+                    )
+                    document = docai_result.document
+
+                    # Extract text with page markers
+                    doc_text = ""
+                    for page_idx, page in enumerate(document.pages):
+                        doc_text += f"\n--- PAGE {page_idx + 1} ---\n"
+                        # Get all text for this page via text segments
+                        for block in page.blocks:
+                            if block.layout.text_anchor.text_segments:
+                                start = int(block.layout.text_anchor.text_segments[0].start_index) if block.layout.text_anchor.text_segments[0].start_index else 0
+                                end = int(block.layout.text_anchor.text_segments[-1].end_index)
+                                doc_text += document.text[start:end] + "\n"
+                        # Extract tables
+                        for table in page.tables:
+                            doc_text += "\n[TABLE]\n"
+                            for row in list(table.header_rows) + list(table.body_rows):
+                                cells = []
+                                for cell in row.cells:
+                                    if cell.layout.text_anchor.text_segments:
+                                        s = int(cell.layout.text_anchor.text_segments[0].start_index) if cell.layout.text_anchor.text_segments[0].start_index else 0
+                                        e = int(cell.layout.text_anchor.text_segments[-1].end_index)
+                                        cells.append(document.text[s:e].strip())
+                                    else:
+                                        cells.append("")
+                                doc_text += " | ".join(cells) + "\n"
+                            doc_text += "[/TABLE]\n"
+
+                    # Extract word-level bounding boxes from Document AI tokens
+                    for page_idx, page in enumerate(document.pages):
+                        page_words = []
+                        for token in page.tokens:
+                            segs = token.layout.text_anchor.text_segments
+                            if not segs:
+                                continue
+                            s = int(segs[0].start_index) if segs[0].start_index else 0
+                            e = int(segs[0].end_index)
+                            word_text = document.text[s:e].strip()
+                            if not word_text:
+                                continue
+                            verts = token.layout.bounding_poly.normalized_vertices
+                            if len(verts) >= 4:
+                                x = float(verts[0].x)
+                                y = float(verts[0].y)
+                                w = max(float(verts[1].x - verts[0].x), 0.001)
+                                h = max(float(verts[2].y - verts[0].y), 0.001)
+                                page_words.append({"text": word_text, "bbox": {"x": x, "y": y, "w": w, "h": h}})
+                        ocr_pages.append({
+                            "page_number": page_idx + 1,
+                            "width": int(page.dimension.width) if page.dimension else 0,
+                            "height": int(page.dimension.height) if page.dimension else 0,
+                            "words": page_words,
+                        })
+
+                    if len(doc_text.strip()) > 200:
+                        text = doc_text
+                        extraction_method = "document_ai"
+                        docai_success = True
+                        total_words = sum(len(p["words"]) for p in ocr_pages)
+                        print(f"[PROCESS] Document AI: {len(text)} chars, {len(document.pages)} pages, {total_words} words with bboxes")
+                    else:
+                        print(f"[PROCESS] Document AI returned sparse text ({len(doc_text.strip())} chars), falling back")
+
+                except Exception as e:
+                    print(f"[PROCESS] Document AI failed: {type(e).__name__}: {e}")
+
+            # ── FALLBACK: PyMuPDF (if Document AI not configured or failed) ──
+            if not docai_success:
+                try:
+                    pymupdf_text = extract_text_from_pdf(file_bytes)
+                    print(f"[PROCESS] PyMuPDF: {len(pymupdf_text)} chars")
+
+                    if len(pymupdf_text.strip()) >= 500:
+                        text = pymupdf_text
+                        extraction_method = "text"
+                    else:
+                        # Scanned PDF — try Cloud Vision as last resort
+                        print(f"[PROCESS] PyMuPDF sparse ({len(pymupdf_text.strip())} chars), trying Cloud Vision...")
+                        cv_images = pdf_bytes_to_images(file_bytes)
+                        if cv_images:
+                            bbox_result = extract_text_with_bboxes(cv_images)
+                            cv_text = bbox_result.get("text", "")
+                            ocr_pages = bbox_result.get("pages", [])
+                            if len(cv_text.strip()) >= 100:
+                                text = cv_text
+                                extraction_method = "cloud_vision"
+                                print(f"[PROCESS] Cloud Vision: {len(cv_text)} chars, {sum(len(p.get('words', [])) for p in ocr_pages)} words")
+                            else:
+                                # Last resort: Gemini vision
+                                images = cv_images
+                                extraction_method = "vision"
+                                print(f"[PROCESS] Falling back to Gemini vision ({len(cv_images)} page images)")
+                except Exception as e:
+                    print(f"[PROCESS] Fallback extraction failed: {e}")
+
+            # Add pdfplumber tables if not already from Document AI
+            if extraction_method != "document_ai":
+                try:
+                    table_text = extract_tables_from_pdf(file_bytes)
+                    if table_text.strip():
+                        text = text + "\n\n" + table_text
+                        print(f"[PROCESS] pdfplumber tables: {len(table_text)} chars")
+                except Exception:
+                    pass
+
+            # Document AI bboxes are more accurate — use them for highlighting
+            if docai_success:
+                extraction_method = "document_ai"
 
         elif file_type == "image":
             images = load_image_bytes(file_bytes)

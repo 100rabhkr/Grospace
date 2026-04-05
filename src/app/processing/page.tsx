@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { listExtractionJobs, markExtractionJobSeen } from "@/lib/api";
+import { listExtractionJobs, markExtractionJobSeen, cancelExtractionJob } from "@/lib/api";
 import { useUser } from "@/lib/hooks/use-user";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -22,7 +22,7 @@ import {
 interface ExtractionJob {
   id: string;
   filename: string;
-  status: "processing" | "completed" | "failed";
+  status: "processing" | "completed" | "failed" | "cancelled";
   created_at: string;
   updated_at?: string;
   seen?: boolean;
@@ -53,12 +53,11 @@ function formatDuration(seconds: number): string {
 }
 
 function estimateProcessingTime(filename: string): string {
-  // Estimate based on typical doc sizes
   const ext = filename.split(".").pop()?.toLowerCase();
   if (ext === "pdf") {
-    return "2-5 minutes (text PDF) or 5-15 minutes (scanned PDF)";
+    return "~2-4 min";
   }
-  return "1-3 minutes";
+  return "~1-2 min";
 }
 
 export default function ProcessingPage() {
@@ -102,7 +101,7 @@ export default function ProcessingPage() {
 
   const processingJobs = jobs.filter((j) => j.status === "processing");
   const completedJobs = jobs.filter((j) => j.status === "completed");
-  const failedJobs = jobs.filter((j) => j.status === "failed");
+  const failedJobs = jobs.filter((j) => j.status === "failed" || j.status === "cancelled");
 
   if (loading) {
     return (
@@ -183,9 +182,19 @@ export default function ProcessingPage() {
                         Started {formatTimeAgo(job.created_at)} &middot; Est. {estimateProcessingTime(job.filename)}
                       </p>
                     </div>
-                    <Badge variant="outline" className="text-amber-700 border-amber-200 bg-amber-50 text-[10px]">
-                      Processing
-                    </Badge>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-xs h-7 text-rose-600 border-rose-200 hover:bg-rose-50"
+                      onClick={async () => {
+                        try {
+                          await cancelExtractionJob(job.id);
+                          setJobs((prev) => prev.map((j) => j.id === job.id ? { ...j, status: "cancelled" as ExtractionJob["status"] } : j));
+                        } catch { /* ignore */ }
+                      }}
+                    >
+                      Cancel
+                    </Button>
                   </div>
                   {/* Progress bar animation */}
                   <div className="mt-3 h-1.5 w-full rounded-full bg-amber-100 overflow-hidden">

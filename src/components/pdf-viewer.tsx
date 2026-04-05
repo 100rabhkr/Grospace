@@ -8,8 +8,6 @@ import { Button } from "@/components/ui/button";
 import {
   ChevronLeft,
   ChevronRight,
-  ZoomIn,
-  ZoomOut,
   Loader2,
   AlertTriangle,
   FileText,
@@ -81,10 +79,23 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
   function PdfViewer({ url, activePage, highlightQuote, ocrPages, onPageChange }, ref) {
     const [numPages, setNumPages] = useState<number>(0);
     const [pageNumber, setPageNumber] = useState(activePage || 1);
-    const [scale, setScale] = useState(1.0);
+    const scale = 1.0;
     const [error, setError] = useState<string | null>(null);
     const [activeQuote, setActiveQuote] = useState<string | null>(null);
+    const [containerWidth, setContainerWidth] = useState<number>(0);
     const containerRef = useRef<HTMLDivElement>(null);
+
+    // Measure container width for fit-to-width rendering
+    useEffect(() => {
+      const measure = () => {
+        if (containerRef.current) {
+          setContainerWidth(containerRef.current.clientWidth - 32);
+        }
+      };
+      setTimeout(measure, 200);
+      window.addEventListener("resize", measure);
+      return () => window.removeEventListener("resize", measure);
+    }, []);
 
     useImperativeHandle(ref, () => ({
       goToPage: (page: number) => {
@@ -105,12 +116,14 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
       }
     }, [activePage, numPages]);
 
-    // Sync external highlightQuote
+    // Sync external highlightQuote — strip timestamp suffix if present
     useEffect(() => {
-      setActiveQuote(highlightQuote || null);
+      const raw = highlightQuote || null;
+      const clean = raw ? raw.replace(/__t\d+$/, "") : null;
+      setActiveQuote(clean);
     }, [highlightQuote]);
 
-    // Clear highlights when page changes (user clicks next/prev)
+    // Clear highlight visuals when page changes
     useEffect(() => {
       clearAllHighlights(containerRef.current);
     }, [pageNumber]);
@@ -171,7 +184,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
             const idx = nFull.indexOf(nQuote.slice(0, len));
             if (idx !== -1) { matchIdx = idx; matchLen = Math.min(len, 100); break; }
           }
-          // Fallback: 3 consecutive words
+          // Fallback 1: 3 consecutive words
           if (matchIdx === -1) {
             const qw = nQuote.split(" ").filter((w) => w.length > 2);
             for (let i = 0; i <= qw.length - 3; i++) {
@@ -180,8 +193,46 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
               if (idx !== -1) { matchIdx = idx; matchLen = chunk.length; break; }
             }
           }
+          // Fallback 2: 2 consecutive words
+          if (matchIdx === -1) {
+            const qw = nQuote.split(" ").filter((w) => w.length > 2);
+            for (let i = 0; i <= qw.length - 2; i++) {
+              const chunk = qw.slice(i, i + 2).join(" ");
+              const idx = nFull.indexOf(chunk);
+              if (idx !== -1) { matchIdx = idx; matchLen = chunk.length + 30; break; }
+            }
+          }
+          // Fallback 3: any single word > 6 chars
+          if (matchIdx === -1) {
+            const longWord = nQuote.split(" ").find((w) => w.length > 6);
+            if (longWord) {
+              const idx = nFull.indexOf(longWord);
+              if (idx !== -1) { matchIdx = idx; matchLen = longWord.length + 20; }
+            }
+          }
+          // Fallback 4: any word > 4 chars
+          if (matchIdx === -1) {
+            const word = nQuote.split(" ").find((w) => w.length > 4);
+            if (word) {
+              const idx = nFull.indexOf(word);
+              if (idx !== -1) { matchIdx = idx; matchLen = word.length + 15; }
+            }
+          }
+          // Fallback 5: any number sequence (for CIN, amounts, dates)
+          if (matchIdx === -1) {
+            const numMatch = nQuote.match(/\d{4,}/);
+            if (numMatch) {
+              const idx = nFull.indexOf(numMatch[0]);
+              if (idx !== -1) { matchIdx = idx; matchLen = numMatch[0].length + 20; }
+            }
+          }
 
-          if (matchIdx === -1) return; // no match — skip
+          // If all text layer strategies failed, try OCR bbox path
+          if (matchIdx === -1 && ocrPages && ocrPages.length > 0) {
+            // Fall through to OCR bbox section below
+          } else if (matchIdx === -1) {
+            return;
+          }
 
           // Collect overlapping spans
           let cc = 0;
@@ -218,9 +269,9 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
             return;
           }
 
-          // Clamp height to max ~4 lines
+          // Clamp height to max 3 lines
           const lineH = hits[0].getBoundingClientRect().height || 14;
-          const maxH = lineH * 5;
+          const maxH = lineH * 3;
           if (y2 - y1 > maxH) y2 = y1 + maxH;
 
           // Clamp within layer
@@ -240,11 +291,15 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
           box.style.height = `${height}px`;
           textLayer.appendChild(box);
 
-          // Scroll to it
+          // Scroll to the highlighted area
           const c = containerRef.current;
-          if (c) {
-            const cr = c.getBoundingClientRect();
-            c.scrollTo({ top: c.scrollTop + (y1 - cr.height / 3), behavior: "smooth" });
+          if (c && box) {
+            setTimeout(() => {
+              const boxRect = box.getBoundingClientRect();
+              const containerRect = c.getBoundingClientRect();
+              const scrollTarget = c.scrollTop + (boxRect.top - containerRect.top) - containerRect.height / 3;
+              c.scrollTo({ top: Math.max(0, scrollTarget), behavior: "smooth" });
+            }, 100);
           }
 
         } else if (ocrPages && ocrPages.length > 0) {
@@ -258,13 +313,40 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
           const nQuote = norm(activeQuote);
 
           let startIdx = -1;
+          const findWordIdx = (searchIdx: number) => {
+            let cp = 0;
+            return wordN.findIndex((wt) => { const s = cp; cp += wt.length + 1; return s <= searchIdx && searchIdx < cp; });
+          };
+
+          // Strategy 1: prefix match
           for (const len of [nQuote.length, 60, 40, 25, 15, 10]) {
             if (nQuote.length < len) continue;
             const idx = joined.indexOf(nQuote.slice(0, len));
-            if (idx !== -1) {
-              let cp = 0;
-              startIdx = wordN.findIndex((wt) => { const s = cp; cp += wt.length + 1; return s <= idx && idx < cp; });
-              break;
+            if (idx !== -1) { startIdx = findWordIdx(idx); break; }
+          }
+          // Strategy 2: 2 consecutive words
+          if (startIdx === -1) {
+            const qw = nQuote.split(" ").filter((w) => w.length > 2);
+            for (let i = 0; i <= qw.length - 2; i++) {
+              const chunk = qw.slice(i, i + 2).join(" ");
+              const idx = joined.indexOf(chunk);
+              if (idx !== -1) { startIdx = findWordIdx(idx); break; }
+            }
+          }
+          // Strategy 3: single word > 4 chars
+          if (startIdx === -1) {
+            const word = nQuote.split(" ").find((w) => w.length > 4);
+            if (word) {
+              const idx = joined.indexOf(word);
+              if (idx !== -1) { startIdx = findWordIdx(idx); }
+            }
+          }
+          // Strategy 4: number sequence (CIN, amounts)
+          if (startIdx === -1) {
+            const numMatch = nQuote.match(/\d{4,}/);
+            if (numMatch) {
+              const idx = joined.indexOf(numMatch[0]);
+              if (idx !== -1) { startIdx = findWordIdx(idx); }
             }
           }
           if (startIdx === -1) return;
@@ -275,7 +357,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
 
           // Cluster: max 4 lines from first word
           const first = words[startIdx];
-          const maxYLimit = first.bbox.y + first.bbox.h * 4;
+          const maxYLimit = first.bbox.y + first.bbox.h * 3;
           let endIdx = startIdx;
           for (let i = startIdx; i < Math.min(startIdx + 20, words.length); i++) {
             if (words[i].bbox.y > maxYLimit) break;
@@ -306,7 +388,14 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
           pageEl.appendChild(box);
 
           const c = containerRef.current;
-          if (c) c.scrollTo({ top: c.scrollTop + by1 * rH - pageRect.height / 3, behavior: "smooth" });
+          if (c && box) {
+            setTimeout(() => {
+              const boxRect = box.getBoundingClientRect();
+              const containerRect = c.getBoundingClientRect();
+              const scrollTarget = c.scrollTop + (boxRect.top - containerRect.top) - containerRect.height / 3;
+              c.scrollTo({ top: Math.max(0, scrollTarget), behavior: "smooth" });
+            }, 100);
+          }
         }
       };
 
@@ -347,18 +436,9 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
             {activeQuote && (
               <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-blue-600"
                 onClick={() => { setActiveQuote(null); clearAllHighlights(containerRef.current); }}>
-                <FileText className="h-3 w-3 mr-1" />Clear
+                <FileText className="h-3 w-3 mr-1" />Clear highlight
               </Button>
             )}
-            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={scale <= 0.5}
-              onClick={() => setScale((s) => Math.max(0.5, s - 0.25))}>
-              <ZoomOut className="h-4 w-4" />
-            </Button>
-            <span className="text-xs tabular-nums min-w-[40px] text-center">{Math.round(scale * 100)}%</span>
-            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={scale >= 2.5}
-              onClick={() => setScale((s) => Math.min(2.5, s + 0.25))}>
-              <ZoomIn className="h-4 w-4" />
-            </Button>
           </div>
         </div>
 
@@ -383,7 +463,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
             >
               <Page
                 pageNumber={pageNumber}
-                scale={scale}
+                width={containerWidth > 0 ? containerWidth * scale : undefined}
                 renderTextLayer={true}
                 renderAnnotationLayer={true}
                 loading={

@@ -110,6 +110,14 @@
 }
 
 @layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
   .hover-lift {
     transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
     will-change: transform;

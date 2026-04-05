@@ -83,7 +83,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 Dismiss
               </button>
             </div>
-            <div className="flex flex-wrap gap-2 mt-2">
+            <div className="flex gap-2 mt-2 overflow-x-auto scrollbar-hide pb-1">
               {pendingJobs.map((job) => (
                 <Link key={job.id} href={`/agreements/upload?job_id=${job.id}`} onClick={dismissJobs}>
                   <Button size="sm" variant="outline" className="text-xs h-7 border-emerald-300 text-emerald-700 hover:bg-emerald-100 gap-1">

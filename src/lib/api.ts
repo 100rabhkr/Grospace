@@ -1218,6 +1218,10 @@ export async function markExtractionJobSeen(jobId: string) {
   return apiFetch(`/api/extraction-jobs/${jobId}/seen`, { method: "PATCH" });
 }
 
+export async function cancelExtractionJob(jobId: string) {
+  return apiFetch(`/api/extraction-jobs/${jobId}/cancel`, { method: "PATCH" });
+}
+
 /** Create a critical date / event for an outlet */
 export async function createCriticalDate(data: {
   outlet_id: string;
