@@ -43,393 +43,276 @@ type Props = {
   onPageChange?: (page: number) => void;
 };
 
+// Inject highlight animation CSS once
+function ensureHighlightStyles() {
+  if (typeof document === "undefined") return;
+  if (document.getElementById("hl-pulse-css")) return;
+  const s = document.createElement("style");
+  s.id = "hl-pulse-css";
+  s.textContent = `
+    @keyframes hlPulse {
+      0%,100% { box-shadow: 0 0 0 3px rgba(59,130,246,0.12), 0 0 16px rgba(59,130,246,0.10); }
+      50%     { box-shadow: 0 0 0 5px rgba(59,130,246,0.18), 0 0 24px rgba(59,130,246,0.16); }
+    }
+    .hl-spot {
+      position: absolute;
+      background: rgba(59,130,246,0.12);
+      border: 2.5px solid rgba(59,130,246,0.55);
+      border-radius: 5px;
+      pointer-events: none;
+      z-index: 5;
+      animation: hlPulse 2s ease-in-out infinite;
+    }
+  `;
+  document.head.appendChild(s);
+}
+
+function clearAllHighlights(container: HTMLElement | null) {
+  if (!container) return;
+  // Clear from everywhere — page element, text layer, and container
+  container.querySelectorAll(".hl-spot").forEach((el) => el.remove());
+}
+
+// Normalize text for fuzzy matching
+const norm = (s: string) =>
+  s.toLowerCase().replace(/[^a-z0-9]/g, " ").replace(/\s+/g, " ").trim();
+
 export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
   function PdfViewer({ url, activePage, highlightQuote, ocrPages, onPageChange }, ref) {
     const [numPages, setNumPages] = useState<number>(0);
     const [pageNumber, setPageNumber] = useState(activePage || 1);
     const [scale, setScale] = useState(1.0);
     const [error, setError] = useState<string | null>(null);
-    const [activeQuote, setActiveQuote] = useState<string | null>(highlightQuote || null);
-    const [highlightTrigger, setHighlightTrigger] = useState(0);
+    const [activeQuote, setActiveQuote] = useState<string | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
 
-    // Expose imperative methods for parent components
     useImperativeHandle(ref, () => ({
       goToPage: (page: number) => {
         setPageNumber(Math.max(1, Math.min(page, numPages || page)));
         onPageChange?.(page);
       },
       highlightText: (quote: string, page?: number) => {
-        if (page) {
-          setPageNumber(page);
-          onPageChange?.(page);
-        }
+        if (page) { setPageNumber(page); onPageChange?.(page); }
         setActiveQuote(quote);
       },
-      clearHighlight: () => {
-        setActiveQuote(null);
-      },
+      clearHighlight: () => setActiveQuote(null),
     }));
 
-    // Respond to external activePage changes
+    // Navigate to external activePage
     useEffect(() => {
       if (activePage && activePage <= (numPages || activePage)) {
         setPageNumber(activePage);
       }
-    }, [activePage, numPages]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [activePage, numPages]);
 
-    // Respond to external highlightQuote changes — always force re-trigger
+    // Sync external highlightQuote
     useEffect(() => {
       setActiveQuote(highlightQuote || null);
-      setHighlightTrigger((t) => t + 1);
     }, [highlightQuote]);
 
-    // Highlight matching text in the rendered page after render
+    // Clear highlights when page changes (user clicks next/prev)
+    useEffect(() => {
+      clearAllHighlights(containerRef.current);
+    }, [pageNumber]);
+
+    // ─── Main highlight effect ──────────────────────────────────
     useEffect(() => {
       if (!activeQuote || !containerRef.current) return;
+      ensureHighlightStyles();
 
-      // Wait for correct page to render before highlighting
-      let attempts = 0;
-      const tryHighlight = () => {
-        attempts++;
-        const pageEl = containerRef.current?.querySelector(".react-pdf__Page");
-        if (!pageEl) {
-          if (attempts < 8) setTimeout(tryHighlight, 300);
+      let attempt = 0;
+      const run = () => {
+        attempt++;
+        const pageEl = containerRef.current?.querySelector(".react-pdf__Page") as HTMLElement | null;
+        if (!pageEl) { if (attempt < 10) setTimeout(run, 300); return; }
+
+        // Make sure correct page is rendered
+        const renderedNum = pageEl.getAttribute("data-page-number");
+        if (renderedNum && parseInt(renderedNum) !== pageNumber) {
+          if (attempt < 10) setTimeout(run, 300);
           return;
         }
 
-        // Verify the correct page is rendered by checking the page data attribute
-        const renderedPageNum = pageEl.getAttribute("data-page-number");
-        if (renderedPageNum && parseInt(renderedPageNum) !== pageNumber) {
-          // Wrong page still showing — wait for correct page
-          if (attempts < 8) setTimeout(tryHighlight, 300);
+        clearAllHighlights(containerRef.current);
+
+        const textLayer = pageEl.querySelector(".react-pdf__Page__textContent") as HTMLElement | null;
+        const textSpans = textLayer ? textLayer.querySelectorAll("span") : [];
+        // Check if spans have actually rendered (have non-zero dimensions)
+        const firstSpanRect = textSpans.length > 0 ? textSpans[0].getBoundingClientRect() : null;
+        const spansRendered = firstSpanRect && firstSpanRect.width > 0 && firstSpanRect.height > 0;
+
+        // If text layer exists but spans not rendered yet, retry
+        if (textLayer && textSpans.length > 3 && !spansRendered) {
+          if (attempt < 12) setTimeout(run, 400);
           return;
         }
 
-        // Clear ALL previous highlights
-        pageEl.querySelectorAll(".source-highlight").forEach((el) => el.remove());
-        const textLayer = containerRef.current?.querySelector(".react-pdf__Page__textContent");
-        textLayer?.querySelectorAll(".source-highlight").forEach((el) => el.remove());
-        // If no text layer (scanned PDF), skip directly to bbox fallback
-        if (!textLayer || textLayer.querySelectorAll("span").length === 0) {
-          // Use OCR bbox highlighting for scanned documents
-          if (ocrPages && ocrPages.length > 0) {
-            const ocrPage = ocrPages.find((p) => p.page_number === pageNumber);
-            if (ocrPage && ocrPage.words.length > 0) {
-              pageEl.querySelectorAll(".source-highlight").forEach((el) => el.remove());
-              const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
-              const rawQuote = normalize(activeQuote);
-              const words = ocrPage.words;
-              const wordTexts = words.map((w) => normalize(w.text));
-              const joined = wordTexts.join(" ");
+        const hasTextLayer = textLayer && textSpans.length > 3 && spansRendered;
 
-              // Strategy 1: Full prefix match (progressively shorter)
-              let startWordIdx = -1;
-              for (const len of [rawQuote.length, 80, 60, 40, 30, 20, 12, 8]) {
-                if (rawQuote.length < len) continue;
-                const prefix = rawQuote.slice(0, len);
-                const idx = joined.indexOf(prefix);
-                if (idx !== -1) {
-                  let charPos = 0;
-                  startWordIdx = wordTexts.findIndex((wt) => {
-                    const start = charPos;
-                    charPos += wt.length + 1;
-                    return start <= idx && idx < charPos;
-                  });
-                  break;
-                }
-              }
+        if (hasTextLayer && textLayer) {
+          // ──── TEXT PDF: match spans, draw spotlight box ────
+          const spans = Array.from(textLayer.querySelectorAll("span"));
+          let fullText = "";
+          const spanMap: { start: number; end: number; span: Element }[] = [];
+          for (const span of spans) {
+            const t = span.textContent || "";
+            const start = fullText.length;
+            fullText += t + " ";
+            spanMap.push({ start, end: start + t.length, span });
+          }
+          const nFull = norm(fullText);
+          const nQuote = norm(activeQuote);
 
-              // Strategy 2: Match any 4 consecutive significant words from the quote
-              if (startWordIdx === -1) {
-                const quoteWords = rawQuote.split(" ").filter(w => w.length > 2);
-                for (let qi = 0; qi <= quoteWords.length - 4; qi++) {
-                  const chunk = quoteWords.slice(qi, qi + 4).join(" ");
-                  const idx = joined.indexOf(chunk);
-                  if (idx !== -1) {
-                    let charPos = 0;
-                    startWordIdx = wordTexts.findIndex((wt) => {
-                      const start = charPos;
-                      charPos += wt.length + 1;
-                      return start <= idx && idx < charPos;
-                    });
-                    break;
-                  }
-                }
-              }
-
-              if (startWordIdx >= 0) {
-                const pageRect = pageEl.getBoundingClientRect();
-                const renderedW = pageRect.width;
-                const renderedH = pageRect.height;
-
-                // Only include words within a tight vertical cluster (max ~5 lines)
-                const firstWord = words[startWordIdx];
-                const lineHeight = firstWord.bbox.h * 2.5; // ~2.5x word height = max cluster
-                const maxY_limit = firstWord.bbox.y + lineHeight;
-                let endIdx = startWordIdx;
-                for (let wi = startWordIdx; wi < Math.min(startWordIdx + 25, words.length); wi++) {
-                  if (words[wi].bbox.y > maxY_limit) break;
-                  endIdx = wi + 1;
-                }
-
-                // Calculate bounding box around clustered words only
-                let minX = Infinity, minY = Infinity, maxX = 0, maxY = 0;
-                for (let wi = startWordIdx; wi < endIdx; wi++) {
-                  const w = words[wi];
-                  minX = Math.min(minX, w.bbox.x);
-                  minY = Math.min(minY, w.bbox.y);
-                  maxX = Math.max(maxX, w.bbox.x + w.bbox.w);
-                  maxY = Math.max(maxY, w.bbox.y + w.bbox.h);
-                }
-
-                // Add padding
-                const pad = 0.006;
-                minX = Math.max(0, minX - pad);
-                minY = Math.max(0, minY - pad);
-                maxX = Math.min(1, maxX + pad);
-                maxY = Math.min(1, maxY + pad);
-
-                // Create spotlight window
-                const spotlight = document.createElement("div");
-                spotlight.className = "source-highlight";
-                spotlight.style.cssText = `
-                  position: absolute;
-                  left: ${minX * renderedW}px;
-                  top: ${minY * renderedH}px;
-                  width: ${(maxX - minX) * renderedW}px;
-                  height: ${(maxY - minY) * renderedH}px;
-                  background: rgba(59, 130, 246, 0.08);
-                  border: 2px solid rgba(59, 130, 246, 0.6);
-                  border-radius: 6px;
-                  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1), 0 0 20px rgba(59, 130, 246, 0.15);
-                  pointer-events: none;
-                  z-index: 5;
-                  animation: highlightPulse 2s ease-in-out infinite;
-                `;
-                pageEl.appendChild(spotlight);
-
-                // Add CSS animation if not already present
-                if (!document.getElementById("highlight-pulse-style")) {
-                  const style = document.createElement("style");
-                  style.id = "highlight-pulse-style";
-                  style.textContent = "@keyframes highlightPulse { 0%,100% { box-shadow: 0 0 0 4px rgba(59,130,246,0.1), 0 0 20px rgba(59,130,246,0.15); } 50% { box-shadow: 0 0 0 6px rgba(59,130,246,0.15), 0 0 30px rgba(59,130,246,0.2); } }";
-                  document.head.appendChild(style);
-                }
-
-                // Scroll to highlight
-                const container = containerRef.current;
-                if (container) {
-                  const scrollTop = container.scrollTop + (minY * renderedH) - pageRect.height / 3;
-                  container.scrollTo({ top: scrollTop, behavior: "smooth" });
-                }
-              }
+          // Find match index — progressively shorter
+          let matchIdx = -1;
+          let matchLen = 0;
+          for (const len of [nQuote.length, 80, 60, 40, 25, 15, 10]) {
+            if (nQuote.length < len) continue;
+            const idx = nFull.indexOf(nQuote.slice(0, len));
+            if (idx !== -1) { matchIdx = idx; matchLen = Math.min(len, 100); break; }
+          }
+          // Fallback: 3 consecutive words
+          if (matchIdx === -1) {
+            const qw = nQuote.split(" ").filter((w) => w.length > 2);
+            for (let i = 0; i <= qw.length - 3; i++) {
+              const chunk = qw.slice(i, i + 3).join(" ");
+              const idx = nFull.indexOf(chunk);
+              if (idx !== -1) { matchIdx = idx; matchLen = chunk.length; break; }
             }
           }
-          return;
-        }
 
-        // Clear previous highlights (from text layer and page element for OCR fallback)
-        textLayer.querySelectorAll(".source-highlight").forEach((el) => el.remove());
-        containerRef.current?.querySelectorAll(".react-pdf__Page .source-highlight").forEach((el) => el.remove());
+          if (matchIdx === -1) return; // no match — skip
 
-        // Find matching text spans
-        const spans = Array.from(textLayer.querySelectorAll("span"));
-        if (spans.length === 0 && attempts < 4) {
-          setTimeout(tryHighlight, 500);
-          return;
-        }
-
-        // Normalize: collapse whitespace, remove special chars for fuzzy matching
-        const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, " ").replace(/\s+/g, " ").trim();
-        const rawQuote = normalize(activeQuote);
-
-        // Build concatenated text with span mapping
-        let fullText = "";
-        const spanMap: { start: number; end: number; span: Element }[] = [];
-        for (const span of spans) {
-          const text = span.textContent || "";
-          const start = fullText.length;
-          fullText += text + " ";
-          spanMap.push({ start, end: start + text.length, span });
-        }
-
-        const normalizedFull = normalize(fullText);
-
-        // Try progressively shorter prefixes of the quote
-        let matchIdx = -1;
-        let matchLen = 0;
-        const tryLengths = [rawQuote.length, 100, 60, 40, 25, 15, 10];
-        for (const len of tryLengths) {
-          if (rawQuote.length < len) continue;
-          const prefix = rawQuote.slice(0, len);
-          const idx = normalizedFull.indexOf(prefix);
-          if (idx !== -1) {
-            matchIdx = idx;
-            matchLen = Math.min(prefix.length, 120);
-            break;
+          // Collect overlapping spans
+          let cc = 0;
+          const hits: Element[] = [];
+          for (const { span } of spanMap) {
+            const sn = norm(span.textContent || "");
+            if (!sn.length) continue;
+            const se = cc + sn.length;
+            if (se > matchIdx && cc < matchIdx + matchLen) hits.push(span);
+            if (hits.length >= 10) break;
+            cc = se + 1;
           }
-        }
 
-        // Fallback: try matching any 3 significant words from the quote
-        if (matchIdx === -1) {
-          const quoteWords = rawQuote.split(" ").filter(w => w.length > 2);
-          for (let qi = 0; qi <= quoteWords.length - 3; qi++) {
-            const chunk = quoteWords.slice(qi, qi + 3).join(" ");
-            const idx = normalizedFull.indexOf(chunk);
+          if (!hits.length) return;
+
+          // Compute bounding rect — only use spans with non-zero size
+          const layerRect = textLayer.getBoundingClientRect();
+          let x1 = Infinity, y1 = Infinity, x2 = 0, y2 = 0;
+          let validSpans = 0;
+          for (const span of hits) {
+            const r = span.getBoundingClientRect();
+            // Skip spans that haven't rendered yet (zero size)
+            if (r.width < 1 || r.height < 1) continue;
+            validSpans++;
+            x1 = Math.min(x1, r.left - layerRect.left);
+            y1 = Math.min(y1, r.top - layerRect.top);
+            x2 = Math.max(x2, r.right - layerRect.left);
+            y2 = Math.max(y2, r.bottom - layerRect.top);
+          }
+
+          // If no valid spans rendered yet, retry later
+          if (validSpans === 0) {
+            if (attempt < 10) setTimeout(run, 400);
+            return;
+          }
+
+          // Clamp height to max ~4 lines
+          const lineH = hits[0].getBoundingClientRect().height || 14;
+          const maxH = lineH * 5;
+          if (y2 - y1 > maxH) y2 = y1 + maxH;
+
+          // Clamp within layer
+          const pad = 5;
+          const left = Math.max(0, x1 - pad);
+          const top = Math.max(0, y1 - pad);
+          const width = Math.min(layerRect.width - left, x2 - x1 + pad * 2);
+          const height = Math.min(layerRect.height - top, y2 - y1 + pad * 2);
+
+          if (width < 5 || height < 5) return; // too small — skip
+
+          const box = document.createElement("div");
+          box.className = "hl-spot";
+          box.style.left = `${left}px`;
+          box.style.top = `${top}px`;
+          box.style.width = `${width}px`;
+          box.style.height = `${height}px`;
+          textLayer.appendChild(box);
+
+          // Scroll to it
+          const c = containerRef.current;
+          if (c) {
+            const cr = c.getBoundingClientRect();
+            c.scrollTo({ top: c.scrollTop + (y1 - cr.height / 3), behavior: "smooth" });
+          }
+
+        } else if (ocrPages && ocrPages.length > 0) {
+          // ──── SCANNED PDF: bbox overlay ────
+          const ocrPage = ocrPages.find((p) => p.page_number === pageNumber);
+          if (!ocrPage || !ocrPage.words.length) return;
+
+          const words = ocrPage.words;
+          const wordN = words.map((w) => norm(w.text));
+          const joined = wordN.join(" ");
+          const nQuote = norm(activeQuote);
+
+          let startIdx = -1;
+          for (const len of [nQuote.length, 60, 40, 25, 15, 10]) {
+            if (nQuote.length < len) continue;
+            const idx = joined.indexOf(nQuote.slice(0, len));
             if (idx !== -1) {
-              matchIdx = idx;
-              matchLen = chunk.length;
+              let cp = 0;
+              startIdx = wordN.findIndex((wt) => { const s = cp; cp += wt.length + 1; return s <= idx && idx < cp; });
               break;
             }
           }
-        }
+          if (startIdx === -1) return;
 
-        // Last resort: match first significant word (>5 chars)
-        if (matchIdx === -1) {
-          const sigWord = rawQuote.split(" ").find(w => w.length > 5);
-          if (sigWord) {
-            const idx = normalizedFull.indexOf(sigWord);
-            if (idx !== -1) {
-              matchIdx = idx;
-              matchLen = sigWord.length + 20; // highlight some context around it
-            }
-          }
-        }
+          const pageRect = pageEl.getBoundingClientRect();
+          const rW = pageRect.width;
+          const rH = pageRect.height;
 
-        if (matchIdx === -1) {
-          // Fallback: try OCR bbox-based highlighting for scanned documents
-          if (ocrPages && ocrPages.length > 0) {
-            const ocrPage = ocrPages.find((p) => p.page_number === pageNumber);
-            if (ocrPage && ocrPage.words.length > 0) {
-              const ocrNormQuote = rawQuote.toLowerCase();
-              // Find consecutive words that match the quote
-              const wordTexts = ocrPage.words.map((w) => w.text.toLowerCase().replace(/[^a-z0-9]/g, ""));
-              const joined = wordTexts.join(" ");
-              let ocrMatchIdx = -1;
-              for (const len of [ocrNormQuote.length, 60, 40, 25]) {
-                if (ocrNormQuote.length < len) continue;
-                ocrMatchIdx = joined.indexOf(ocrNormQuote.slice(0, len));
-                if (ocrMatchIdx !== -1) break;
-              }
-              if (ocrMatchIdx !== -1) {
-                // Map character position back to word indices
-                let charPos = 0;
-                const startWordIdx = wordTexts.findIndex((wt) => {
-                  const start = charPos;
-                  charPos += wt.length + 1;
-                  return start <= ocrMatchIdx && ocrMatchIdx < charPos;
-                });
-                if (startWordIdx >= 0) {
-                  // Get the rendered page element to draw bbox highlights
-                  const pageEl = containerRef.current?.querySelector(".react-pdf__Page");
-                  if (pageEl) {
-                    const pageRect = pageEl.getBoundingClientRect();
-                    const renderedW = pageRect.width;
-                    const renderedH = pageRect.height;
-                    // Highlight ~20 consecutive words from match start
-                    const endIdx = Math.min(startWordIdx + 20, ocrPage.words.length);
-                    for (let wi = startWordIdx; wi < endIdx; wi++) {
-                      const word = ocrPage.words[wi];
-                      const hl = document.createElement("div");
-                      hl.className = "source-highlight";
-                      hl.style.cssText = `
-                        position: absolute;
-                        left: ${word.bbox.x * renderedW - 3}px;
-                        top: ${word.bbox.y * renderedH - 2}px;
-                        width: ${word.bbox.w * renderedW + 6}px;
-                        height: ${word.bbox.h * renderedH + 4}px;
-                        background: rgba(59, 130, 246, 0.35);
-                        border: 2px solid rgba(59, 130, 246, 0.5);
-                        border-radius: 3px;
-                        pointer-events: none;
-                        z-index: 5;
-                      `;
-                      pageEl.appendChild(hl);
-                      if (wi === startWordIdx) {
-                        const container = containerRef.current;
-                        if (container) {
-                          const scrollTop = container.scrollTop + (word.bbox.y * renderedH) - pageRect.height / 2;
-                          container.scrollTo({ top: scrollTop, behavior: "smooth" });
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-          return;
-        }
-
-        // Map back to original positions — find spans that overlap
-        // Since we stripped non-alphanumeric, we need to map normalized positions to original spans
-        // Simpler approach: find spans whose normalized text overlaps the match
-        // Limit match length to prevent highlighting entire paragraphs
-        const limitedMatchLen = Math.min(matchLen, 120);
-        let charCount = 0;
-        const matchingSpans: Element[] = [];
-
-        for (const { span } of spanMap) {
-          const spanNorm = normalize(span.textContent || "");
-          if (spanNorm.length === 0) continue;
-          const spanEnd = charCount + spanNorm.length;
-          if (spanEnd > matchIdx && charCount < matchIdx + limitedMatchLen) {
-            matchingSpans.push(span);
-            if (matchingSpans.length >= 12) break; // Cap at 12 spans max
-          }
-          charCount = spanEnd + 1;
-        }
-
-        // Highlight each matching span individually with a clean background
-        if (matchingSpans.length > 0) {
-          const layerRect = textLayer.getBoundingClientRect();
-
-          // Add pulse animation style if not present
-          if (!document.getElementById("highlight-pulse-style")) {
-            const style = document.createElement("style");
-            style.id = "highlight-pulse-style";
-            style.textContent = "@keyframes highlightPulse { 0%,100% { opacity: 0.85; } 50% { opacity: 1; } }";
-            document.head.appendChild(style);
+          // Cluster: max 4 lines from first word
+          const first = words[startIdx];
+          const maxYLimit = first.bbox.y + first.bbox.h * 4;
+          let endIdx = startIdx;
+          for (let i = startIdx; i < Math.min(startIdx + 20, words.length); i++) {
+            if (words[i].bbox.y > maxYLimit) break;
+            endIdx = i + 1;
           }
 
-          // Highlight each span with a blue background
-          for (const span of matchingSpans) {
-            const rect = span.getBoundingClientRect();
-            const hl = document.createElement("div");
-            hl.className = "source-highlight";
-            hl.style.cssText = `
-              position: absolute;
-              left: ${rect.left - layerRect.left - 4}px;
-              top: ${rect.top - layerRect.top - 3}px;
-              width: ${rect.width + 8}px;
-              height: ${rect.height + 6}px;
-              background: rgba(59, 130, 246, 0.35);
-              border: 2px solid rgba(59, 130, 246, 0.5);
-              border-radius: 4px;
-              pointer-events: none;
-              z-index: 5;
-              animation: highlightPulse 2s ease-in-out infinite;
-            `;
-            textLayer.appendChild(hl);
+          let bx1 = Infinity, by1 = Infinity, bx2 = 0, by2 = 0;
+          for (let i = startIdx; i < endIdx; i++) {
+            const w = words[i];
+            bx1 = Math.min(bx1, w.bbox.x);
+            by1 = Math.min(by1, w.bbox.y);
+            bx2 = Math.max(bx2, w.bbox.x + w.bbox.w);
+            by2 = Math.max(by2, w.bbox.y + w.bbox.h);
           }
 
-          // Scroll to first highlighted span
-          const container = containerRef.current;
-          if (container && matchingSpans[0]) {
-            const firstSpan = matchingSpans[0];
-            const spanRect = firstSpan.getBoundingClientRect();
-            const containerRect = container.getBoundingClientRect();
-            const scrollTop = container.scrollTop + (spanRect.top - containerRect.top) - containerRect.height / 3;
-            container.scrollTo({ top: scrollTop, behavior: "smooth" });
-          }
+          const p = 0.005;
+          bx1 = Math.max(0, bx1 - p);
+          by1 = Math.max(0, by1 - p);
+          bx2 = Math.min(1, bx2 + p);
+          by2 = Math.min(1, by2 + p);
+
+          const box = document.createElement("div");
+          box.className = "hl-spot";
+          box.style.left = `${bx1 * rW}px`;
+          box.style.top = `${by1 * rH}px`;
+          box.style.width = `${(bx2 - bx1) * rW}px`;
+          box.style.height = `${(by2 - by1) * rH}px`;
+          pageEl.appendChild(box);
+
+          const c = containerRef.current;
+          if (c) c.scrollTo({ top: c.scrollTop + by1 * rH - pageRect.height / 3, behavior: "smooth" });
         }
       };
-      // Wait longer for page change + render before highlighting
-      const timer = setTimeout(tryHighlight, 800);
 
+      const timer = setTimeout(run, 1000);
       return () => clearTimeout(timer);
-    }, [activeQuote, pageNumber, highlightTrigger, ocrPages]);
+    }, [activeQuote, pageNumber, ocrPages]);
 
     const onDocumentLoadSuccess = useCallback(
       ({ numPages: n }: { numPages: number }) => {
@@ -440,82 +323,40 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
       [activePage]
     );
 
-    const onDocumentLoadError = useCallback(() => {
-      setError("Failed to load PDF document");
-    }, []);
+    const onDocumentLoadError = useCallback(() => setError("Failed to load PDF document"), []);
 
-    const goToPrev = () => {
-      const p = Math.max(1, pageNumber - 1);
-      setPageNumber(p);
-      onPageChange?.(p);
-    };
-
-    const goToNext = () => {
-      const p = Math.min(numPages, pageNumber + 1);
-      setPageNumber(p);
-      onPageChange?.(p);
-    };
+    const goToPrev = () => { const p = Math.max(1, pageNumber - 1); setPageNumber(p); setActiveQuote(null); onPageChange?.(p); };
+    const goToNext = () => { const p = Math.min(numPages, pageNumber + 1); setPageNumber(p); setActiveQuote(null); onPageChange?.(p); };
 
     return (
       <div className="flex flex-col h-full">
         {/* Toolbar */}
         <div className="flex items-center justify-between px-3 py-2 border-b bg-white">
           <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 w-7 p-0"
-              disabled={pageNumber <= 1}
-              onClick={goToPrev}
-            >
+            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={pageNumber <= 1} onClick={goToPrev}>
               <ChevronLeft className="h-4 w-4" />
             </Button>
             <span className="text-xs tabular-nums min-w-[80px] text-center">
-              {numPages > 0
-                ? `Page ${pageNumber} of ${numPages}`
-                : "Loading..."}
+              {numPages > 0 ? `Page ${pageNumber} of ${numPages}` : "Loading..."}
             </span>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 w-7 p-0"
-              disabled={pageNumber >= numPages}
-              onClick={goToNext}
-            >
+            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={pageNumber >= numPages} onClick={goToNext}>
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
           <div className="flex items-center gap-1">
             {activeQuote && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 px-2 text-xs text-blue-600"
-                onClick={() => setActiveQuote(null)}
-              >
-                <FileText className="h-3 w-3 mr-1" />
-                Clear
+              <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-blue-600"
+                onClick={() => { setActiveQuote(null); clearAllHighlights(containerRef.current); }}>
+                <FileText className="h-3 w-3 mr-1" />Clear
               </Button>
             )}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 w-7 p-0"
-              disabled={scale <= 0.5}
-              onClick={() => setScale((s) => Math.max(0.5, s - 0.25))}
-            >
+            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={scale <= 0.5}
+              onClick={() => setScale((s) => Math.max(0.5, s - 0.25))}>
               <ZoomOut className="h-4 w-4" />
             </Button>
-            <span className="text-xs tabular-nums min-w-[40px] text-center">
-              {Math.round(scale * 100)}%
-            </span>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 w-7 p-0"
-              disabled={scale >= 2.5}
-              onClick={() => setScale((s) => Math.min(2.5, s + 0.25))}
-            >
+            <span className="text-xs tabular-nums min-w-[40px] text-center">{Math.round(scale * 100)}%</span>
+            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" disabled={scale >= 2.5}
+              onClick={() => setScale((s) => Math.min(2.5, s + 0.25))}>
               <ZoomIn className="h-4 w-4" />
             </Button>
           </div>
@@ -527,16 +368,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
             <div className="flex flex-col items-center justify-center text-center gap-3">
               <AlertTriangle className="h-10 w-10 text-neutral-400" />
               <p className="text-sm text-neutral-500">{error}</p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setError(null);
-                  setPageNumber(1);
-                }}
-              >
-                Retry
-              </Button>
+              <Button variant="outline" size="sm" onClick={() => { setError(null); setPageNumber(1); }}>Retry</Button>
             </div>
           ) : (
             <Document
@@ -545,8 +377,7 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
               onLoadError={onDocumentLoadError}
               loading={
                 <div className="flex items-center gap-2 text-neutral-500">
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                  <span className="text-sm">Loading PDF...</span>
+                  <Loader2 className="h-5 w-5 animate-spin" /><span className="text-sm">Loading PDF...</span>
                 </div>
               }
             >
@@ -555,11 +386,9 @@ export const PdfViewer = forwardRef<PdfViewerHandle, Props>(
                 scale={scale}
                 renderTextLayer={true}
                 renderAnnotationLayer={true}
-                className="[&>.react-pdf__Page]:overflow-hidden"
                 loading={
                   <div className="flex items-center gap-2 text-neutral-400 py-8">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    <span className="text-xs">Rendering page...</span>
+                    <Loader2 className="h-4 w-4 animate-spin" /><span className="text-xs">Rendering page...</span>
                   </div>
                 }
               />
