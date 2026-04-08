@@ -35,8 +35,9 @@ const LONG_TIMEOUT_PATTERNS = [
 async function apiFetch(endpoint: string, options: RequestInit = {}, retryCount = 0): Promise<any> {
   const token = await getAuthToken();
   const isFormData = options.body instanceof FormData;
+  const hasBody = options.body != null;
   const headers: Record<string, string> = {
-    ...(isFormData ? {} : { "Content-Type": "application/json" }),
+    ...(!isFormData && hasBody ? { "Content-Type": "application/json" } : {}),
     ...(options.headers as Record<string, string>),
   };
   if (token) {

@@ -354,6 +354,11 @@ async def dashboard_stats():
         s = o.get("status") or "unknown"
         statuses[s] = statuses.get(s, 0) + 1
 
+    property_types = {}
+    for o in outlets.data:
+        ptype = o.get("property_type") or "unknown"
+        property_types[ptype] = property_types.get(ptype, 0) + 1
+
     rent_by_outlet = {}
     for a in agreements_data:
         oid = a.get("outlet_id")
@@ -390,6 +395,7 @@ async def dashboard_stats():
         "overdue_payments_count": len(overdue_payments),
         "overdue_amount": overdue_amount,
         "pipeline_stages": pipeline_stages,
+        "outlets_by_property_type": property_types,
     }
 
 

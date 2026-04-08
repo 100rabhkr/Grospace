@@ -32,6 +32,19 @@ router = APIRouter(prefix="/api", tags=["documents"])
 
 # Ring buffer for tracking processing times (last 100)
 _processing_times: deque = deque(maxlen=100)
+_MAX_CONCURRENT_EXTRACTIONS_PER_WORKER = max(1, int(os.getenv("MAX_CONCURRENT_EXTRACTIONS_PER_WORKER", "1")))
+_extraction_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_EXTRACTIONS_PER_WORKER)
+
+
+def _run_process_document_sync(file_bytes: bytes, filename: str) -> dict:
+    """Run the async extraction pipeline in a worker thread."""
+    return asyncio.run(process_document(file_bytes, filename))
+
+
+async def _process_document_off_thread(file_bytes: bytes, filename: str) -> dict:
+    """Keep the main event loop responsive while extraction work runs."""
+    async with _extraction_semaphore:
+        return await asyncio.to_thread(_run_process_document_sync, file_bytes, filename)
 
 
 @router.get("/processing-estimate")
@@ -130,7 +143,7 @@ async def upload_and_extract(request: Request, file: UploadFile = File(...)):
             logging.getLogger(__name__).error(f"Storage upload failed: {e}")
 
         start_time = time.time()
-        result = await process_document(file_bytes, filename)
+        result = await _process_document_off_thread(file_bytes, filename)
         duration = round(time.time() - start_time, 2)
         _processing_times.append(duration)
         result["processing_duration_seconds"] = duration
@@ -171,7 +184,7 @@ async def extract_endpoint(request: Request, req: ExtractRequest):
         file_bytes = await download_file(req.file_url)
         filename = req.file_url.split("/")[-1].split("?")[0] or "document.pdf"
 
-        result = await process_document(file_bytes, filename)
+        result = await _process_document_off_thread(file_bytes, filename)
 
         update_data = {
             "extracted_data": result["extraction"],
@@ -607,8 +620,7 @@ async def upload_and_extract_async(
     clean_job = {k: v for k, v in job_data.items() if v is not None}
     supabase.table("extraction_jobs").insert(clean_job).execute()
 
-    # Run extraction in background — create_task keeps it on the event loop
-    # With --workers 2 in Dockerfile, other worker handles API calls while this blocks
+    # Run extraction in the background but keep heavy work off the main event loop.
     asyncio.create_task(_process_extraction_job(job_id, file_bytes, filename, file_ext))
 
     return {"job_id": job_id, "status": "processing", "filename": filename}
@@ -633,7 +645,7 @@ async def _process_extraction_job(job_id: str, file_bytes: bytes, filename: str,
             pass
 
         start_time = time.time()
-        result = await process_document(file_bytes, filename)
+        result = await _process_document_off_thread(file_bytes, filename)
         duration = round(time.time() - start_time, 2)
         _processing_times.append(duration)
         result["processing_duration_seconds"] = duration

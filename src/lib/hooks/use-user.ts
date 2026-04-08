@@ -12,6 +12,9 @@ type UserData = {
   initials: string;
 };
 
+let firstOrgIdCache: string | null | undefined;
+let firstOrgIdPromise: Promise<string | null> | null = null;
+
 function getInitials(name: string): string {
   return name
     .split(" ")
@@ -22,10 +25,18 @@ function getInitials(name: string): string {
 }
 
 async function fetchFirstOrgId(): Promise<string | null> {
+  if (firstOrgIdCache !== undefined) {
+    return firstOrgIdCache;
+  }
+  if (firstOrgIdPromise) {
+    return firstOrgIdPromise;
+  }
+
+  firstOrgIdPromise = (async () => {
   try {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
     // Build headers with auth token if available
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const headers: Record<string, string> = {};
     try {
       const supabase = createClient();
       const { data: { session } } = await supabase.auth.getSession();
@@ -46,6 +57,14 @@ async function fetchFirstOrgId(): Promise<string | null> {
     // Silently handle — org lookup is best-effort for demo/fallback
   }
   return null;
+  })();
+
+  try {
+    firstOrgIdCache = await firstOrgIdPromise;
+    return firstOrgIdCache;
+  } finally {
+    firstOrgIdPromise = null;
+  }
 }
 
 export function useUser() {

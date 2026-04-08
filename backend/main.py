@@ -112,13 +112,24 @@ app.add_middleware(
 async def health_check():
     env = os.getenv("RAILWAY_ENVIRONMENT", "development")
 
-    # Optional Supabase connectivity check
-    db_status = "ok"
-    try:
-        from core.config import supabase as sb
-        sb.table("outlets").select("id", count="exact").limit(1).execute()
-    except Exception:
-        db_status = "unreachable"
+    # Keep Railway health checks fast and predictable.
+    # Opt into the DB probe only when explicitly enabled.
+    db_status = "unchecked"
+    should_check_db = os.getenv("HEALTHCHECK_INCLUDE_DB", "").lower() in {"1", "true", "yes"}
+    if should_check_db:
+        try:
+            from core.config import supabase as sb
+            await asyncio.wait_for(
+                asyncio.to_thread(
+                    lambda: sb.table("outlets").select("id", count="exact").limit(1).execute()
+                ),
+                timeout=3.0,
+            )
+            db_status = "ok"
+        except asyncio.TimeoutError:
+            db_status = "timeout"
+        except Exception:
+            db_status = "unreachable"
 
     return {
         "status": "healthy",
