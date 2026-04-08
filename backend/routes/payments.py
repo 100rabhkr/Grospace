@@ -16,7 +16,7 @@ from core.models import (
     BulkMarkPaidRequest, MGLRRequest, CreateObligationRequest, UpdateObligationRequest,
 )
 from core.dependencies import get_current_user, get_org_filter, require_permission
-from services.extraction import get_num
+from services.extraction_fields import get_num
 
 router = APIRouter(prefix="/api", tags=["payments"])
 

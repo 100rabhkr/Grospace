@@ -22,6 +22,11 @@ class CreateOutletRequest(BaseModel):
 router = APIRouter(prefix="/api", tags=["outlets"])
 
 
+def _exclude_deleted(query):
+    """Apply the deleted-at filter when the query builder supports it."""
+    return query.is_("deleted_at", "null") if hasattr(query, "is_") else query
+
+
 @router.get("/outlets", dependencies=[Depends(require_permission("view_outlets"))])
 def list_outlets(
     page: int = Query(1, ge=1),
@@ -31,9 +36,10 @@ def list_outlets(
     offset = (page - 1) * page_size
     count_result = supabase.table("outlets").select("id", count="exact").execute()
     total = count_result.count or 0
-    result = supabase.table("outlets").select(
+    query = supabase.table("outlets").select(
         "*, agreements(id, type, status, monthly_rent, lease_expiry_date, risk_flags)"
-    ).is_("deleted_at", "null").order("created_at", desc=True).range(offset, offset + page_size - 1).execute()
+    )
+    result = _exclude_deleted(query).order("created_at", desc=True).range(offset, offset + page_size - 1).execute()
     return {"items": result.data, "total": total, "page": page, "page_size": page_size}
 
 

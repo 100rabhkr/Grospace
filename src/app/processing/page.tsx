@@ -26,11 +26,6 @@ interface ExtractionJob {
   created_at: string;
   updated_at?: string;
   seen?: boolean;
-  result?: {
-    processing_duration_seconds?: number;
-    extraction?: Record<string, unknown>;
-    document_type?: string;
-  };
   error?: string;
 }
 
@@ -43,13 +38,6 @@ function formatTimeAgo(dateStr: string): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
-}
-
-function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${Math.round(seconds)}s`;
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.round(seconds % 60);
-  return `${mins}m ${secs}s`;
 }
 
 function estimateProcessingTime(filename: string): string {
@@ -219,9 +207,6 @@ export default function ProcessingPage() {
           </h2>
           <div className="space-y-2">
             {completedJobs.map((job) => {
-              const duration = job.result?.processing_duration_seconds;
-              const sections = job.result?.extraction ? Object.keys(job.result.extraction).length : 0;
-              const docType = job.result?.document_type || "unknown";
               return (
                 <Card key={job.id} className={!job.seen ? "border-emerald-200/60 bg-emerald-50/20" : ""}>
                   <CardContent className="p-4">
@@ -233,9 +218,7 @@ export default function ProcessingPage() {
                         <p className="text-sm font-medium truncate">{job.filename}</p>
                         <p className="text-xs text-muted-foreground">
                           {formatTimeAgo(job.updated_at || job.created_at)}
-                          {duration ? ` · Processed in ${formatDuration(duration)}` : ""}
-                          {sections > 0 ? ` · ${sections} sections` : ""}
-                          {docType !== "unknown" ? ` · ${docType.replace(/_/g, " ")}` : ""}
+                          {" · Ready to review"}
                         </p>
                       </div>
                       <div className="flex items-center gap-2">

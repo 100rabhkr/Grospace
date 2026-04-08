@@ -25,9 +25,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     async function checkPendingJobs() {
       try {
         const { listExtractionJobs } = await import("@/lib/api");
-        const data = await listExtractionJobs({ status: "completed" });
-        const unseen = (data.jobs || []).filter((j: Record<string, unknown>) => !j.seen && j.result);
-        setPendingJobs(unseen);
+        const data = await listExtractionJobs({ status: "completed", seen: false, limit: 5 });
+        setPendingJobs(data.jobs || []);
       } catch {
         // Silently ignore — non-critical
       }

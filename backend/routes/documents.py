@@ -8,25 +8,19 @@ import json
 import time
 import hashlib
 import asyncio
+from functools import lru_cache
 from typing import Optional
 from datetime import datetime
 from collections import deque
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends, Query
 from starlette.requests import Request
-import google.generativeai as genai
 
 from core.config import supabase, model, limiter, log_activity
 from core.models import (
     CurrentUser, ExtractRequest, ClassifyRequest, QARequest, RiskFlagRequest,
 )
-from core.dependencies import get_current_user, require_permission
-from services.extraction import (
-    process_document, classify_document, extract_text_from_pdf,
-    download_file, detect_risk_flags, pdf_bytes_to_images,
-    clean_ocr_text,
-)
-from services.ocr_service import extract_text_cloud_vision
+from core.dependencies import get_current_user, get_org_filter, require_permission
 
 router = APIRouter(prefix="/api", tags=["documents"])
 
@@ -36,9 +30,30 @@ _MAX_CONCURRENT_EXTRACTIONS_PER_WORKER = max(1, int(os.getenv("MAX_CONCURRENT_EX
 _extraction_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_EXTRACTIONS_PER_WORKER)
 
 
+@lru_cache(maxsize=1)
+def _extraction_service():
+    from services import extraction as extraction_service
+
+    return extraction_service
+
+
+@lru_cache(maxsize=1)
+def _ocr_service():
+    from services import ocr_service
+
+    return ocr_service
+
+
+@lru_cache(maxsize=1)
+def _genai_module():
+    import google.generativeai as genai
+
+    return genai
+
+
 def _run_process_document_sync(file_bytes: bytes, filename: str) -> dict:
     """Run the async extraction pipeline in a worker thread."""
-    return asyncio.run(process_document(file_bytes, filename))
+    return asyncio.run(_extraction_service().process_document(file_bytes, filename))
 
 
 async def _process_document_off_thread(file_bytes: bytes, filename: str) -> dict:
@@ -170,7 +185,7 @@ async def upload_and_extract(request: Request, file: UploadFile = File(...)):
 async def classify_endpoint(req: ClassifyRequest):
     """Classify document type from text."""
     try:
-        doc_type = await classify_document(req.text)
+        doc_type = await _extraction_service().classify_document(req.text)
         return {"document_type": doc_type}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -181,7 +196,7 @@ async def classify_endpoint(req: ClassifyRequest):
 async def extract_endpoint(request: Request, req: ExtractRequest):
     """Process an uploaded document from Supabase URL."""
     try:
-        file_bytes = await download_file(req.file_url)
+        file_bytes = await _extraction_service().download_file(req.file_url)
         filename = req.file_url.split("/")[-1].split("?")[0] or "document.pdf"
 
         result = await _process_document_off_thread(file_bytes, filename)
@@ -260,21 +275,23 @@ async def qa_endpoint(request: Request, req: QARequest):
         document_text = cached_text or req.document_text
         if not document_text and doc_url:
             try:
-                pdf_bytes = await download_file(doc_url)
-                document_text = extract_text_from_pdf(pdf_bytes)
+                extraction_service = _extraction_service()
+                pdf_bytes = await extraction_service.download_file(doc_url)
+                document_text = extraction_service.extract_text_from_pdf(pdf_bytes)
             except Exception:
                 document_text = None
 
         # If text extraction failed, try Cloud Vision OCR first, then Gemini vision
         if (not document_text or len(document_text.strip()) < 100) and doc_url:
             try:
+                extraction_service = _extraction_service()
                 if not locals().get("pdf_bytes"):
-                    pdf_bytes = await download_file(doc_url)
-                images = pdf_bytes_to_images(pdf_bytes)
+                    pdf_bytes = await extraction_service.download_file(doc_url)
+                images = extraction_service.pdf_bytes_to_images(pdf_bytes)
                 if images:
-                    cloud_text = extract_text_cloud_vision(images)
+                    cloud_text = _ocr_service().extract_text_cloud_vision(images)
                     if len(cloud_text.strip()) >= 100:
-                        document_text = clean_ocr_text(cloud_text)
+                        document_text = extraction_service.clean_ocr_text(cloud_text)
                     else:
                         history_block = f"\nConversation history:\n{formatted_history}\n" if formatted_history else ""
                         qa_prompt = (
@@ -292,7 +309,7 @@ async def qa_endpoint(request: Request, req: QARequest):
                         content = [qa_prompt] + images[:15]
                         response = model.generate_content(
                             content,
-                            generation_config=genai.GenerationConfig(temperature=0.1, max_output_tokens=1500),
+                            generation_config=_genai_module().GenerationConfig(temperature=0.1, max_output_tokens=1500),
                         )
                         answer = response.text
                         session_id = _save_qa_session(session_id, req.agreement_id, req.question, answer, conversation_history)
@@ -341,7 +358,7 @@ async def qa_endpoint(request: Request, req: QARequest):
 
         response = model.generate_content(
             prompt,
-            generation_config=genai.GenerationConfig(
+            generation_config=_genai_module().GenerationConfig(
                 temperature=0.1,
                 max_output_tokens=1500,
             ),
@@ -393,10 +410,11 @@ async def risk_flags_endpoint(request: Request, req: RiskFlagRequest):
         if not document_text:
             result = supabase.table("agreements").select("document_url").eq("id", req.agreement_id).single().execute()
             if result.data and result.data.get("document_url"):
-                pdf_bytes = await download_file(result.data["document_url"])
-                document_text = extract_text_from_pdf(pdf_bytes)
+                extraction_service = _extraction_service()
+                pdf_bytes = await extraction_service.download_file(result.data["document_url"])
+                document_text = extraction_service.extract_text_from_pdf(pdf_bytes)
 
-        flags = await detect_risk_flags(document_text, req.extracted_data)
+        flags = await _extraction_service().detect_risk_flags(document_text, req.extracted_data)
 
         supabase.table("agreements").update({
             "risk_flags": flags,
@@ -580,7 +598,8 @@ async def upload_and_extract_async(
         except Exception:
             pass
     if not org_id:
-        from services.extraction import get_or_create_demo_org
+        from services.extraction_fields import get_or_create_demo_org
+
         org_id = get_or_create_demo_org()
 
     # Check if same file is already being processed — prevent duplicate extractions
@@ -669,46 +688,88 @@ async def _process_extraction_job(job_id: str, file_bytes: bytes, filename: str,
 @router.get("/extraction-jobs", dependencies=[Depends(require_permission("view_agreements"))])
 def list_extraction_jobs(
     status: Optional[str] = Query(None),
+    seen: Optional[bool] = Query(None),
+    limit: int = Query(20, ge=1, le=50),
     user: Optional[CurrentUser] = Depends(get_current_user),
 ):
     """List extraction jobs for the current user."""
-    query = supabase.table("extraction_jobs").select("*").order("created_at", desc=True)
+    query = supabase.table("extraction_jobs").select(
+        "id, org_id, user_id, filename, status, error, created_at, updated_at, seen"
+    ).order("created_at", desc=True)
+
+    if user and user.user_id:
+        query = query.eq("user_id", user.user_id)
+    else:
+        org_id = get_org_filter(user)
+        if org_id:
+            query = query.eq("org_id", org_id)
+
     if status:
         query = query.eq("status", status)
-    query = query.limit(20)
+    if seen is not None:
+        query = query.eq("seen", seen)
+    query = query.limit(limit)
     result = query.execute()
     return {"jobs": result.data or []}
 
 
 @router.patch("/extraction-jobs/{job_id}/seen", dependencies=[Depends(require_permission("view_agreements"))])
-def mark_job_seen(job_id: str):
+def mark_job_seen(job_id: str, user: Optional[CurrentUser] = Depends(get_current_user)):
     """Mark an extraction job as seen by the user."""
-    result = supabase.table("extraction_jobs").update({"seen": True}).eq("id", job_id).execute()
+    query = supabase.table("extraction_jobs").update({"seen": True}).eq("id", job_id)
+    if user and user.user_id:
+        query = query.eq("user_id", user.user_id)
+    else:
+        org_id = get_org_filter(user)
+        if org_id:
+            query = query.eq("org_id", org_id)
+    result = query.execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Job not found")
     return {"job": result.data[0]}
 
 
 @router.patch("/extraction-jobs/{job_id}/cancel", dependencies=[Depends(require_permission("view_agreements"))])
-def cancel_extraction_job(job_id: str):
+def cancel_extraction_job(job_id: str, user: Optional[CurrentUser] = Depends(get_current_user)):
     """Cancel a processing extraction job."""
     # Check current status
-    current = supabase.table("extraction_jobs").select("id, status").eq("id", job_id).single().execute()
+    current_query = supabase.table("extraction_jobs").select("id, status").eq("id", job_id)
+    if user and user.user_id:
+        current_query = current_query.eq("user_id", user.user_id)
+    else:
+        org_id = get_org_filter(user)
+        if org_id:
+            current_query = current_query.eq("org_id", org_id)
+    current = current_query.single().execute()
     if not current.data:
         raise HTTPException(status_code=404, detail="Job not found")
     if current.data["status"] != "processing":
         raise HTTPException(status_code=400, detail="Only processing jobs can be cancelled")
-    result = supabase.table("extraction_jobs").update({
+    update_query = supabase.table("extraction_jobs").update({
         "status": "cancelled",
         "error": "Cancelled by user",
-    }).eq("id", job_id).execute()
+    }).eq("id", job_id)
+    if user and user.user_id:
+        update_query = update_query.eq("user_id", user.user_id)
+    else:
+        org_id = get_org_filter(user)
+        if org_id:
+            update_query = update_query.eq("org_id", org_id)
+    result = update_query.execute()
     return {"job": result.data[0] if result.data else {"id": job_id, "status": "cancelled"}}
 
 
 @router.get("/extraction-jobs/{job_id}", dependencies=[Depends(require_permission("view_agreements"))])
-def get_extraction_job(job_id: str):
+def get_extraction_job(job_id: str, user: Optional[CurrentUser] = Depends(get_current_user)):
     """Get the status and result of an extraction job."""
-    result = supabase.table("extraction_jobs").select("*").eq("id", job_id).single().execute()
+    query = supabase.table("extraction_jobs").select("*").eq("id", job_id)
+    if user and user.user_id:
+        query = query.eq("user_id", user.user_id)
+    else:
+        org_id = get_org_filter(user)
+        if org_id:
+            query = query.eq("org_id", org_id)
+    result = query.single().execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Extraction job not found")
     return result.data

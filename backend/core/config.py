@@ -2,13 +2,16 @@
 Core configuration: environment variables, constants, shared clients, and helpers.
 """
 
+from __future__ import annotations
+
 import os
+from functools import lru_cache
+
 from dotenv import load_dotenv
-from supabase import create_client, Client, ClientOptions
 from httpx import Timeout
-import google.generativeai as genai
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from supabase import Client, ClientOptions, create_client
 
 load_dotenv()
 
@@ -95,17 +98,52 @@ Important notes:
 # SHARED CLIENTS
 # ============================================
 
-supabase: Client = create_client(
-    os.getenv("SUPABASE_URL", ""),
-    os.getenv("SUPABASE_SERVICE_ROLE_KEY", ""),
-    options=ClientOptions(
-        postgrest_client_timeout=Timeout(10.0, connect=5.0),
-    ),
-)
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY", ""))
-model = genai.GenerativeModel("gemini-2.5-flash")  # Fast model for classification, Q&A, light tasks
-model_pro = genai.GenerativeModel("gemini-3.1-pro-preview")  # Best model for extraction, risk analysis, vision OCR
+class _LazyClientProxy:
+    """Small proxy so heavy SDK clients are created only on first real use."""
+
+    def __init__(self, factory):
+        self._factory = factory
+
+    def __getattr__(self, item):
+        return getattr(self._factory(), item)
+
+
+@lru_cache(maxsize=1)
+def get_supabase_client() -> Client:
+    return create_client(
+        os.getenv("SUPABASE_URL", ""),
+        os.getenv("SUPABASE_SERVICE_ROLE_KEY", ""),
+        options=ClientOptions(
+            postgrest_client_timeout=Timeout(10.0, connect=5.0),
+        ),
+    )
+
+
+@lru_cache(maxsize=1)
+def _get_genai_module():
+    import google.generativeai as genai
+
+    genai.configure(api_key=os.getenv("GEMINI_API_KEY", ""))
+    return genai
+
+
+@lru_cache(maxsize=1)
+def get_fast_model():
+    genai = _get_genai_module()
+    return genai.GenerativeModel("gemini-2.5-flash")
+
+
+@lru_cache(maxsize=1)
+def get_pro_model():
+    genai = _get_genai_module()
+    return genai.GenerativeModel("gemini-3.1-pro-preview")
+
+
+genai = _LazyClientProxy(_get_genai_module)
+supabase: Client = _LazyClientProxy(get_supabase_client)
+model = _LazyClientProxy(get_fast_model)  # Fast model for classification, Q&A, light tasks
+model_pro = _LazyClientProxy(get_pro_model)  # Best model for extraction, risk analysis, vision OCR
 
 limiter = Limiter(key_func=get_remote_address)
 

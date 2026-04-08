@@ -6,6 +6,7 @@ No auth required for analyze/preview; auth required for full results and convers
 import os
 import uuid
 import logging
+from functools import lru_cache
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, Header
@@ -13,16 +14,18 @@ from starlette.requests import Request
 
 from core.config import supabase, limiter
 from core.dependencies import get_current_user
-from services.extraction import (
-    process_document,
-    get_or_create_demo_org, create_outlet_from_extraction,
-    create_agreement_record, generate_obligations, generate_alerts,
-    get_val, get_num,
-)
+from services.extraction_fields import get_num, get_or_create_demo_org, get_val
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/leasebot", tags=["leasebot"])
+
+
+@lru_cache(maxsize=1)
+def _extraction_service():
+    from services import extraction as extraction_service
+
+    return extraction_service
 
 
 def _calculate_health_score(risk_flags: list) -> int:
@@ -101,7 +104,7 @@ async def analyze(request: Request, file: UploadFile = File(...)):
             raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
         # Process document through existing AI pipeline
-        result = await process_document(file_bytes, filename)
+        result = await _extraction_service().process_document(file_bytes, filename)
 
         extraction = result.get("extraction", {})
         risk_flags = result.get("risk_flags", [])
@@ -169,7 +172,7 @@ async def get_results(
     analysis = result.data
 
     # Check authentication via JWT or demo session cookie
-    user = get_current_user(authorization)
+    user = await get_current_user(authorization)
     is_demo = False
     if not user and request:
         demo_cookie = request.cookies.get("grospace-demo-session")
@@ -208,7 +211,7 @@ async def convert(
     Convert a leasebot analysis into a full outlet + agreement.
     Requires authentication.
     """
-    user = get_current_user(authorization)
+    user = await get_current_user(authorization)
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required to convert analysis.")
 
@@ -240,8 +243,9 @@ async def convert(
     agreement_id = None
 
     try:
-        outlet_id = create_outlet_from_extraction(extraction, org_id)
-        agreement_id = create_agreement_record(
+        extraction_service = _extraction_service()
+        outlet_id = extraction_service.create_outlet_from_extraction(extraction, org_id)
+        agreement_id = extraction_service.create_agreement_record(
             extraction=extraction,
             doc_type=document_type,
             risk_flags=risk_flags,
@@ -254,8 +258,8 @@ async def convert(
         )
 
         # Generate obligations and alerts
-        generate_obligations(extraction, agreement_id, outlet_id, org_id)
-        generate_alerts(extraction, agreement_id, outlet_id, org_id)
+        extraction_service.generate_obligations(extraction, agreement_id, outlet_id, org_id)
+        extraction_service.generate_alerts(extraction, agreement_id, outlet_id, org_id)
 
         # Update leasebot_analyses record
         supabase.table("leasebot_analyses").update({

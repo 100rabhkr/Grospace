@@ -31,6 +31,9 @@ const LONG_TIMEOUT_PATTERNS = [
   "/api/cron",
 ];
 
+const STANDARD_TIMEOUT_MS = 25000;
+const LONG_RUNNING_TIMEOUT_MS = 600000;
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function apiFetch(endpoint: string, options: RequestInit = {}, retryCount = 0): Promise<any> {
   const token = await getAuthToken();
@@ -45,9 +48,13 @@ async function apiFetch(endpoint: string, options: RequestInit = {}, retryCount 
   }
 
   const isLongRunning = LONG_TIMEOUT_PATTERNS.some((p) => endpoint.startsWith(p));
-  // 120s for normal calls (Railway cold start can take 90s), 10min for AI processing
+  // Fail fast for normal UI calls so the app doesn't sit on skeletons forever.
+  // Keep long AI/document tasks generous.
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), isLongRunning ? 600000 : 120000);
+  const timeoutId = setTimeout(
+    () => controller.abort(),
+    isLongRunning ? LONG_RUNNING_TIMEOUT_MS : STANDARD_TIMEOUT_MS
+  );
 
   let response: Response;
   try {
@@ -202,9 +209,11 @@ export async function listAlerts(params?: { page?: number; page_size?: number; m
 }
 
 /** List pending/completed extraction jobs for the current user */
-export async function listExtractionJobs(params?: { status?: string }) {
+export async function listExtractionJobs(params?: { status?: string; seen?: boolean; limit?: number }) {
   const sp = new URLSearchParams();
   if (params?.status) sp.set("status", params.status);
+  if (params?.seen != null) sp.set("seen", String(params.seen));
+  if (params?.limit != null) sp.set("limit", String(params.limit));
   const qs = sp.toString();
   return apiFetch(`/api/extraction-jobs${qs ? `?${qs}` : ""}`);
 }

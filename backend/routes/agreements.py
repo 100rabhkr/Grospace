@@ -5,25 +5,28 @@ CRUD agreements, confirm-and-activate, save-draft endpoints.
 
 import uuid
 import logging
+from functools import lru_cache
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from starlette.requests import Request
 
 from core.config import supabase, limiter, log_activity
+from core.dependencies import get_current_user_sync, require_permission
 from core.models import (
     ConfirmActivateRequest, UpdateAgreementRequest, SaveDraftRequest,
 )
-from core.dependencies import require_permission
-from services.extraction import (
-    get_or_create_demo_org, create_outlet_from_extraction,
-    create_agreement_record, generate_obligations, generate_alerts,
-    get_val, get_num, get_date, get_section,
-)
-from services.sheets_service import write_agreement_to_sheet
+from services.extraction_fields import get_date, get_num, get_section, get_val
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["agreements"])
+
+
+@lru_cache(maxsize=1)
+def _extraction_service():
+    from services import extraction as extraction_service
+
+    return extraction_service
 
 
 @router.get("/agreements", dependencies=[Depends(require_permission("view_agreements"))])
@@ -165,20 +168,11 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
     org_id = req.org_id
     if not org_id:
         # Try to get org_id from the authenticated user's profile
-        auth_header = request.headers.get("authorization", "")
-        if auth_header.startswith("Bearer "):
-            try:
-                from core.config import supabase as sb
-                token = auth_header.split(" ", 1)[1]
-                user_result = sb.auth.get_user(token)
-                if user_result and user_result.user:
-                    profile = sb.table("profiles").select("org_id").eq("id", user_result.user.id).single().execute()
-                    if profile.data and profile.data.get("org_id"):
-                        org_id = profile.data["org_id"]
-            except Exception:
-                pass
+        current_user = get_current_user_sync(request.headers.get("authorization", ""))
+        if current_user and current_user.org_id:
+            org_id = current_user.org_id
     if not org_id:
-        org_id = get_or_create_demo_org()
+        org_id = _extraction_service().get_or_create_demo_org()
 
     # Prepare all data objects upfront
     from services.extraction import (
@@ -241,8 +235,9 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
             outlet_id = None
             agreement_id = None
             try:
-                outlet_id = create_outlet_from_extraction(req.extraction, org_id)
-                agreement_id = create_agreement_record(
+                extraction_service = _extraction_service()
+                outlet_id = extraction_service.create_outlet_from_extraction(req.extraction, org_id)
+                agreement_id = extraction_service.create_agreement_record(
                     extraction=req.extraction, doc_type=req.document_type,
                     risk_flags=req.risk_flags, confidence=req.confidence,
                     filename=req.filename, org_id=org_id, outlet_id=outlet_id,
@@ -258,8 +253,8 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
                         }).execute()
                     except Exception:
                         pass
-                obligations = generate_obligations(req.extraction, agreement_id, outlet_id, org_id)
-                alerts = generate_alerts(req.extraction, agreement_id, outlet_id, org_id)
+                obligations = extraction_service.generate_obligations(req.extraction, agreement_id, outlet_id, org_id)
+                alerts = extraction_service.generate_alerts(req.extraction, agreement_id, outlet_id, org_id)
 
                 # Auto-populate rent schedule from extracted rent_schedule array
                 try:
@@ -354,6 +349,8 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
         sec_dep = get_num(deposits.get("security_deposit_amount"))
         total_outflow = (m_rent or 0) + (cam or 0)
 
+        from services.sheets_service import write_agreement_to_sheet
+
         write_agreement_to_sheet(
             agreement_id=agreement_id,
             outlet_name=get_val(premises.get("property_name")) or get_val(parties.get("brand_name")) or "New Outlet",
@@ -398,24 +395,13 @@ def create_draft(body: ConfirmActivateRequest, request: Request):
     try:
         org_id = body.org_id
         if not org_id:
-            # Try to get org_id from authenticated user
-            auth_header = request.headers.get("authorization", "")
-            if auth_header.startswith("Bearer "):
-                try:
-                    token = auth_header.split(" ", 1)[1]
-                    user_result = supabase.auth.get_user(token)
-                    if user_result and user_result.user:
-                        profile = supabase.table("profiles").select("org_id").eq("id", user_result.user.id).single().execute()
-                        if profile.data and profile.data.get("org_id"):
-                            org_id = profile.data["org_id"]
-                except Exception as e:
-                    logger.warning(f"Failed to extract org_id from token: {e}")
+            current_user = get_current_user_sync(request.headers.get("authorization", ""))
+            org_id = current_user.org_id if current_user else None
         if not org_id:
-            org_id = get_or_create_demo_org()
+            org_id = _extraction_service().get_or_create_demo_org()
         extraction = body.extraction or {}
 
         # Create a minimal placeholder outlet for the draft (outlet_id is NOT NULL in agreements)
-        from services.extraction import get_val, get_section
         premises = get_section(extraction, "premises")
         parties = get_section(extraction, "parties")
         outlet_id = str(uuid.uuid4())

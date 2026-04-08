@@ -6,6 +6,7 @@ import os
 import json
 import uuid
 import asyncio
+from functools import lru_cache
 from typing import Optional
 from datetime import datetime, date, timedelta
 from dateutil.relativedelta import relativedelta
@@ -14,17 +15,35 @@ from fastapi import APIRouter, HTTPException, Depends, Header, Query, Form
 from starlette.requests import Request
 
 from core.config import supabase, model, limiter, PORTFOLIO_QA_SCHEMA, CITY_ABBREVIATIONS
+from core.dependencies import get_current_user, get_current_user_sync, get_org_filter, require_permission
 from core.models import (
     CurrentUser, UpdateOrganizationRequest, InviteMemberRequest,
     PortfolioQARequest, SmartChatRequest, FeedbackRequest,
     CreatePilotRequest,
 )
-from core.dependencies import get_current_user, require_permission
-from services.extraction import get_num, get_or_create_demo_org
+from services.extraction_fields import get_num
 from services.email_service import send_email_via_resend
-import google.generativeai as genai
 
 router = APIRouter(prefix="/api", tags=["admin"])
+
+
+@lru_cache(maxsize=1)
+def _extraction_service():
+    from services import extraction as extraction_service
+
+    return extraction_service
+
+
+@lru_cache(maxsize=1)
+def _genai_module():
+    import google.generativeai as genai
+
+    return genai
+
+
+def _exclude_deleted(query):
+    """Apply the deleted-at filter when the query builder supports it."""
+    return query.is_("deleted_at", "null") if hasattr(query, "is_") else query
 
 
 # ============================================
@@ -133,12 +152,22 @@ def reject_signup_request(
 def list_organizations(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=500),
+    user: Optional[CurrentUser] = Depends(get_current_user),
 ):
     """List all organizations (paginated)."""
     offset = (page - 1) * page_size
-    count_result = supabase.table("organizations").select("id", count="exact").execute()
+    count_query = supabase.table("organizations").select("id", count="exact")
+    data_query = supabase.table("organizations").select(
+        "id, name, logo_url, created_at, created_by, alert_preferences"
+    ).order("created_at", desc=True)
+
+    if user and user.role != "platform_admin" and user.org_id:
+        count_query = count_query.eq("id", user.org_id)
+        data_query = data_query.eq("id", user.org_id)
+
+    count_result = count_query.execute()
     total = count_result.count or 0
-    result = supabase.table("organizations").select("*").order("created_at", desc=True).range(offset, offset + page_size - 1).execute()
+    result = data_query.range(offset, offset + page_size - 1).execute()
     return {"items": result.data, "total": total, "page": page, "page_size": page_size}
 
 
@@ -280,15 +309,33 @@ def remove_org_member(org_id: str, user_id: str):
 # ============================================
 
 @router.get("/dashboard", dependencies=[Depends(require_permission("view_reports"))])
-async def dashboard_stats():
+async def dashboard_stats(user: Optional[CurrentUser] = Depends(get_current_user)):
     """Get dashboard statistics."""
-    # Run all sync Supabase queries in threads to avoid blocking the event loop
-    outlets, agreements, _, alerts, payments = await asyncio.gather(
-        asyncio.to_thread(lambda: supabase.table("outlets").select("id, name, status, city, property_type, franchise_model, monthly_net_revenue, deal_stage").is_("deleted_at", "null").execute()),
-        asyncio.to_thread(lambda: supabase.table("agreements").select("id, outlet_id, type, status, monthly_rent, cam_monthly, total_monthly_outflow, lease_expiry_date, extracted_data, risk_flags").execute()),
-        asyncio.to_thread(lambda: supabase.table("obligations").select("id, type, amount, is_active").execute()),
-        asyncio.to_thread(lambda: supabase.table("alerts").select("id, type, severity, status, trigger_date").execute()),
-        asyncio.to_thread(lambda: supabase.table("payment_records").select("id, status, due_amount").execute()),
+    org_id = get_org_filter(user)
+
+    outlets_query = _exclude_deleted(
+        supabase.table("outlets").select(
+            "id, name, status, city, property_type, franchise_model, monthly_net_revenue, deal_stage"
+        )
+    )
+    agreements_query = supabase.table("agreements").select(
+        "id, outlet_id, type, status, monthly_rent, cam_monthly, total_monthly_outflow, lease_expiry_date, extracted_data, risk_flags"
+    )
+    alerts_query = supabase.table("alerts").select("id, type, severity, status, trigger_date")
+    payments_query = supabase.table("payment_records").select("id, status, due_amount")
+
+    if org_id:
+        outlets_query = outlets_query.eq("org_id", org_id)
+        agreements_query = agreements_query.eq("org_id", org_id)
+        alerts_query = alerts_query.eq("org_id", org_id)
+        payments_query = payments_query.eq("org_id", org_id)
+
+    # Run sync Supabase queries in threads to avoid blocking the event loop.
+    outlets, agreements, alerts, payments = await asyncio.gather(
+        asyncio.to_thread(outlets_query.execute),
+        asyncio.to_thread(agreements_query.execute),
+        asyncio.to_thread(alerts_query.execute),
+        asyncio.to_thread(payments_query.execute),
     )
 
     # Filter agreements to only include those from non-deleted outlets
@@ -407,7 +454,7 @@ async def dashboard_stats():
 def seed_demo_data():
     """Seed 6 realistic demo outlets with agreements, obligations, and alerts."""
     try:
-        org_id = get_or_create_demo_org()
+        org_id = _extraction_service().get_or_create_demo_org()
 
         outlets_data = [
             {
@@ -1247,15 +1294,9 @@ async def portfolio_qa_endpoint(request: Request, req: PortfolioQARequest, autho
     try:
         org_id = req.org_id
         if not org_id and authorization:
-            try:
-                token = authorization.replace("Bearer ", "")
-                user_resp = supabase.auth.get_user(token)
-                if user_resp and user_resp.user:
-                    profile = supabase.table("profiles").select("org_id").eq("id", user_resp.user.id).single().execute()
-                    if profile.data:
-                        org_id = profile.data.get("org_id")
-            except Exception:
-                pass
+            user = await get_current_user(authorization)
+            if user:
+                org_id = user.org_id
 
         if not org_id:
             raise HTTPException(status_code=400, detail="Organization context required")
@@ -1271,7 +1312,7 @@ async def portfolio_qa_endpoint(request: Request, req: PortfolioQARequest, autho
 
         sql_response = model.generate_content(
             sql_prompt,
-            generation_config=genai.GenerationConfig(temperature=0, max_output_tokens=500),
+            generation_config=_genai_module().GenerationConfig(temperature=0, max_output_tokens=500),
         )
         generated_sql = sql_response.text.strip()
 
@@ -1329,7 +1370,7 @@ async def portfolio_qa_endpoint(request: Request, req: PortfolioQARequest, autho
 
         answer_response = model.generate_content(
             answer_prompt,
-            generation_config=genai.GenerationConfig(temperature=0.2, max_output_tokens=1000),
+            generation_config=_genai_module().GenerationConfig(temperature=0.2, max_output_tokens=1000),
         )
 
         return {
@@ -1878,7 +1919,7 @@ def submit_feedback(
     authorization: Optional[str] = Header(None),
 ):
     """Submit extraction feedback for a field."""
-    user = get_current_user(authorization)
+    user = get_current_user_sync(authorization)
 
     # agreement_id may be a filename (pre-confirmation) or a UUID
     agr_id = req.agreement_id

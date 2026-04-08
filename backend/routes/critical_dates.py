@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 from core.config import supabase
 from core.dependencies import require_permission
-from services.extraction import get_val, get_num, get_section
+from services.extraction_fields import get_num, get_section, get_val
 
 logger = logging.getLogger(__name__)
 
