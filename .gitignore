@@ -51,3 +51,4 @@ next-env.d.ts
 GroSpace-logo.pdf
 growspace-489614-*.json
 .cortex/
+.claude/
