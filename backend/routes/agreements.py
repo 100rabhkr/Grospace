@@ -320,8 +320,8 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
     # Get uploader name for sheets
     uploader_name = None
     try:
-        if 'user_result' in dir() and user_result and user_result.user:
-            profile = supabase.table("profiles").select("full_name, email").eq("id", user_result.user.id).single().execute()
+        if current_user and current_user.user_id:
+            profile = supabase.table("profiles").select("full_name, email").eq("id", current_user.user_id).single().execute()
             if profile.data:
                 uploader_name = profile.data.get("full_name") or profile.data.get("email")
     except Exception:

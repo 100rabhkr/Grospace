@@ -9,7 +9,6 @@ responsiveness worse due to duplicated memory and worker contention.
 from __future__ import annotations
 
 import os
-import sys
 
 
 def _int_env(name: str, default: int) -> int:
