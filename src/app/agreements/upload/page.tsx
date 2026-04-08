@@ -622,12 +622,22 @@ export default function UploadAgreementPage() {
   }[]>([]);
   const [currentBulkJobId, setCurrentBulkJobId] = useState<string | null>(null);
   const [bulkNotification, setBulkNotification] = useState<string | null>(null);
+  const singleJobPollerRef = useRef<number | null>(null);
 
   // Poll bulk jobs — use ref to avoid recreating interval on every state change
   const bulkJobsRef = useRef(bulkJobs);
   bulkJobsRef.current = bulkJobs;
 
   const hasProcessing = bulkJobs.some((j) => j.status === "processing");
+
+  useEffect(() => {
+    return () => {
+      if (singleJobPollerRef.current != null) {
+        window.clearInterval(singleJobPollerRef.current);
+        singleJobPollerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!hasProcessing) return;
@@ -814,12 +824,19 @@ export default function UploadAgreementPage() {
       }
 
       // Poll for completion every 3 seconds
-      const pollInterval = setInterval(async () => {
+      if (singleJobPollerRef.current != null) {
+        window.clearInterval(singleJobPollerRef.current);
+      }
+
+      singleJobPollerRef.current = window.setInterval(async () => {
         try {
           const status = await getExtractionJob(job.job_id);
 
           if (status.status === "completed" && status.result) {
-            clearInterval(pollInterval);
+            if (singleJobPollerRef.current != null) {
+              window.clearInterval(singleJobPollerRef.current);
+              singleJobPollerRef.current = null;
+            }
             const data = status.result;
             if (selectedDocType) {
               data.document_type = selectedDocType;
@@ -839,7 +856,10 @@ export default function UploadAgreementPage() {
               }
             }
           } else if (status.status === "failed") {
-            clearInterval(pollInterval);
+            if (singleJobPollerRef.current != null) {
+              window.clearInterval(singleJobPollerRef.current);
+              singleJobPollerRef.current = null;
+            }
             setError(status.error || "Extraction failed. Please try again.");
             setStep(1);
           }
@@ -849,9 +869,6 @@ export default function UploadAgreementPage() {
           // Processing continues on server regardless
         }
       }, 3000);
-
-      // Store interval ID so we can clean up if component unmounts
-      return () => clearInterval(pollInterval);
 
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start extraction. Please try again.");

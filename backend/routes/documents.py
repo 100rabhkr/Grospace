@@ -8,9 +8,10 @@ import json
 import time
 import hashlib
 import asyncio
+from contextlib import suppress
 from functools import lru_cache
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from collections import deque
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends, Query
@@ -28,6 +29,8 @@ router = APIRouter(prefix="/api", tags=["documents"])
 _processing_times: deque = deque(maxlen=100)
 _MAX_CONCURRENT_EXTRACTIONS_PER_WORKER = max(1, int(os.getenv("MAX_CONCURRENT_EXTRACTIONS_PER_WORKER", "1")))
 _extraction_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_EXTRACTIONS_PER_WORKER)
+_EXTRACTION_JOB_HEARTBEAT_SECONDS = max(15, int(os.getenv("EXTRACTION_JOB_HEARTBEAT_SECONDS", "30")))
+_STALE_EXTRACTION_JOB_MINUTES = max(5, int(os.getenv("STALE_EXTRACTION_JOB_MINUTES", "10")))
 
 
 @lru_cache(maxsize=1)
@@ -49,6 +52,65 @@ def _genai_module():
     import google.generativeai as genai
 
     return genai
+
+
+def _utcnow_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _parse_job_timestamp(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _is_stale_processing_job(job: dict) -> bool:
+    if job.get("status") != "processing":
+        return False
+
+    last_seen_at = _parse_job_timestamp(job.get("updated_at") or job.get("created_at"))
+    if last_seen_at is None:
+        return False
+
+    return datetime.now(timezone.utc) - last_seen_at > timedelta(minutes=_STALE_EXTRACTION_JOB_MINUTES)
+
+
+def _mark_job_as_stale(job: dict) -> dict:
+    stale_error = "Processing stopped after a backend restart or timeout. Please retry this upload."
+    payload = {
+        "status": "failed",
+        "error": stale_error,
+        "updated_at": _utcnow_iso(),
+    }
+    try:
+        result = supabase.table("extraction_jobs").update(payload).eq("id", job["id"]).execute()
+        if result.data:
+            return result.data[0]
+    except Exception:
+        pass
+    return {**job, **payload}
+
+
+def _normalize_processing_jobs(jobs: list[dict]) -> list[dict]:
+    normalized: list[dict] = []
+    for job in jobs:
+        normalized.append(_mark_job_as_stale(job) if _is_stale_processing_job(job) else job)
+    return normalized
+
+
+async def _heartbeat_extraction_job(job_id: str):
+    while True:
+        await asyncio.sleep(_EXTRACTION_JOB_HEARTBEAT_SECONDS)
+        try:
+            await asyncio.to_thread(
+                lambda: supabase.table("extraction_jobs").update({"updated_at": _utcnow_iso()}).eq("id", job_id).execute()
+            )
+        except Exception:
+            pass
 
 
 def _run_process_document_sync(file_bytes: bytes, filename: str) -> dict:
@@ -573,11 +635,15 @@ async def upload_and_extract_async(
     if user:
         try:
             active_jobs = supabase.table("extraction_jobs").select(
-                "id", count="exact"
+                "id, status, created_at, updated_at"
             ).eq("status", "processing").eq(
                 "user_id", user.user_id
             ).execute()
-            if active_jobs.count and active_jobs.count >= MAX_BULK_FILES:
+            live_processing_jobs = [
+                job for job in _normalize_processing_jobs(active_jobs.data or [])
+                if job.get("status") == "processing"
+            ]
+            if len(live_processing_jobs) >= MAX_BULK_FILES:
                 raise HTTPException(
                     status_code=429,
                     detail=f"Maximum {MAX_BULK_FILES} files per batch. Please wait for current jobs to complete."
@@ -604,11 +670,21 @@ async def upload_and_extract_async(
 
     # Check if same file is already being processed — prevent duplicate extractions
     try:
-        existing = supabase.table("extraction_jobs").select("id, status").eq(
-            "filename", filename
-        ).eq("status", "processing").execute()
-        if existing.data and len(existing.data) > 0:
-            existing_job = existing.data[0]
+        existing_query = supabase.table("extraction_jobs").select(
+            "id, filename, status, created_at, updated_at"
+        ).eq("filename", filename).eq("status", "processing")
+        if user and user.user_id:
+            existing_query = existing_query.eq("user_id", user.user_id)
+        elif org_id:
+            existing_query = existing_query.eq("org_id", org_id)
+
+        existing = existing_query.execute()
+        live_processing_jobs = [
+            job for job in _normalize_processing_jobs(existing.data or [])
+            if job.get("status") == "processing"
+        ]
+        if live_processing_jobs:
+            existing_job = live_processing_jobs[0]
             print(f"[UPLOAD] Duplicate prevented: {filename} already processing as job {existing_job['id']}")
             return {"job_id": existing_job["id"], "status": "processing", "filename": filename, "duplicate": True}
     except Exception:
@@ -647,6 +723,7 @@ async def upload_and_extract_async(
 
 async def _process_extraction_job(job_id: str, file_bytes: bytes, filename: str, file_ext: str):
     """Background task to process document extraction and update job status."""
+    heartbeat_task = asyncio.create_task(_heartbeat_extraction_job(job_id))
     try:
         # Upload to storage
         document_url = None
@@ -674,15 +751,19 @@ async def _process_extraction_job(job_id: str, file_bytes: bytes, filename: str,
         supabase.table("extraction_jobs").update({
             "status": "completed",
             "result": result,
-            "updated_at": datetime.utcnow().isoformat(),
+            "updated_at": _utcnow_iso(),
         }).eq("id", job_id).execute()
 
     except Exception as e:
         supabase.table("extraction_jobs").update({
             "status": "failed",
             "error": str(e),
-            "updated_at": datetime.utcnow().isoformat(),
+            "updated_at": _utcnow_iso(),
         }).eq("id", job_id).execute()
+    finally:
+        heartbeat_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await heartbeat_task
 
 
 @router.get("/extraction-jobs", dependencies=[Depends(require_permission("view_agreements"))])
@@ -710,7 +791,7 @@ def list_extraction_jobs(
         query = query.eq("seen", seen)
     query = query.limit(limit)
     result = query.execute()
-    return {"jobs": result.data or []}
+    return {"jobs": _normalize_processing_jobs(result.data or [])}
 
 
 @router.patch("/extraction-jobs/{job_id}/seen", dependencies=[Depends(require_permission("view_agreements"))])
@@ -772,4 +853,4 @@ def get_extraction_job(job_id: str, user: Optional[CurrentUser] = Depends(get_cu
     result = query.single().execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Extraction job not found")
-    return result.data
+    return _mark_job_as_stale(result.data) if _is_stale_processing_job(result.data) else result.data
