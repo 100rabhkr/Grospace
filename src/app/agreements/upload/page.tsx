@@ -102,9 +102,33 @@ type ParsedField = {
   sourceQuote?: string;
 };
 
+function tryParseStructuredString(fieldVal: unknown): unknown {
+  if (typeof fieldVal !== "string") return fieldVal;
+  const trimmed = fieldVal.trim();
+  if (!trimmed) return fieldVal;
+  if (!trimmed.startsWith("[") && !trimmed.startsWith("{")) return fieldVal;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return fieldVal;
+  }
+}
+
+function unwrapFieldValue(fieldVal: unknown): unknown {
+  if (typeof fieldVal === "object" && fieldVal !== null && !Array.isArray(fieldVal) && "value" in (fieldVal as Record<string, unknown>)) {
+    return tryParseStructuredString((fieldVal as Record<string, unknown>).value);
+  }
+  return tryParseStructuredString(fieldVal);
+}
+
 function parseField(fieldVal: unknown): ParsedField {
   if (fieldVal === null || fieldVal === undefined || fieldVal === "" || fieldVal === "not_found" || fieldVal === "N/A") {
     return { displayVal: "Not found", confidence: "not_found" };
+  }
+
+  const structuredString = tryParseStructuredString(fieldVal);
+  if (structuredString !== fieldVal) {
+    return parseField(structuredString);
   }
 
   // Handle { value, confidence, source_page, source_quote } objects from Gemini
@@ -114,7 +138,7 @@ function parseField(fieldVal: unknown): ParsedField {
       const conf = (typeof obj.confidence === "string" ? obj.confidence : "high") as Confidence;
       const sourcePage = typeof obj.source_page === "number" ? obj.source_page : undefined;
       const sourceQuote = typeof obj.source_quote === "string" ? obj.source_quote : undefined;
-      const val = obj.value;
+      const val = tryParseStructuredString(obj.value);
       if (val === null || val === undefined || val === "" || val === "not_found" || val === "N/A") {
         return { displayVal: "Not found", confidence: "not_found", sourcePage, sourceQuote };
       }
@@ -128,7 +152,7 @@ function parseField(fieldVal: unknown): ParsedField {
     return {
       displayVal: Object.entries(obj)
         .filter(([, v]) => v !== null && v !== undefined && v !== "")
-        .map(([k, v]) => `${k.replace(/_/g, " ")}: ${v}`)
+        .map(([k, v]) => `${k.replace(/_/g, " ")}: ${parseField(v).displayVal}`)
         .join(" | "),
       confidence: "high",
     };
@@ -1698,6 +1722,14 @@ export default function UploadAgreementPage() {
                                 const isDate = /date|commencement|expiry/.test(fieldKey);
                                 const isBool = displayVal === "Yes" || displayVal === "No";
                                 const isMultiLine = displayVal.includes("\n");
+                                const structuredFieldValue = unwrapFieldValue(fieldVal);
+                                const rentScheduleRows =
+                                  fieldKey === "rent_schedule" &&
+                                  Array.isArray(structuredFieldValue) &&
+                                  structuredFieldValue.length > 0 &&
+                                  typeof structuredFieldValue[0] === "object"
+                                    ? (structuredFieldValue as Record<string, unknown>[])
+                                    : null;
 
                                 let formattedVal = displayVal;
                                 if (!isNotFound && isCurrency && !isNaN(Number(displayVal.replace(/,/g, "")))) {
@@ -1776,6 +1808,55 @@ export default function UploadAgreementPage() {
                                             {displayVal === "Yes" ? "✓" : "✗"} {displayVal}
                                           </span>
                                         </button>
+                                      </div>
+                                    ) : rentScheduleRows ? (
+                                      <div className="pl-4 mt-1 sm:col-span-2">
+                                        {(() => {
+                                          const allKeys = Array.from(
+                                            new Set(
+                                              rentScheduleRows.flatMap((row) =>
+                                                Object.keys(row).filter(
+                                                  (key) =>
+                                                    key !== "confidence" &&
+                                                    key !== "source_page" &&
+                                                    key !== "source_quote"
+                                                )
+                                              )
+                                            )
+                                          );
+                                          return (
+                                            <div className="overflow-x-auto rounded-lg border bg-card">
+                                              <table className="w-full min-w-[420px] text-xs">
+                                                <thead>
+                                                  <tr className="bg-muted">
+                                                    {allKeys.map((key) => (
+                                                      <th
+                                                        key={key}
+                                                        className="px-2 py-1.5 text-left font-semibold text-muted-foreground uppercase tracking-wide text-[10px]"
+                                                      >
+                                                        {formatFieldLabel(key)}
+                                                      </th>
+                                                    ))}
+                                                  </tr>
+                                                </thead>
+                                                <tbody>
+                                                  {rentScheduleRows.map((row, rowIndex) => (
+                                                    <tr key={rowIndex} className="border-t hover:bg-muted/40">
+                                                      {allKeys.map((key) => {
+                                                        const cell = parseField(row[key]).displayVal;
+                                                        return (
+                                                          <td key={key} className="px-2 py-1.5 align-top text-sm text-foreground">
+                                                            {cell === "Not found" ? "--" : cell}
+                                                          </td>
+                                                        );
+                                                      })}
+                                                    </tr>
+                                                  ))}
+                                                </tbody>
+                                              </table>
+                                            </div>
+                                          );
+                                        })()}
                                       </div>
                                     ) : isMultiLine && Array.isArray((() => {
                                       const sec = result.extraction[sectionKey] as Record<string, unknown>;

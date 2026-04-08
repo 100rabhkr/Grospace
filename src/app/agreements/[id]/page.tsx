@@ -175,13 +175,34 @@ function parseField(fieldVal: unknown): {
     return { displayVal: "Not found", confidence: "not_found" };
   }
 
+  if (typeof fieldVal === "string") {
+    const trimmed = fieldVal.trim();
+    if ((trimmed.startsWith("[") || trimmed.startsWith("{")) && trimmed.length > 1) {
+      try {
+        return parseField(JSON.parse(trimmed));
+      } catch {
+        // Fall through and show the original string if it is not valid JSON.
+      }
+    }
+  }
+
   if (typeof fieldVal === "object" && !Array.isArray(fieldVal)) {
     const obj = fieldVal as Record<string, unknown>;
     if ("value" in obj) {
       const conf = (
         typeof obj.confidence === "string" ? obj.confidence : "high"
       ) as Confidence;
-      const val = obj.value;
+      let val = obj.value;
+      if (typeof val === "string") {
+        const trimmed = val.trim();
+        if ((trimmed.startsWith("[") || trimmed.startsWith("{")) && trimmed.length > 1) {
+          try {
+            val = JSON.parse(trimmed);
+          } catch {
+            // Keep the raw string when parsing fails.
+          }
+        }
+      }
       if (
         val === null ||
         val === undefined ||
@@ -199,7 +220,7 @@ function parseField(fieldVal: unknown): {
     return {
       displayVal: Object.entries(obj)
         .filter(([, v]) => v !== null && v !== undefined && v !== "")
-        .map(([k, v]) => `${k.replace(/_/g, " ")}: ${v}`)
+        .map(([k, v]) => `${k.replace(/_/g, " ")}: ${parseField(v).displayVal}`)
         .join(" | "),
       confidence: "high",
     };
