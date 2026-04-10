@@ -197,15 +197,14 @@ def bulk_mark_paid(body: BulkMarkPaidRequest):
     now_iso = datetime.utcnow().isoformat()
 
     if body.payment_ids:
-        for pid in body.payment_ids:
-            rec = supabase.table("payment_records").select("due_amount").eq("id", pid).single().execute()
-            if not rec.data:
-                continue
+        # Batch fetch all records at once instead of N+1 queries
+        recs = supabase.table("payment_records").select("id, due_amount").in_("id", body.payment_ids).execute()
+        for rec in (recs.data or []):
             supabase.table("payment_records").update({
                 "status": "paid",
-                "paid_amount": rec.data.get("due_amount", 0),
+                "paid_amount": rec.get("due_amount", 0),
                 "paid_at": now_iso,
-            }).eq("id", pid).execute()
+            }).eq("id", rec["id"]).execute()
             updated += 1
     elif body.month and body.year:
         query = supabase.table("payment_records").select("id, due_amount").eq(

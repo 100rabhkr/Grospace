@@ -167,7 +167,8 @@ def create_reminder(
     if req.agreement_id:
         alert_data["agreement_id"] = req.agreement_id
 
-    result = supabase.table("alerts").insert(alert_data).execute()
+    clean = {k: v for k, v in alert_data.items() if v is not None}
+    result = supabase.table("alerts").insert(clean).execute()
 
     if result.data and org_id:
         try:

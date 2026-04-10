@@ -828,7 +828,7 @@ export default function UploadAgreementPage() {
         window.clearInterval(singleJobPollerRef.current);
       }
 
-      singleJobPollerRef.current = window.setInterval(async () => {
+      singleJobPollerRef.current = window.setInterval(async () => { // Poll every 5s
         try {
           const status = await getExtractionJob(job.job_id);
 
@@ -868,7 +868,7 @@ export default function UploadAgreementPage() {
           // Network error during poll — don't stop, keep trying
           // Processing continues on server regardless
         }
-      }, 3000);
+      }, 5000);
 
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start extraction. Please try again.");

@@ -95,10 +95,10 @@ def get_outlet(outlet_id: str):
     if not result.data:
         raise HTTPException(status_code=404, detail="Outlet not found")
 
-    agreements = supabase.table("agreements").select("*").eq("outlet_id", outlet_id).execute()
-    obligations = supabase.table("obligations").select("*").eq("outlet_id", outlet_id).execute()
-    alerts = supabase.table("alerts").select("*").eq("outlet_id", outlet_id).order("trigger_date").execute()
-    documents = supabase.table("documents").select("*").eq("outlet_id", outlet_id).order("uploaded_at", desc=True).execute()
+    agreements = supabase.table("agreements").select("*").eq("outlet_id", outlet_id).limit(50).execute()
+    obligations = supabase.table("obligations").select("*").eq("outlet_id", outlet_id).limit(200).execute()
+    alerts = supabase.table("alerts").select("*").eq("outlet_id", outlet_id).order("trigger_date").limit(200).execute()
+    documents = supabase.table("documents").select("*").eq("outlet_id", outlet_id).order("uploaded_at", desc=True).limit(100).execute()
 
     # Fetch critical dates/events for this outlet
     try:

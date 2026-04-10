@@ -51,8 +51,8 @@ def get_agreement(agreement_id: str):
     if not result.data:
         raise HTTPException(status_code=404, detail="Agreement not found")
 
-    obligations = supabase.table("obligations").select("*").eq("agreement_id", agreement_id).execute()
-    alerts = supabase.table("alerts").select("*").eq("agreement_id", agreement_id).order("trigger_date").execute()
+    obligations = supabase.table("obligations").select("*").eq("agreement_id", agreement_id).limit(200).execute()
+    alerts = supabase.table("alerts").select("*").eq("agreement_id", agreement_id).order("trigger_date").limit(200).execute()
 
     return {
         "agreement": result.data,

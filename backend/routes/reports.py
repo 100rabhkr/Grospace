@@ -22,17 +22,17 @@ def get_reports(user: Optional[CurrentUser] = Depends(get_current_user)):
     outlets_q = supabase.table("outlets").select("*")
     if org_id:
         outlets_q = outlets_q.eq("org_id", org_id)
-    outlets_result = outlets_q.order("created_at", desc=True).execute()
+    outlets_result = outlets_q.order("created_at", desc=True).limit(500).execute()
 
-    agreements_q = supabase.table("agreements").select("*")
+    agreements_q = supabase.table("agreements").select("id, org_id, outlet_id, type, status, lessor_name, lessee_name, brand_name, monthly_rent, cam_monthly, total_monthly_outflow, security_deposit, lease_commencement_date, lease_expiry_date, rent_model")
     if org_id:
         agreements_q = agreements_q.eq("org_id", org_id)
-    agreements_result = agreements_q.execute()
+    agreements_result = agreements_q.limit(500).execute()
 
     payments_q = supabase.table("payment_records").select("outlet_id, due_amount, status").eq("status", "overdue")
     if org_id:
         payments_q = payments_q.eq("org_id", org_id)
-    payments_result = payments_q.execute()
+    payments_result = payments_q.limit(1000).execute()
 
     overdue_by_outlet: dict = {}
     for p in payments_result.data:

@@ -7,12 +7,21 @@ import { createClient } from "@/lib/supabase/client";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+let _cachedToken: string | null = null;
+let _tokenExpiry = 0;
+
 async function getAuthToken(): Promise<string | null> {
+  // Cache token for 60s to avoid redundant session lookups on every API call
+  const now = Date.now();
+  if (_cachedToken && now < _tokenExpiry) return _cachedToken;
   try {
     const supabase = createClient();
     const { data: { session } } = await supabase.auth.getSession();
-    return session?.access_token || null;
+    _cachedToken = session?.access_token || null;
+    _tokenExpiry = now + 60_000; // 1 minute cache
+    return _cachedToken;
   } catch {
+    _cachedToken = null;
     return null;
   }
 }
