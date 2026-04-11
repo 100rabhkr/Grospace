@@ -352,10 +352,23 @@ export async function createOrganization(name: string) {
  * Super Admin can hand it off manually if the invitation email bounces.
  */
 export async function createOrganizationWithAdmin(data: {
+  // Org
   name: string;
+  business_type?: string;
+  hq_city?: string;
+  hq_country?: string;
+  gst_number?: string;
+  company_registration?: string;
+  expected_outlets_size?: string;
+  billing_email?: string;
+  website?: string;
+  notes?: string;
+  // Admin
   admin_email: string;
   admin_full_name: string;
   admin_phone?: string;
+  admin_role_title?: string;
+  // Brands
   brand_names?: string[];
 }) {
   return apiFetch("/api/admin/create-organization-with-admin", {
@@ -364,9 +377,45 @@ export async function createOrganizationWithAdmin(data: {
   });
 }
 
+/**
+ * Super Admin: attach a default admin to an orphaned organization (one
+ * created without admin details). Creates the auth user, pins the profile,
+ * sends the invitation email. Returns the temp password ONCE.
+ */
+export async function assignOrgAdmin(orgId: string, data: {
+  admin_email: string;
+  admin_full_name: string;
+  admin_phone?: string;
+  admin_role_title?: string;
+}) {
+  return apiFetch(`/api/organizations/${orgId}/assign-admin`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
 /** Super Admin: rotate Super Admin password back to the hardcoded default. */
 export async function resetSuperAdminPassword() {
   return apiFetch("/api/admin/reset-super-admin-password", { method: "POST" });
+}
+
+/**
+ * Super Admin: rotate an org admin's password + resend the invitation email.
+ * Returns the new temp password ONCE so Super Admin can relay manually.
+ */
+export async function resendOrgInvitation(orgId: string) {
+  return apiFetch(`/api/organizations/${orgId}/resend-invitation`, {
+    method: "POST",
+  });
+}
+
+/**
+ * Super Admin: permanently delete an organization and cascade-remove all
+ * of its data. Orphans the members' profiles but leaves auth.users alive
+ * so the emails can be re-invited later.
+ */
+export async function deleteOrganization(orgId: string) {
+  return apiFetch(`/api/organizations/${orgId}`, { method: "DELETE" });
 }
 
 /**

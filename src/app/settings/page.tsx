@@ -765,17 +765,20 @@ export default function SettingsPage() {
           >
             Team & Roles
           </TabsTrigger>
-          <TabsTrigger
-            value="approvals"
-            className="relative h-10 rounded-none bg-transparent px-0 text-[13px] font-semibold text-muted-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:bottom-[-1px] data-[state=active]:after:h-[2px] data-[state=active]:after:bg-foreground"
-          >
-            Approvals
-            {signupRequests.length > 0 && (
-              <span className="ml-2 inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full bg-foreground text-background text-[10px] font-semibold">
-                {signupRequests.length}
-              </span>
-            )}
-          </TabsTrigger>
+          {/* Approvals — legacy signup-request flow, only Super Admin sees it */}
+          {user?.role === "platform_admin" && (
+            <TabsTrigger
+              value="approvals"
+              className="relative h-10 rounded-none bg-transparent px-0 text-[13px] font-semibold text-muted-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:bottom-[-1px] data-[state=active]:after:h-[2px] data-[state=active]:after:bg-foreground"
+            >
+              Approvals
+              {signupRequests.length > 0 && (
+                <span className="ml-2 inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full bg-foreground text-background text-[10px] font-semibold">
+                  {signupRequests.length}
+                </span>
+              )}
+            </TabsTrigger>
+          )}
           <TabsTrigger
             value="templates"
             className="relative h-10 rounded-none bg-transparent px-0 text-[13px] font-semibold text-muted-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:bottom-[-1px] data-[state=active]:after:h-[2px] data-[state=active]:after:bg-foreground"
@@ -1156,8 +1159,9 @@ export default function SettingsPage() {
         </TabsContent>
 
         {/* ============================================================= */}
-        {/* Pending Approvals Tab                                          */}
+        {/* Pending Approvals Tab (Super Admin only)                       */}
         {/* ============================================================= */}
+        {user?.role === "platform_admin" && (
         <TabsContent value="approvals" className="mt-6 space-y-4">
           <div className="rounded-lg border border-blue-100 bg-blue-50/50 p-3 text-xs text-blue-700">
             <strong>How Approvals Work:</strong> When new users sign up for GroSpace, their request appears here. You can assign them to an organization, set their role (Org Member, Org Admin, or Platform Admin), and approve or reject their access. Approved users get immediate access to their assigned organization.
@@ -1349,6 +1353,7 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
         </TabsContent>
+        )}
 
         {/* ============================================================= */}
         {/* Templates Tab                                                  */}
@@ -2193,12 +2198,25 @@ function PlatformSuperAdminSection() {
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
 
-  // Create form state
+  // Org fields
   const [newOrgName, setNewOrgName] = useState("");
+  const [newBusinessType, setNewBusinessType] = useState("");
+  const [newHqCity, setNewHqCity] = useState("");
+  const [newHqCountry, setNewHqCountry] = useState("IN");
+  const [newGstNumber, setNewGstNumber] = useState("");
+  const [newCompanyReg, setNewCompanyReg] = useState("");
+  const [newExpectedSize, setNewExpectedSize] = useState("");
+  const [newBillingEmail, setNewBillingEmail] = useState("");
+  const [newWebsite, setNewWebsite] = useState("");
+  const [newOrgNotes, setNewOrgNotes] = useState("");
+  // Admin fields
   const [newAdminEmail, setNewAdminEmail] = useState("");
   const [newAdminName, setNewAdminName] = useState("");
   const [newAdminPhone, setNewAdminPhone] = useState("");
+  const [newAdminRoleTitle, setNewAdminRoleTitle] = useState("");
+  // Brands
   const [newBrands, setNewBrands] = useState("");
+
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [createResult, setCreateResult] = useState<{
@@ -2228,9 +2246,19 @@ function PlatformSuperAdminSection() {
 
   function resetCreateForm() {
     setNewOrgName("");
+    setNewBusinessType("");
+    setNewHqCity("");
+    setNewHqCountry("IN");
+    setNewGstNumber("");
+    setNewCompanyReg("");
+    setNewExpectedSize("");
+    setNewBillingEmail("");
+    setNewWebsite("");
+    setNewOrgNotes("");
     setNewAdminEmail("");
     setNewAdminName("");
     setNewAdminPhone("");
+    setNewAdminRoleTitle("");
     setNewBrands("");
     setCreateError(null);
   }
@@ -2238,7 +2266,11 @@ function PlatformSuperAdminSection() {
   async function handleCreate() {
     setCreateError(null);
     if (!newOrgName.trim() || !newAdminEmail.trim() || !newAdminName.trim()) {
-      setCreateError("Org name, admin email, and admin full name are required.");
+      setCreateError("Organization name, admin email, and admin full name are required.");
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newAdminEmail.trim())) {
+      setCreateError("Admin email is not a valid address.");
       return;
     }
     setCreating(true);
@@ -2248,10 +2280,23 @@ function PlatformSuperAdminSection() {
         .map((b) => b.trim())
         .filter(Boolean);
       const res = await createOrganizationWithAdmin({
+        // Org
         name: newOrgName.trim(),
+        business_type: newBusinessType || undefined,
+        hq_city: newHqCity.trim() || undefined,
+        hq_country: newHqCountry || undefined,
+        gst_number: newGstNumber.trim() || undefined,
+        company_registration: newCompanyReg.trim() || undefined,
+        expected_outlets_size: newExpectedSize || undefined,
+        billing_email: newBillingEmail.trim() || undefined,
+        website: newWebsite.trim() || undefined,
+        notes: newOrgNotes.trim() || undefined,
+        // Admin
         admin_email: newAdminEmail.trim().toLowerCase(),
         admin_full_name: newAdminName.trim(),
         admin_phone: newAdminPhone.trim() || undefined,
+        admin_role_title: newAdminRoleTitle.trim() || undefined,
+        // Brands
         brand_names: brandList.length > 0 ? brandList : undefined,
       });
       setCreateResult({
@@ -2262,6 +2307,7 @@ function PlatformSuperAdminSection() {
         brands_created: res.brands_created,
       });
       resetCreateForm();
+      setShowCreate(false);
       refresh();
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : "Failed to create organization");
@@ -2333,73 +2379,224 @@ function PlatformSuperAdminSection() {
         </Card>
       )}
 
-      {/* Create dialog */}
+      {/* Create dialog — 3 sections, scrollable */}
       {showCreate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-xl p-6 max-w-lg w-full shadow-2xl space-y-4">
-            <div>
-              <h3 className="text-lg font-semibold">Create New Organization</h3>
-              <p className="text-[11.5px] text-muted-foreground mt-1">
-                A new org, default admin user, brands, and Google Sheet tab will be
-                created in one shot. The admin receives an invitation email with
-                their credentials.
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl my-8 max-w-2xl w-full shadow-2xl">
+            {/* Header — sticky */}
+            <div className="sticky top-0 bg-white border-b border-border px-6 py-4 rounded-t-xl">
+              <h3 className="text-base font-semibold">Create New Organization</h3>
+              <p className="text-[11.5px] text-muted-foreground mt-0.5">
+                Fills the org, auth user, brands, Google Sheet tab, and sends the
+                onboarding email in one shot.
               </p>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="sm:col-span-2">
-                <Label className="text-[11.5px]">Organization name *</Label>
-                <Input
-                  value={newOrgName}
-                  onChange={(e) => setNewOrgName(e.target.value)}
-                  placeholder="e.g. ABC Foods"
-                  disabled={creating}
-                  autoFocus
-                />
-              </div>
-              <div>
-                <Label className="text-[11.5px]">Admin email *</Label>
-                <Input
-                  type="email"
-                  value={newAdminEmail}
-                  onChange={(e) => setNewAdminEmail(e.target.value)}
-                  placeholder="founder@abcfoods.com"
-                  disabled={creating}
-                />
-              </div>
-              <div>
-                <Label className="text-[11.5px]">Admin full name *</Label>
-                <Input
-                  value={newAdminName}
-                  onChange={(e) => setNewAdminName(e.target.value)}
-                  placeholder="Alice Founder"
-                  disabled={creating}
-                />
-              </div>
-              <div>
-                <Label className="text-[11.5px]">Admin phone (optional)</Label>
-                <Input
-                  value={newAdminPhone}
-                  onChange={(e) => setNewAdminPhone(e.target.value)}
-                  placeholder="+91 98765 43210"
-                  disabled={creating}
-                />
-              </div>
-              <div>
-                <Label className="text-[11.5px]">Initial brands (comma-separated)</Label>
+
+            {/* Body */}
+            <div className="px-6 py-5 space-y-6">
+              {/* Section 1 — Organization */}
+              <section>
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="h-5 w-5 rounded-full bg-foreground text-background text-[10px] font-semibold flex items-center justify-center">1</div>
+                  <h4 className="text-[13px] font-semibold">Organization</h4>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="sm:col-span-2">
+                    <Label className="text-[11.5px]">Organization / Brand name *</Label>
+                    <Input
+                      value={newOrgName}
+                      onChange={(e) => setNewOrgName(e.target.value)}
+                      placeholder="e.g. ABC Foods Pvt Ltd"
+                      disabled={creating}
+                      autoFocus
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[11.5px]">Business type</Label>
+                    <Select
+                      value={newBusinessType}
+                      onValueChange={setNewBusinessType}
+                      disabled={creating}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="qsr">QSR / Fast Food</SelectItem>
+                        <SelectItem value="cafe">Cafe / Dine-in</SelectItem>
+                        <SelectItem value="cloud_kitchen">Cloud Kitchen</SelectItem>
+                        <SelectItem value="retail">Retail / Fashion</SelectItem>
+                        <SelectItem value="mall">Mall Operator</SelectItem>
+                        <SelectItem value="co_working">Co-working</SelectItem>
+                        <SelectItem value="hospitality">Hospitality / Hotel</SelectItem>
+                        <SelectItem value="other">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-[11.5px]">Expected outlets</Label>
+                    <Select
+                      value={newExpectedSize}
+                      onValueChange={setNewExpectedSize}
+                      disabled={creating}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Portfolio size" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="1-10">1 – 10</SelectItem>
+                        <SelectItem value="11-50">11 – 50</SelectItem>
+                        <SelectItem value="51-200">51 – 200</SelectItem>
+                        <SelectItem value="200+">200+</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-[11.5px]">HQ City</Label>
+                    <Input
+                      value={newHqCity}
+                      onChange={(e) => setNewHqCity(e.target.value)}
+                      placeholder="e.g. Gurugram"
+                      disabled={creating}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[11.5px]">HQ Country</Label>
+                    <Input
+                      value={newHqCountry}
+                      onChange={(e) => setNewHqCountry(e.target.value)}
+                      placeholder="IN"
+                      disabled={creating}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[11.5px]">GST number</Label>
+                    <Input
+                      value={newGstNumber}
+                      onChange={(e) => setNewGstNumber(e.target.value)}
+                      placeholder="22AAAAA0000A1Z5"
+                      disabled={creating}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[11.5px]">Company registration / CIN</Label>
+                    <Input
+                      value={newCompanyReg}
+                      onChange={(e) => setNewCompanyReg(e.target.value)}
+                      placeholder="U12345DL2020PTC123456"
+                      disabled={creating}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <Label className="text-[11.5px]">Billing email</Label>
+                    <Input
+                      type="email"
+                      value={newBillingEmail}
+                      onChange={(e) => setNewBillingEmail(e.target.value)}
+                      placeholder="billing@abcfoods.com"
+                      disabled={creating}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <Label className="text-[11.5px]">Website</Label>
+                    <Input
+                      value={newWebsite}
+                      onChange={(e) => setNewWebsite(e.target.value)}
+                      placeholder="https://abcfoods.com"
+                      disabled={creating}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <Label className="text-[11.5px]">Internal notes (optional)</Label>
+                    <Input
+                      value={newOrgNotes}
+                      onChange={(e) => setNewOrgNotes(e.target.value)}
+                      placeholder="e.g. Introduced via LinkedIn, closed May 2026"
+                      disabled={creating}
+                    />
+                  </div>
+                </div>
+              </section>
+
+              {/* Section 2 — Admin user */}
+              <section>
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="h-5 w-5 rounded-full bg-foreground text-background text-[10px] font-semibold flex items-center justify-center">2</div>
+                  <h4 className="text-[13px] font-semibold">Default Admin User</h4>
+                </div>
+                <p className="text-[11px] text-muted-foreground mb-3">
+                  The admin is created with a random temporary password and receives an
+                  onboarding email with their login credentials. They&apos;ll be forced
+                  to change the password on first login.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-[11.5px]">Admin full name *</Label>
+                    <Input
+                      value={newAdminName}
+                      onChange={(e) => setNewAdminName(e.target.value)}
+                      placeholder="Alice Founder"
+                      disabled={creating}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[11.5px]">Admin email *</Label>
+                    <Input
+                      type="email"
+                      value={newAdminEmail}
+                      onChange={(e) => setNewAdminEmail(e.target.value)}
+                      placeholder="alice@abcfoods.com"
+                      disabled={creating}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[11.5px]">Admin phone</Label>
+                    <Input
+                      value={newAdminPhone}
+                      onChange={(e) => setNewAdminPhone(e.target.value)}
+                      placeholder="+91 98765 43210"
+                      disabled={creating}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[11.5px]">Role title at org</Label>
+                    <Input
+                      value={newAdminRoleTitle}
+                      onChange={(e) => setNewAdminRoleTitle(e.target.value)}
+                      placeholder="CEO / Head of Real Estate"
+                      disabled={creating}
+                    />
+                  </div>
+                </div>
+              </section>
+
+              {/* Section 3 — Brands */}
+              <section>
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="h-5 w-5 rounded-full bg-foreground text-background text-[10px] font-semibold flex items-center justify-center">3</div>
+                  <h4 className="text-[13px] font-semibold">Initial Brands (optional)</h4>
+                </div>
+                <p className="text-[11px] text-muted-foreground mb-3">
+                  Seed the org with an initial list of brands. Comma-separated. The
+                  admin can add, rename, or delete brands anytime from Settings.
+                </p>
                 <Input
                   value={newBrands}
                   onChange={(e) => setNewBrands(e.target.value)}
-                  placeholder="ABC Original, ABC Express"
+                  placeholder="ABC Original, ABC Express, ABC Drive-Thru"
                   disabled={creating}
                 />
-              </div>
+              </section>
+
+              {createError && (
+                <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[11.5px] text-rose-900">
+                  {createError}
+                </div>
+              )}
             </div>
-            {createError && (
-              <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[11.5px] text-rose-900">
-                {createError}
-              </div>
-            )}
-            <div className="flex justify-end gap-2 pt-2">
+
+            {/* Footer — sticky */}
+            <div className="sticky bottom-0 bg-white border-t border-border px-6 py-4 rounded-b-xl flex justify-end gap-2">
               <Button
                 size="sm"
                 variant="outline"
@@ -2413,7 +2610,7 @@ function PlatformSuperAdminSection() {
                 onClick={handleCreate}
                 disabled={creating || !newOrgName.trim() || !newAdminEmail.trim() || !newAdminName.trim()}
               >
-                {creating ? "Creating…" : "Create organization"}
+                {creating ? "Creating…" : "Create & send invitation"}
               </Button>
             </div>
           </div>

@@ -290,11 +290,24 @@ def self_serve_create_organization(
 # credentials. The admin is forced to reset their password on first login.
 
 class CreateOrganizationWithAdminRequest(BaseModel):
+    # Org
     name: str
+    business_type: Optional[str] = None       # QSR / Cafe / Cloud Kitchen / Retail / Mall / Co-working / Other
+    hq_city: Optional[str] = None
+    hq_country: Optional[str] = "IN"
+    gst_number: Optional[str] = None
+    company_registration: Optional[str] = None
+    expected_outlets_size: Optional[str] = None  # 1-10 / 11-50 / 51-200 / 200+
+    billing_email: Optional[str] = None
+    website: Optional[str] = None
+    notes: Optional[str] = None
+    # Admin user
     admin_email: str
     admin_full_name: str
     admin_phone: Optional[str] = None
-    brand_names: Optional[list[str]] = None  # comma-separated from UI
+    admin_role_title: Optional[str] = None    # CEO / COO / Head of Real Estate / ...
+    # Brands (comma-separated from UI)
+    brand_names: Optional[list[str]] = None
 
 
 def _generate_temp_password(length: int = 16) -> str:
@@ -367,21 +380,43 @@ async def create_organization_with_admin(
     except Exception:
         pass
 
-    # 1. Create org row
+    # 1. Create org row — try with full onboarding metadata first, fall
+    # through to slimmer inserts if migrations 032 or 034 aren't applied.
     org_id = str(uuid.uuid4())
     sheet_tab = _build_sheet_tab_name(org_name, org_id)
+    base_insert = {
+        "id": org_id,
+        "name": org_name,
+        "created_by": get_db_user_id(user),
+    }
+    full_insert = {
+        **base_insert,
+        # migration 032
+        "sheet_tab_name": sheet_tab,
+        "default_admin_email": admin_email,
+        # migration 034
+        "business_type": body.business_type,
+        "hq_city": body.hq_city,
+        "hq_country": body.hq_country or "IN",
+        "gst_number": body.gst_number,
+        "company_registration": body.company_registration,
+        "expected_outlets_size": body.expected_outlets_size,
+        "billing_email": body.billing_email,
+        "website": body.website,
+        "notes": body.notes,
+    }
+    full_clean = {k: v for k, v in full_insert.items() if v is not None}
+    mid_insert = {**base_insert, "sheet_tab_name": sheet_tab, "default_admin_email": admin_email}
     try:
-        org_insert = {
-            "id": org_id,
-            "name": org_name,
-            "created_by": get_db_user_id(user),
-        }
-        # Best-effort extra fields — survives migration 032 not being applied yet
         try:
-            org_insert_with_sheet = {**org_insert, "sheet_tab_name": sheet_tab, "default_admin_email": admin_email}
-            supabase.table("organizations").insert(org_insert_with_sheet).execute()
-        except Exception:
-            supabase.table("organizations").insert(org_insert).execute()
+            supabase.table("organizations").insert(full_clean).execute()
+        except Exception as e_full:
+            logger.info("create_org: full insert failed, retrying slim: %s", str(e_full)[:120])
+            try:
+                supabase.table("organizations").insert(mid_insert).execute()
+            except Exception as e_mid:
+                logger.info("create_org: mid insert failed, retrying base: %s", str(e_mid)[:120])
+                supabase.table("organizations").insert(base_insert).execute()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create organization: {str(e)[:200]}")
 
@@ -432,23 +467,51 @@ async def create_organization_with_admin(
             pass
         raise HTTPException(status_code=500, detail="Auth user creation returned no id")
 
-    # 3. Create profile row pinned to org_admin role + must_reset_password flag
-    profile_row = {
-        "id": new_user_id,
+    # 3. Profile row: the handle_new_user trigger from migration 033 already
+    # inserted a minimal row when auth.admin.create_user() ran, so UPDATE it
+    # to carry the full onboarding metadata (role pinned to org_admin,
+    # org_id, must_reset_password, role_title, phone_number). If the row
+    # somehow doesn't exist (trigger disabled / race), fall back to INSERT.
+    profile_update = {
         "email": admin_email,
         "full_name": admin_full_name,
         "role": "org_admin",
         "org_id": org_id,
     }
-    try:
-        profile_row_with_reset = {**profile_row, "must_reset_password": True}
-        supabase.table("profiles").insert(profile_row_with_reset).execute()
-    except Exception:
-        # Column may not exist yet — fall back
+    profile_update_full = {
+        **profile_update,
+        "must_reset_password": True,
+        "role_title": body.admin_role_title,
+        "phone_number": body.admin_phone,
+    }
+    profile_update_full_clean = {k: v for k, v in profile_update_full.items() if v is not None}
+
+    def _upsert_profile(payload: dict) -> bool:
+        """Update first; if no row, insert. Returns True on success."""
         try:
-            supabase.table("profiles").insert(profile_row).execute()
+            r = supabase.table("profiles").update(payload).eq("id", new_user_id).execute()
+            if r.data:
+                return True
+            # No row updated — try insert
+            ins = {"id": new_user_id, **payload}
+            supabase.table("profiles").insert(ins).execute()
+            return True
         except Exception as e:
-            logger.warning("create_organization_with_admin: profile insert failed: %s", e)
+            logger.info("create_org: profile upsert (%s) failed: %s", list(payload.keys()), str(e)[:120])
+            return False
+
+    # Attempt the full payload; on failure strip the optional fields one-by-one
+    if not _upsert_profile(profile_update_full_clean):
+        # Drop role_title + phone_number (migration 034 not applied)
+        slim = {k: v for k, v in profile_update_full_clean.items() if k not in ("role_title", "phone_number")}
+        if not _upsert_profile(slim):
+            # Drop must_reset_password too (migration 032 not applied)
+            slimmer = {k: v for k, v in slim.items() if k != "must_reset_password"}
+            if not _upsert_profile(slimmer):
+                logger.warning(
+                    "create_organization_with_admin: profile upsert failed at every level for %s",
+                    admin_email,
+                )
 
     # Pin the default_admin_user_id on the org row
     try:
@@ -607,20 +670,444 @@ async def reset_super_admin_password(
 
 @router.get("/organizations/{org_id}", dependencies=[Depends(require_permission("manage_org_settings"))])
 def get_organization(org_id: str):
-    """Get a single organization with its outlets and agreements."""
+    """
+    Full Super Admin view of an organization. Returns everything needed to
+    render the org workspace: org metadata, brands, members (with default
+    admin), outlets, agreements, alerts, stats.
+    """
     result = supabase.table("organizations").select("*").eq("id", org_id).single().execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Organization not found")
 
-    outlets = supabase.table("outlets").select("*").eq("org_id", org_id).order("created_at", desc=True).execute()
-    agreements = supabase.table("agreements").select("id, type, status, document_filename, monthly_rent, lease_expiry_date, outlet_id, outlets(name, city)").eq("org_id", org_id).order("created_at", desc=True).execute()
-    alerts = supabase.table("alerts").select("id, type, severity, title, trigger_date, status").eq("org_id", org_id).order("trigger_date").limit(10).execute()
+    org = result.data
+
+    # Brands for this org (if the table exists)
+    brands_data: list = []
+    try:
+        brands_res = supabase.table("brands").select("id, name, logo_url, notes, created_at").eq("org_id", org_id).order("name").execute()
+        brands_data = brands_res.data or []
+    except Exception:
+        pass
+
+    # Members (profile rows attached to this org)
+    members_data: list = []
+    try:
+        members_res = supabase.table("profiles").select(
+            "id, email, full_name, role, created_at, must_reset_password"
+        ).eq("org_id", org_id).order("created_at").execute()
+        members_data = members_res.data or []
+    except Exception:
+        pass
+
+    # Default admin profile — lookup by default_admin_user_id first, then
+    # fall back to the first org_admin profile we find.
+    default_admin: Optional[dict] = None
+    try:
+        if org.get("default_admin_user_id"):
+            adm = supabase.table("profiles").select(
+                "id, email, full_name, role, must_reset_password, created_at"
+            ).eq("id", org["default_admin_user_id"]).single().execute()
+            default_admin = adm.data
+        if not default_admin:
+            # Fallback: first org_admin in the member list
+            for m in members_data:
+                if m.get("role") == "org_admin":
+                    default_admin = m
+                    break
+    except Exception:
+        pass
+
+    outlets = supabase.table("outlets").select(
+        "id, name, brand_name, city, state, property_type, status, super_area_sqft, franchise_model, created_at"
+    ).eq("org_id", org_id).order("created_at", desc=True).execute()
+
+    agreements = supabase.table("agreements").select(
+        "id, type, status, document_filename, monthly_rent, lease_expiry_date, outlet_id, outlets(name, city)"
+    ).eq("org_id", org_id).order("created_at", desc=True).execute()
+
+    alerts = supabase.table("alerts").select(
+        "id, type, severity, title, trigger_date, status"
+    ).eq("org_id", org_id).order("trigger_date").limit(10).execute()
 
     return {
-        "organization": result.data,
-        "outlets": outlets.data,
-        "agreements": agreements.data,
-        "alerts": alerts.data,
+        "organization": org,
+        "brands": brands_data,
+        "members": members_data,
+        "default_admin": default_admin,
+        "outlets": outlets.data or [],
+        "agreements": agreements.data or [],
+        "alerts": alerts.data or [],
+        "stats": {
+            "outlets_count": len(outlets.data or []),
+            "agreements_count": len(agreements.data or []),
+            "members_count": len(members_data),
+            "brands_count": len(brands_data),
+            "alerts_count": len(alerts.data or []),
+        },
+    }
+
+
+class AssignAdminRequest(BaseModel):
+    admin_email: str
+    admin_full_name: str
+    admin_phone: Optional[str] = None
+    admin_role_title: Optional[str] = None
+
+
+@router.post("/organizations/{org_id}/assign-admin", dependencies=[Depends(require_permission("manage_org_settings"))])
+async def assign_org_admin(
+    org_id: str,
+    body: AssignAdminRequest,
+    user: Optional[CurrentUser] = Depends(get_current_user),
+):
+    """
+    Super Admin: attach a default admin to an organization that was created
+    without one (orphaned). Creates a Supabase auth user with a generated
+    temp password, pins the profile to org_admin, sets the org's
+    default_admin_user_id, sends the invitation email, and writes an
+    org_admin_assigned row to the org's Google Sheet tab.
+    """
+    if not user or user.role != "platform_admin":
+        raise HTTPException(status_code=403, detail="Super Admin only")
+
+    clean_email = (body.admin_email or "").strip().lower()
+    clean_name = (body.admin_full_name or "").strip()
+    if not clean_email or "@" not in clean_email:
+        raise HTTPException(status_code=400, detail="Valid admin email required")
+    if not clean_name:
+        raise HTTPException(status_code=400, detail="Admin full name required")
+
+    org = supabase.table("organizations").select("*").eq("id", org_id).single().execute()
+    if not org.data:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    org_name = org.data.get("name", "your organization")
+
+    # Refuse if email already belongs elsewhere
+    try:
+        ex = supabase.table("profiles").select("id, email, org_id").eq("email", clean_email).limit(1).execute()
+        if ex.data and ex.data[0].get("org_id") and ex.data[0]["org_id"] != org_id:
+            raise HTTPException(
+                status_code=409,
+                detail=f"'{clean_email}' is already attached to a different organization",
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+
+    temp_password = _generate_temp_password()
+    new_user_id: Optional[str] = None
+    try:
+        created = supabase.auth.admin.create_user({
+            "email": clean_email,
+            "password": temp_password,
+            "email_confirm": True,
+            "user_metadata": {
+                "full_name": clean_name,
+                "org_id": org_id,
+                "role": "org_admin",
+            },
+        })
+        if hasattr(created, "user") and created.user:
+            new_user_id = created.user.id
+        elif isinstance(created, dict):
+            new_user_id = (created.get("user") or {}).get("id")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create auth user: {str(e)[:200]}")
+
+    if not new_user_id:
+        raise HTTPException(status_code=500, detail="Auth user create returned no id")
+
+    # Upsert profile
+    profile_payload = {
+        "email": clean_email,
+        "full_name": clean_name,
+        "role": "org_admin",
+        "org_id": org_id,
+    }
+    profile_full = {**profile_payload, "must_reset_password": True, "role_title": body.admin_role_title, "phone_number": body.admin_phone}
+    profile_full_clean = {k: v for k, v in profile_full.items() if v is not None}
+    try:
+        r = supabase.table("profiles").update(profile_full_clean).eq("id", new_user_id).execute()
+        if not r.data:
+            supabase.table("profiles").insert({"id": new_user_id, **profile_full_clean}).execute()
+    except Exception:
+        # Slim retry
+        try:
+            slim = {k: v for k, v in profile_full_clean.items() if k not in ("role_title", "phone_number", "must_reset_password")}
+            r = supabase.table("profiles").update(slim).eq("id", new_user_id).execute()
+            if not r.data:
+                supabase.table("profiles").insert({"id": new_user_id, **slim}).execute()
+        except Exception as e:
+            logger.warning("assign_org_admin: profile upsert failed: %s", e)
+
+    # Pin org.default_admin_*
+    try:
+        supabase.table("organizations").update({
+            "default_admin_user_id": new_user_id,
+            "default_admin_email": clean_email,
+        }).eq("id", org_id).execute()
+    except Exception as e:
+        logger.warning("assign_org_admin: org update failed: %s", e)
+
+    # Send invitation email
+    email_sent = False
+    email_error: Optional[str] = None
+    try:
+        from services.email_service import send_email_via_resend
+        login_url = os.getenv("PUBLIC_APP_URL", "https://grospace-sandy.vercel.app") + "/auth/login"
+        first_name = (clean_name.split(" ")[0] or clean_name)
+        subject = f"You're invited as admin of {org_name} on GroSpace"
+        body_html = f"""
+        <div style="font-family:-apple-system,Segoe UI,Inter,Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px">
+          <h1 style="font-size:20px;font-weight:600;color:#111;margin-bottom:8px">Welcome to GroSpace</h1>
+          <p style="color:#444;line-height:1.5">Hi {first_name},</p>
+          <p style="color:#444;line-height:1.5">
+            You've been assigned as the admin for <strong>{org_name}</strong> on GroSpace.
+            Use the credentials below to log in — you'll be asked to change your password
+            immediately.
+          </p>
+          <div style="background:#f6f6f6;border:1px solid #e2e2e2;border-radius:8px;padding:16px;margin:24px 0">
+            <p style="margin:0 0 6px;color:#666;font-size:12px;text-transform:uppercase;letter-spacing:0.5px">Login email</p>
+            <p style="margin:0 0 16px;font-family:monospace;font-size:14px;color:#111">{clean_email}</p>
+            <p style="margin:0 0 6px;color:#666;font-size:12px;text-transform:uppercase;letter-spacing:0.5px">Temporary password</p>
+            <p style="margin:0;font-family:monospace;font-size:14px;color:#111">{temp_password}</p>
+          </div>
+          <p style="margin:24px 0">
+            <a href="{login_url}" style="display:inline-block;background:#111;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:600">Log in to GroSpace</a>
+          </p>
+        </div>
+        """.strip()
+        email_sent = bool(send_email_via_resend(clean_email, subject, body_html))
+    except Exception as e:
+        email_error = str(e)[:200]
+        logger.warning("assign_org_admin: email failed: %s", e)
+
+    log_activity(org_id, get_db_user_id(user), "organization", org_id, "org_admin_assigned", {
+        "admin_email": clean_email,
+        "admin_name": clean_name,
+        "email_sent": email_sent,
+    })
+
+    return {
+        "admin": {
+            "user_id": new_user_id,
+            "email": clean_email,
+            "full_name": clean_name,
+            "temp_password": temp_password,
+            "role": "org_admin",
+            "must_reset_password": True,
+        },
+        "email_sent": email_sent,
+        "email_error": email_error,
+        "message": f"Admin assigned to {org_name}. Email {'sent' if email_sent else 'FAILED — copy the password manually'} to {clean_email}.",
+    }
+
+
+@router.post("/organizations/{org_id}/resend-invitation", dependencies=[Depends(require_permission("manage_org_settings"))])
+async def resend_org_invitation(
+    org_id: str,
+    user: Optional[CurrentUser] = Depends(get_current_user),
+):
+    """
+    Super Admin: rotate the org admin's password + resend the invitation
+    email. Useful when the original invitation email bounced or was lost.
+    """
+    if not user or user.role != "platform_admin":
+        raise HTTPException(status_code=403, detail="Super Admin only")
+
+    org = supabase.table("organizations").select("*").eq("id", org_id).single().execute()
+    if not org.data:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    admin_user_id = org.data.get("default_admin_user_id")
+    admin_email = org.data.get("default_admin_email")
+    admin_full_name = None
+    if not admin_user_id or not admin_email:
+        # Try to find via profiles
+        try:
+            prof = supabase.table("profiles").select("id, email, full_name").eq(
+                "org_id", org_id
+            ).eq("role", "org_admin").limit(1).single().execute()
+            if prof.data:
+                admin_user_id = prof.data["id"]
+                admin_email = prof.data["email"]
+                admin_full_name = prof.data.get("full_name")
+        except Exception:
+            pass
+    if not admin_user_id or not admin_email:
+        raise HTTPException(status_code=404, detail="No admin user found for this organization")
+
+    if not admin_full_name:
+        try:
+            prof = supabase.table("profiles").select("full_name").eq("id", admin_user_id).single().execute()
+            admin_full_name = prof.data.get("full_name") if prof.data else admin_email
+        except Exception:
+            admin_full_name = admin_email
+
+    # Generate a fresh temp password and update auth
+    temp_password = _generate_temp_password()
+    try:
+        supabase.auth.admin.update_user_by_id(admin_user_id, {"password": temp_password})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to rotate password: {str(e)[:200]}")
+
+    # Mark must_reset_password so they get the forced-reset on first login
+    try:
+        supabase.table("profiles").update({"must_reset_password": True}).eq("id", admin_user_id).execute()
+    except Exception:
+        pass
+
+    # Send the email
+    email_sent = False
+    email_error: Optional[str] = None
+    try:
+        from services.email_service import send_email_via_resend
+        login_url = os.getenv("PUBLIC_APP_URL", "https://grospace-sandy.vercel.app") + "/auth/login"
+        first_name = (admin_full_name or "").split(" ")[0] or admin_full_name or "there"
+        org_name = org.data.get("name", "your organization")
+        subject = f"Updated GroSpace credentials for {org_name}"
+        body_html = f"""
+        <div style="font-family:-apple-system,Segoe UI,Inter,Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px">
+          <h1 style="font-size:20px;font-weight:600;color:#111;margin-bottom:8px">New password issued</h1>
+          <p style="color:#444;line-height:1.5">Hi {first_name},</p>
+          <p style="color:#444;line-height:1.5">
+            Your GroSpace admin password for <strong>{org_name}</strong> has been reset
+            by the platform team. Use the credentials below to log in — you'll be
+            asked to set a new password immediately.
+          </p>
+          <div style="background:#f6f6f6;border:1px solid #e2e2e2;border-radius:8px;padding:16px;margin:24px 0">
+            <p style="margin:0 0 6px;color:#666;font-size:12px;text-transform:uppercase;letter-spacing:0.5px">Login email</p>
+            <p style="margin:0 0 16px;font-family:monospace;font-size:14px;color:#111">{admin_email}</p>
+            <p style="margin:0 0 6px;color:#666;font-size:12px;text-transform:uppercase;letter-spacing:0.5px">Temporary password</p>
+            <p style="margin:0;font-family:monospace;font-size:14px;color:#111">{temp_password}</p>
+          </div>
+          <p style="margin:24px 0">
+            <a href="{login_url}" style="display:inline-block;background:#111;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:600">Log in to GroSpace</a>
+          </p>
+        </div>
+        """.strip()
+        email_sent = bool(send_email_via_resend(admin_email, subject, body_html))
+    except Exception as e:
+        email_error = str(e)[:200]
+        logger.warning("resend_org_invitation: email failed: %s", e)
+
+    log_activity(org_id, get_db_user_id(user), "organization", org_id, "org_invitation_resent", {
+        "admin_email": admin_email,
+        "email_sent": email_sent,
+    })
+
+    return {
+        "status": "ok",
+        "admin_email": admin_email,
+        "temp_password": temp_password,
+        "email_sent": email_sent,
+        "email_error": email_error,
+        "message": (
+            f"Password rotated for {admin_email}. Invitation email "
+            f"{'sent' if email_sent else 'FAILED — hand the credentials over manually'}."
+        ),
+    }
+
+
+@router.delete("/organizations/{org_id}", dependencies=[Depends(require_permission("manage_org_settings"))])
+async def delete_organization(
+    org_id: str,
+    user: Optional[CurrentUser] = Depends(get_current_user),
+):
+    """
+    Super Admin: permanently delete an organization AND all of its data.
+    Cascades across outlets, agreements, events, payments, alerts, brands,
+    documents, members' profiles, and finally the org row itself. DOES NOT
+    delete the auth.users rows so that emails can be re-invited later if
+    needed — but they're orphaned from any org.
+
+    This is a hard delete. Super Admin only.
+    """
+    if not user or user.role != "platform_admin":
+        raise HTTPException(status_code=403, detail="Super Admin only")
+
+    org = supabase.table("organizations").select("*").eq("id", org_id).single().execute()
+    if not org.data:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    org_name = org.data.get("name", "Unknown")
+
+    # Gather agreement ids so we can cascade their children.
+    try:
+        agr_rows = supabase.table("agreements").select("id").eq("org_id", org_id).execute()
+        agr_ids = [r["id"] for r in (agr_rows.data or [])]
+    except Exception:
+        agr_ids = []
+
+    def _delete_from(table: str, column: str, values):
+        try:
+            if isinstance(values, list):
+                if not values:
+                    return
+                supabase.table(table).delete().in_(column, values).execute()
+            else:
+                supabase.table(table).delete().eq(column, values).execute()
+        except Exception as e:
+            logger.warning("delete_organization: %s by %s failed: %s", table, column, e)
+
+    # Children scoped by org_id
+    for t in (
+        "payment_records", "obligations", "alerts", "critical_dates",
+        "rent_schedules", "agreement_clauses", "documents",
+        "outlet_contacts", "outlet_revenue", "showcase_tokens",
+        "event_assignees", "feedback", "leasebot_analyses",
+        "document_qa_sessions", "extraction_jobs", "lease_drafts",
+        "agreements", "outlets",
+    ):
+        _delete_from(t, "org_id", org_id)
+
+    # Brands (table may not exist if migration_030 isn't applied)
+    try:
+        supabase.table("brands").delete().eq("org_id", org_id).execute()
+    except Exception:
+        pass
+
+    # Activity log — delete last so we don't break other writes
+    try:
+        supabase.table("activity_log").delete().eq("org_id", org_id).execute()
+    except Exception:
+        pass
+
+    # Orphan member profiles (null out org_id). Keep auth.users intact so
+    # the emails can be re-used later. Role gets downgraded to org_member
+    # so they can't sneak back in as admin anywhere.
+    try:
+        members = supabase.table("profiles").select("id").eq("org_id", org_id).execute()
+        for m in (members.data or []):
+            supabase.table("profiles").update({
+                "org_id": None,
+                "role": "org_member",
+            }).eq("id", m["id"]).execute()
+    except Exception as e:
+        logger.warning("delete_organization: orphaning members failed: %s", e)
+
+    # Finally the org row
+    try:
+        supabase.table("organizations").delete().eq("id", org_id).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Delete failed: {str(e)[:200]}")
+
+    # Audit to activity_log (super admin, no org scope)
+    log_activity(
+        org_id=org_id,  # keep org_id on the row even though the org is gone
+        user_id=get_db_user_id(user),
+        entity_type="organization",
+        entity_id=org_id,
+        action="org_deleted_by_super_admin",
+        details={"name": org_name, "cascaded_agreements": len(agr_ids)},
+    )
+
+    return {
+        "status": "ok",
+        "org_id": org_id,
+        "org_name": org_name,
+        "cascaded_agreements": len(agr_ids),
+        "message": f"Organization '{org_name}' and all its data have been permanently deleted.",
     }
 
 

@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import Link from "next/link";
-import { getDashboardStats, smartChat, listOutlets, listPayments, updatePayment, listAgreements, getOrgMembers, logUsage, listUpcomingEvents } from "@/lib/api";
+import { getDashboardStats, smartChat, listOutlets, listPayments, updatePayment, listAgreements, getOrgMembers, logUsage, listUpcomingEvents, listOrganizations } from "@/lib/api";
 import { useUser } from "@/lib/hooks/use-user";
 import { HealthScoreGauge } from "@/components/health-score-gauge";
 import { OnboardingChecklist } from "@/components/onboarding-checklist";
@@ -46,6 +46,7 @@ import {
   Heart,
   Bot,
   Plus,
+  Building2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { canWrite, type UserRole } from "@/components/navigation-config";
@@ -907,7 +908,14 @@ export default function Dashboard() {
     );
   }
 
-  // Empty state -- no outlets or agreements yet
+  // Super Admin sees a completely different dashboard — the platform-wide
+  // view of every organization, not one org's portfolio. Route them there
+  // before anything else renders.
+  if (user?.role === "platform_admin") {
+    return <SuperAdminDashboard />;
+  }
+
+  // Empty state -- no outlets or agreements yet (for non-super-admin users)
   if (
     stats &&
     stats.total_outlets === 0 &&
@@ -945,10 +953,7 @@ export default function Dashboard() {
             Executive Overview
           </h1>
           <p className="text-[12.5px] text-muted-foreground mt-0.5">
-            {user?.role === "platform_admin"
-              ? <>System-wide view · <span className="text-foreground font-semibold">{stats?.total_outlets ?? 0}</span> outlets · <span className="text-foreground font-semibold">{stats?.total_agreements ?? 0}</span> agreements</>
-              : <>Portfolio for <span className="text-foreground font-semibold">{new Date().toLocaleDateString("en-IN", { month: "long", year: "numeric" })}</span></>
-            }
+            Portfolio for <span className="text-foreground font-semibold">{new Date().toLocaleDateString("en-IN", { month: "long", year: "numeric" })}</span>
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -1504,17 +1509,8 @@ export default function Dashboard() {
           </Button>
         </Link>
 
-        {/* platform_admin: all-org switcher & system settings */}
-        {user?.role === "platform_admin" && (
-          <>
-            <Link href="/settings">
-              <Button variant="outline" size="sm" className="gap-1.5 text-xs cursor-pointer">
-                <Settings className="h-3.5 w-3.5" />
-                System Settings
-              </Button>
-            </Link>
-          </>
-        )}
+        {/* platform_admin has its own dashboard at SuperAdminDashboard —
+            we never reach this code path for them. */}
 
         {/* org_admin: team management shortcuts */}
         {user?.role === "org_admin" && (
@@ -1982,5 +1978,206 @@ export default function Dashboard() {
       {/* -------------------------------------------------------------- */}
       <SmartAIChat />
     </div >
+  );
+}
+
+
+// -------------------------------------------------------------------
+// Super Admin Dashboard
+// -------------------------------------------------------------------
+// Completely different from the org-scoped Executive Overview. Shows
+// platform-wide stats: how many orgs exist, per-org drill-in cards,
+// and quick access to create a new org or jump into Settings.
+
+interface SuperAdminOrgRow {
+  id: string;
+  name: string;
+  created_at?: string;
+  default_admin_email?: string | null;
+  sheet_tab_name?: string | null;
+  business_type?: string | null;
+  expected_outlets_size?: string | null;
+  hq_city?: string | null;
+}
+
+function SuperAdminDashboard() {
+  const [orgs, setOrgs] = useState<SuperAdminOrgRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await listOrganizations();
+        setOrgs((data.items || data.organizations || []) as SuperAdminOrgRow[]);
+      } catch (err) {
+        console.error("Failed to load orgs", err);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  const filtered = useMemo(() => {
+    if (!query.trim()) return orgs;
+    const q = query.toLowerCase();
+    return orgs.filter(
+      (o) =>
+        o.name.toLowerCase().includes(q) ||
+        o.default_admin_email?.toLowerCase().includes(q) ||
+        o.business_type?.toLowerCase().includes(q) ||
+        o.hq_city?.toLowerCase().includes(q),
+    );
+  }, [orgs, query]);
+
+  const totalOrgs = orgs.length;
+  const newThisMonth = orgs.filter((o) => {
+    if (!o.created_at) return false;
+    const d = new Date(o.created_at);
+    const now = new Date();
+    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+  }).length;
+
+  return (
+    <div className="space-y-6 max-w-[1400px] mx-auto">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="text-[22px] font-semibold tracking-tight text-foreground leading-tight flex items-center gap-2">
+            <Shield className="h-5 w-5" />
+            Platform Overview
+          </h1>
+          <p className="text-[12.5px] text-muted-foreground mt-0.5">
+            Super Admin view · {totalOrgs} customer organization{totalOrgs === 1 ? "" : "s"} · {newThisMonth} new this month
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <Link href="/settings">
+            <Button size="sm" variant="outline" className="gap-1.5">
+              <Settings className="h-3.5 w-3.5" strokeWidth={2} />
+              Platform Settings
+            </Button>
+          </Link>
+          <Link href="/settings?tab=platform">
+            <Button size="sm" className="gap-1.5">
+              <Plus className="h-3.5 w-3.5" strokeWidth={2} />
+              Create New Organization
+            </Button>
+          </Link>
+        </div>
+      </div>
+
+      {/* Stats row */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground">Total Organizations</p>
+            <p className="text-[28px] font-semibold tabular-nums leading-none mt-1">{totalOrgs}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground">New This Month</p>
+            <p className="text-[28px] font-semibold tabular-nums leading-none mt-1">{newThisMonth}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground">With Admin Assigned</p>
+            <p className="text-[28px] font-semibold tabular-nums leading-none mt-1">
+              {orgs.filter((o) => o.default_admin_email).length}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground">Unassigned</p>
+            <p className="text-[28px] font-semibold tabular-nums leading-none mt-1 text-amber-600">
+              {orgs.filter((o) => !o.default_admin_email).length}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Search */}
+      <div className="relative max-w-md">
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search organizations by name, admin, city, or type…"
+          className="pl-3"
+        />
+      </div>
+
+      {/* Orgs list */}
+      {loading ? (
+        <div className="flex items-center gap-2 text-muted-foreground py-4">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <span className="text-sm">Loading organizations…</span>
+        </div>
+      ) : totalOrgs === 0 ? (
+        <Card>
+          <CardContent className="p-10 text-center">
+            <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mx-auto mb-4">
+              <Building2 className="h-6 w-6 text-muted-foreground" />
+            </div>
+            <h2 className="text-lg font-semibold mb-1">No organizations yet</h2>
+            <p className="text-sm text-muted-foreground max-w-md mx-auto mb-5">
+              You haven&apos;t onboarded any customers yet. Create the first
+              organization to start seeding the platform.
+            </p>
+            <Link href="/settings?tab=platform">
+              <Button size="sm" className="gap-1.5">
+                <Plus className="h-3.5 w-3.5" />
+                Create First Organization
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {filtered.map((o) => (
+            <Link key={o.id} href={`/organizations/${o.id}`} className="group">
+              <Card className="h-full hover:border-foreground/20 transition-colors cursor-pointer">
+                <CardContent className="p-4 space-y-3">
+                  <div className="flex items-start gap-3">
+                    <div className="h-10 w-10 rounded-lg bg-foreground text-background flex items-center justify-center shrink-0 font-semibold">
+                      {o.name[0]?.toUpperCase() || "O"}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[14px] font-semibold truncate group-hover:underline">{o.name}</p>
+                      <p className="text-[11px] text-muted-foreground truncate">
+                        {o.business_type ? o.business_type.replace(/_/g, " ") : "—"}
+                        {o.hq_city ? ` · ${o.hq_city}` : ""}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="space-y-1 text-[11px]">
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Admin</span>
+                      <span className="font-mono text-foreground/80 truncate max-w-[170px]">
+                        {o.default_admin_email || (
+                          <Badge className="bg-amber-50 text-amber-700 border border-amber-200 text-[9.5px]">Unassigned</Badge>
+                        )}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Size</span>
+                      <span className="text-foreground/80">{o.expected_outlets_size || "—"}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Created</span>
+                      <span className="text-foreground/80">
+                        {o.created_at ? new Date(o.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—"}
+                      </span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
