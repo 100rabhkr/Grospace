@@ -30,7 +30,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import {
@@ -41,7 +41,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { getAgreement, askDocumentQuestion, updateAgreement, confirmAndActivate } from "@/lib/api";
+import { getAgreement, askDocumentQuestion, updateAgreement, confirmAndActivate, listEvents, updateEvent, getActivityLog } from "@/lib/api";
 import dynamic from "next/dynamic";
 const PdfViewer = dynamic(() => import("@/components/pdf-viewer").then(mod => ({ default: mod.PdfViewer })), { ssr: false, loading: () => <div className="flex items-center justify-center h-64 text-sm text-muted-foreground">Loading PDF viewer...</div> });
 import { EditableField } from "@/components/editable-field";
@@ -60,6 +60,7 @@ type RiskFlag = {
   severity: "high" | "medium";
   explanation: string;
   clause_text?: string;
+  source_page?: number;
 };
 
 type OutletInfo = {
@@ -133,6 +134,12 @@ function ConfidenceDot({ level }: { level: Confidence }) {
   );
 }
 
+function formatOrdinal(n: number): string {
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
 function formatFieldLabel(key: string): string {
   return key
     .replace(/_/g, " ")
@@ -175,13 +182,34 @@ function parseField(fieldVal: unknown): {
     return { displayVal: "Not found", confidence: "not_found" };
   }
 
+  if (typeof fieldVal === "string") {
+    const trimmed = fieldVal.trim();
+    if ((trimmed.startsWith("[") || trimmed.startsWith("{")) && trimmed.length > 1) {
+      try {
+        return parseField(JSON.parse(trimmed));
+      } catch {
+        // Fall through and show the original string if it is not valid JSON.
+      }
+    }
+  }
+
   if (typeof fieldVal === "object" && !Array.isArray(fieldVal)) {
     const obj = fieldVal as Record<string, unknown>;
     if ("value" in obj) {
       const conf = (
         typeof obj.confidence === "string" ? obj.confidence : "high"
       ) as Confidence;
-      const val = obj.value;
+      let val = obj.value;
+      if (typeof val === "string") {
+        const trimmed = val.trim();
+        if ((trimmed.startsWith("[") || trimmed.startsWith("{")) && trimmed.length > 1) {
+          try {
+            val = JSON.parse(trimmed);
+          } catch {
+            // Keep the raw string when parsing fails.
+          }
+        }
+      }
       if (
         val === null ||
         val === undefined ||
@@ -199,7 +227,7 @@ function parseField(fieldVal: unknown): {
     return {
       displayVal: Object.entries(obj)
         .filter(([, v]) => v !== null && v !== undefined && v !== "")
-        .map(([k, v]) => `${k.replace(/_/g, " ")}: ${v}`)
+        .map(([k, v]) => `${k.replace(/_/g, " ")}: ${parseField(v).displayVal}`)
         .join(" | "),
       confidence: "high",
     };
@@ -345,6 +373,8 @@ export default function AgreementDetailPage() {
 
   const [agreement, setAgreement] = useState<Agreement | null>(null);
   const [obligations, setObligations] = useState<Obligation[]>([]);
+  const [leaseEvents, setLeaseEvents] = useState<Record<string, unknown>[]>([]);
+  const [activityLog, setActivityLog] = useState<Record<string, unknown>[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -447,6 +477,56 @@ export default function AgreementDetailPage() {
     URL.revokeObjectURL(url);
   }
 
+  function handleExportExcel() {
+    if (!agreement) return;
+    const rows: string[][] = [["Section", "Field", "Value", "Confidence"]];
+    const data = agreement.extracted_data;
+    if (data && typeof data === "object") {
+      for (const [section, fields] of Object.entries(data)) {
+        if (section === "health_score" || typeof fields !== "object" || fields === null) continue;
+        for (const [key, val] of Object.entries(fields as Record<string, unknown>)) {
+          const { displayVal, confidence } = parseField(val);
+          rows.push([section.replace(/_/g, " ").toUpperCase(), formatFieldLabel(key), displayVal, confidence]);
+        }
+      }
+    }
+    const tsv = rows.map(r => r.join("\t")).join("\n");
+    const blob = new Blob([tsv], { type: "application/vnd.ms-excel" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `agreement-${agreement.id.slice(0, 8)}.xls`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function handleExportPDF() {
+    if (!agreement) return;
+    const win = window.open("", "_blank");
+    if (!win) return;
+    const data = agreement.extracted_data;
+    let html = `<html><head><title>Agreement Export</title><style>body{font-family:system-ui;padding:20px}table{border-collapse:collapse;width:100%;margin-bottom:20px}th,td{border:1px solid #ddd;padding:8px;text-align:left;font-size:12px}th{background:#f5f5f5;font-weight:600}h2{font-size:16px;margin-top:20px}h1{font-size:20px}</style></head><body>`;
+    html += `<h1>Agreement: ${agreement.document_filename || agreement.id.slice(0, 8)}</h1>`;
+    html += `<p>Type: ${agreement.type} | Status: ${agreement.status}</p>`;
+    if (data && typeof data === "object") {
+      for (const [section, fields] of Object.entries(data)) {
+        if (section === "health_score" || typeof fields !== "object" || fields === null) continue;
+        html += `<h2>${section.replace(/_/g, " ").toUpperCase()}</h2><table><tr><th>Field</th><th>Value</th></tr>`;
+        for (const [key, val] of Object.entries(fields as Record<string, unknown>)) {
+          const { displayVal } = parseField(val);
+          html += `<tr><td>${formatFieldLabel(key)}</td><td>${displayVal}</td></tr>`;
+        }
+        html += "</table>";
+      }
+    }
+    html += "</body></html>";
+    win.document.write(html);
+    win.document.close();
+    win.print();
+  }
+
   async function saveEdits() {
     if (!agreement || !hasEdits) return;
     setSaving(true);
@@ -498,6 +578,16 @@ export default function AgreementDetailPage() {
         if (!cancelled) {
           setAgreement(data.agreement || null);
           setObligations(data.obligations || []);
+          // Fetch lease events (critical_dates) for this agreement
+          try {
+            const eventsData = await listEvents(agreementId);
+            if (!cancelled) setLeaseEvents(eventsData.events || []);
+          } catch { /* non-critical */ }
+          // Fetch activity log
+          try {
+            const logData = await getActivityLog("agreement", agreementId, 20);
+            if (!cancelled) setActivityLog(logData.items || logData.data || []);
+          } catch { /* non-critical */ }
         }
       } catch (err) {
         if (!cancelled) {
@@ -680,8 +770,16 @@ export default function AgreementDetailPage() {
 
   // Check for escalation dates in rent section
   const rentSection = extractedData?.rent as Record<string, unknown> | undefined;
-  if (rentSection?.rent_schedule && Array.isArray(rentSection.rent_schedule)) {
-    (rentSection.rent_schedule as Array<Record<string, unknown>>).forEach((item, idx) => {
+  // Unwrap {value} wrapper if present
+  const rawRentSchedule = rentSection?.rent_schedule;
+  const rentScheduleArr = rawRentSchedule
+    ? Array.isArray(rawRentSchedule) ? rawRentSchedule
+    : typeof rawRentSchedule === "object" && rawRentSchedule !== null && "value" in (rawRentSchedule as Record<string, unknown>)
+      ? (rawRentSchedule as Record<string, unknown>).value
+    : null
+    : null;
+  if (rentScheduleArr && Array.isArray(rentScheduleArr)) {
+    (rentScheduleArr as Array<Record<string, unknown>>).forEach((item, idx) => {
       const period = item.year || item.period || item.years;
       if (typeof period === "string" && /^\d{4}-\d{2}-\d{2}/.test(period)) {
         timelineDates.push({ label: `Escalation ${idx + 1}`, date: period, type: classifyDate(period) });
@@ -694,12 +792,14 @@ export default function AgreementDetailPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start justify-between gap-4">
         <div className="flex items-start gap-3">
-          <Link href="/agreements">
-            <Button variant="ghost" size="sm" className="gap-1 mt-0.5">
-              <ChevronLeft className="h-4 w-4" />
-              Back
-            </Button>
-          </Link>
+          <div className="flex flex-col gap-0.5">
+            <Link href={agreement.outlet_id ? `/outlets/${agreement.outlet_id}` : "/agreements"}>
+              <Button variant="ghost" size="sm" className="gap-1 mt-0.5">
+                <ChevronLeft className="h-4 w-4" />
+                {agreement.outlet_id ? "Back to Outlet" : "Back"}
+              </Button>
+            </Link>
+          </div>
           <div>
             <div className="flex items-center gap-2 mb-1">
               <Badge variant="outline" className="text-xs font-medium">
@@ -712,14 +812,17 @@ export default function AgreementDetailPage() {
               </Badge>
               {agreement.status === "draft" && (
                 <>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-6 gap-1 text-xs"
-                    onClick={handleExportReview}
-                  >
+                  <Button size="sm" variant="outline" className="h-6 gap-1 text-xs" onClick={handleExportReview}>
                     <Download className="h-3 w-3" />
-                    Export Review
+                    TXT
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-6 gap-1 text-xs" onClick={handleExportExcel}>
+                    <Download className="h-3 w-3" />
+                    Excel
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-6 gap-1 text-xs" onClick={handleExportPDF}>
+                    <Download className="h-3 w-3" />
+                    PDF
                   </Button>
                   <Button
                     size="sm"
@@ -751,7 +854,7 @@ export default function AgreementDetailPage() {
               )}
             </div>
             <div className="flex items-center gap-4">
-              <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">
+              <h1 className="text-[17px] font-semibold tracking-tight text-foreground">
                 {outletName}
               </h1>
               {healthScore !== null && (
@@ -776,18 +879,28 @@ export default function AgreementDetailPage() {
         </div>
       </div>
 
-      {/* Agreement Timeline */}
-      {timelineDates.length >= 2 && (
-        <Card>
-          <CardContent className="pt-4 pb-3">
-            <div className="flex items-center gap-2 mb-2">
-              <CalendarClock className="h-4 w-4 text-[#6b7280]" />
-              <h3 className="text-sm font-semibold">Lease Timeline</h3>
-            </div>
-            <AgreementTimeline dates={timelineDates} />
-          </CardContent>
-        </Card>
-      )}
+      {/* Agreement Timeline — only show if we have valid dates */}
+      {(() => {
+        const validDates = timelineDates.filter((d) => {
+          if (!d.date) return false;
+          const parsed = new Date(d.date);
+          return !isNaN(parsed.getTime()) && parsed.getFullYear() > 2000;
+        });
+        if (validDates.length < 2) return null;
+        return (
+          <Card>
+            <CardContent className="pt-4 pb-3 overflow-hidden">
+              <div className="flex items-center gap-2 mb-2">
+                <CalendarClock className="h-4 w-4 text-[#6b7280]" />
+                <h3 className="text-sm font-semibold">Lease Timeline</h3>
+              </div>
+              <div className="overflow-x-auto">
+                <AgreementTimeline dates={validDates} />
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {/* Tabs */}
       <Tabs defaultValue="extracted" className="space-y-4">
@@ -843,8 +956,8 @@ export default function AgreementDetailPage() {
             </Card>
           ) : (
             <div className="space-y-4">
-              {/* Verification progress */}
-              {(() => {
+              {/* Verification progress — only show when user has started verifying */}
+              {verifiedFields.size > 0 && (() => {
                 let totalFields = 0;
                 Object.values(extractedData).forEach((section) => {
                   if (typeof section === "object" && section !== null) {
@@ -958,11 +1071,15 @@ export default function AgreementDetailPage() {
 
                             const dotKey = `${sectionKey}.${fieldKey}`;
                             const editedVal = editedFields[dotKey];
-                            const currentVal = editedVal !== undefined ? editedVal : displayVal;
+                            let currentVal = editedVal !== undefined ? editedVal : displayVal;
+                            // Format day-related fields as ordinals (5 → 5th)
+                            if (fieldKey.includes("_day") && /^\d+$/.test(String(currentVal))) {
+                              currentVal = formatOrdinal(parseInt(String(currentVal), 10));
+                            }
                             const isVerified = verifiedFields.has(dotKey);
 
                             return (
-                              <div key={fieldKey} className={`min-w-0 rounded-lg p-2 -mx-1 transition-colors ${isVerified ? "bg-emerald-50 ring-1 ring-emerald-200" : ""}`}>
+                              <div key={fieldKey} className={`min-w-0 rounded-lg p-2 -mx-1 transition-colors ${isVerified ? "bg-emerald-50 ring-1 ring-emerald-200" : confidence === "not_found" ? "bg-rose-50/50 ring-1 ring-rose-200/60" : ""}`}>
                                 <div className="flex items-center gap-1.5 mb-0.5">
                                   <button
                                     type="button"
@@ -982,6 +1099,9 @@ export default function AgreementDetailPage() {
                                     {isVerified && <span className="ml-1 normal-case tracking-normal font-normal text-emerald-600">verified</span>}
                                   </p>
                                 </div>
+                                {confidence === "not_found" && ["monthly_rent", "lease_expiry_date", "lease_commencement_date", "lessor_name", "lessee_name", "security_deposit_amount", "city"].includes(fieldKey) && (
+                                  <p className="text-[10px] text-rose-500 mb-0.5">Required field — click to add manually</p>
+                                )}
                                 <div className="flex items-center gap-1">
                                   <EditableField
                                     value={currentVal}
@@ -1006,10 +1126,14 @@ export default function AgreementDetailPage() {
             </div>
           )}
 
-          {/* Custom Notes & Clauses */}
+          {/* Custom Notes & Clauses — added during extraction review step */}
           {(agreement.custom_notes || (agreement.custom_clauses && agreement.custom_clauses.length > 0)) && (
             <Card className="mt-4">
-              <CardContent className="pt-4 pb-4 space-y-3">
+              <CardHeader className="p-4 pb-0">
+                <CardTitle className="text-sm font-semibold">Notes & Custom Clauses</CardTitle>
+                <p className="text-[10px] text-muted-foreground">Added during document review at the time of extraction</p>
+              </CardHeader>
+              <CardContent className="pt-3 pb-4 space-y-3">
                 {agreement.custom_clauses && agreement.custom_clauses.length > 0 && (
                   <div>
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Custom Clauses</p>
@@ -1054,6 +1178,34 @@ export default function AgreementDetailPage() {
               </Button>
             </div>
           )}
+          {/* Activity Log */}
+          {activityLog.length > 0 && (
+            <Card className="mt-4">
+              <CardHeader className="p-4 pb-2">
+                <CardTitle className="text-sm font-semibold">Activity Log</CardTitle>
+              </CardHeader>
+              <CardContent className="p-4 pt-0">
+                <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                  {activityLog.map((entry, i) => (
+                    <div key={(entry.id as string) || i} className="flex items-start gap-2 text-xs">
+                      <div className="w-1.5 h-1.5 rounded-full bg-muted-foreground mt-1.5 flex-shrink-0" />
+                      <div>
+                        <span className="font-medium">{((entry.action as string) || "").replace(/_/g, " ")}</span>
+                        {typeof entry.details === "object" && entry.details !== null ? (
+                          <span className="text-muted-foreground ml-1">
+                            {Object.entries(entry.details as Record<string, unknown>).slice(0, 3).map(([k, v]) => `${k}: ${String(v)}`).join(", ")}
+                          </span>
+                        ) : null}
+                        <span className="text-muted-foreground/60 ml-2">
+                          {entry.created_at ? new Date(entry.created_at as string).toLocaleDateString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : ""}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         {/* Risk Flags Tab */}
@@ -1096,11 +1248,19 @@ export default function AgreementDetailPage() {
                           {flag.name}
                         </h3>
                       </div>
-                      <Badge
-                        className={`${statusColor(flag.severity)} border-0 text-xs font-semibold`}
-                      >
-                        {flag.severity === "high" ? "High" : "Medium"}
-                      </Badge>
+                      <div className="flex items-center gap-1.5">
+                        {flag.source_page && (
+                          <Badge variant="outline" className="text-[10px] gap-0.5">
+                            <FileText className="h-2.5 w-2.5" />
+                            Pg {flag.source_page}
+                          </Badge>
+                        )}
+                        <Badge
+                          className={`${statusColor(flag.severity)} border-0 text-xs font-semibold`}
+                        >
+                          {flag.severity === "high" ? "High" : "Medium"}
+                        </Badge>
+                      </div>
                     </div>
                     <p className="text-sm text-muted-foreground mb-3">
                       {flag.explanation}
@@ -1115,11 +1275,54 @@ export default function AgreementDetailPage() {
                         </p>
                       </div>
                     )}
+                    <div className="mt-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-xs gap-1 h-7"
+                        onClick={async () => {
+                          try {
+                            const res = await askDocumentQuestion(
+                              agreementId,
+                              `For the risk flag "${flag.name}": ${flag.explanation} — What should be negotiated or corrected to mitigate this risk? Provide specific actionable suggestions.`
+                            );
+                            alert(res.answer || "No suggestion available");
+                          } catch { alert("Failed to get suggestion"); }
+                        }}
+                      >
+                        <Sparkles className="h-3 w-3" />
+                        Get AI Suggestion
+                      </Button>
+                    </div>
                   </CardContent>
                 </Card>
               ))}
             </div>
           )}
+
+          {/* Template Comparison */}
+          <Card className="mt-4">
+            <CardContent className="pt-4 pb-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold">Compare with Standard Template</p>
+                  <p className="text-xs text-muted-foreground">Check this agreement against your uploaded standard terms in Settings → Templates</p>
+                </div>
+                <Button variant="outline" size="sm" className="text-xs gap-1" onClick={async () => {
+                  try {
+                    const res = await askDocumentQuestion(
+                      agreementId,
+                      "Compare this agreement against standard commercial lease terms in India. Identify any clauses that deviate significantly from market standard: escalation rate (should be 5-7%), lock-in (1-2 years), notice period (3-6 months), CAM caps (5-8% annual), security deposit (3-6 months), force majeure, exclusivity. List each deviation with the specific clause and what the standard should be."
+                    );
+                    alert(res.answer || "No comparison available");
+                  } catch { alert("Failed to compare"); }
+                }}>
+                  <Scale className="h-3 w-3" />
+                  Compare Terms
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* Events Tab */}
@@ -1202,6 +1405,71 @@ export default function AgreementDetailPage() {
               </div>
             </Card>
           )}
+
+          {/* Custom Events / Critical Dates */}
+          {leaseEvents.length > 0 && (
+            <Card className="mt-4">
+              <CardHeader className="p-4 pb-2">
+                <CardTitle className="text-sm font-semibold">Lease Events & Critical Dates</CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="rounded-lg overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted hover:bg-muted">
+                        <TableHead>Event</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Priority</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {leaseEvents.map((evt) => (
+                        <TableRow key={evt.id as string}>
+                          <TableCell className="font-medium text-sm">{evt.label as string}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="text-[10px]">
+                              {((evt.event_type as string) || "custom").replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}
+                            </Badge>
+                            {(evt.is_financial as boolean) && <Badge className="ml-1 bg-blue-100 text-blue-800 border-0 text-[10px]">Financial</Badge>}
+                          </TableCell>
+                          <TableCell className="text-sm">{evt.date_value as string}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className={`text-[10px] ${evt.priority === "critical" ? "border-rose-300 text-rose-700" : evt.priority === "high" ? "border-amber-300 text-amber-700" : ""}`}>
+                              {((evt.priority as string) || "medium").replace(/\b\w/g, (c: string) => c.toUpperCase())}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="text-[10px]">
+                              {((evt.task_status as string) || "pending").replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            {(evt.task_status as string) !== "completed" && (
+                              <Button variant="outline" size="sm" className="h-6 text-[10px] gap-1" onClick={async () => {
+                                try {
+                                  await updateEvent(evt.id as string, { task_status: "completed" });
+                                  setLeaseEvents(prev => prev.map(e => e.id === evt.id ? { ...e, task_status: "completed" } : e));
+                                } catch { /* silent */ }
+                              }}>
+                                <Check className="h-3 w-3" />
+                                Complete
+                              </Button>
+                            )}
+                            {(evt.task_status as string) === "completed" && (
+                              <span className="text-[10px] text-emerald-600 font-medium">Done</span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         {/* Document Tab */}
@@ -1214,9 +1482,19 @@ export default function AgreementDetailPage() {
                   {agreement.document_filename}
                 </span>
               </div>
-              <Badge variant="outline" className="text-xs">
-                {agreement.document_filename?.endsWith(".pdf") ? "PDF" : "Document"}
-              </Badge>
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="text-xs">
+                  {agreement.document_filename?.endsWith(".pdf") ? "PDF" : "Document"}
+                </Badge>
+                {agreement.document_url && (
+                  <a href={agreement.document_url} target="_blank" rel="noopener noreferrer" download={agreement.document_filename || "document.pdf"}>
+                    <Button variant="outline" size="sm" className="text-xs gap-1 h-7">
+                      <Download className="h-3 w-3" />
+                      Download
+                    </Button>
+                  </a>
+                )}
+              </div>
             </div>
             <CardContent className="flex-1 p-0 bg-muted overflow-hidden">
               {agreement.document_url ? (

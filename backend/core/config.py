@@ -2,13 +2,17 @@
 Core configuration: environment variables, constants, shared clients, and helpers.
 """
 
+from __future__ import annotations
+
 import os
+import time
+from functools import lru_cache
+
 from dotenv import load_dotenv
-from supabase import create_client, Client, ClientOptions
-from httpx import Timeout
-import google.generativeai as genai
+from httpx import ConnectError, ConnectTimeout, ReadError, ReadTimeout, RemoteProtocolError, Timeout, WriteError
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from supabase import Client, ClientOptions, create_client
 
 load_dotenv()
 
@@ -26,7 +30,7 @@ ALERT_TYPES_LIST = [
     "revenue_reconciliation", "custom",
 ]
 
-DEAL_STAGES = ["lead", "site_visit", "negotiation", "loi", "agreement", "fitout", "operational"]
+DEAL_STAGES = ["lead", "site_visit", "negotiation", "loi", "agreement", "fitout", "operational", "closed"]
 
 CITY_ABBREVIATIONS = {
     "delhi": "Del", "new delhi": "Del", "mumbai": "Mum", "bengaluru": "Blr", "bangalore": "Blr",
@@ -58,7 +62,9 @@ RISK_FLAGS = [
 ]
 
 ROLE_PERMISSIONS = {
-    "platform_admin": {"*"},  # Can do everything
+    # Can do everything (CEO)
+    "platform_admin": {"*"},
+    # Full CRUD on their org + member management (Admin)
     "org_admin": {
         "view_outlets", "create_outlets", "edit_outlets", "delete_outlets",
         "view_agreements", "create_agreements", "edit_agreements", "delete_agreements",
@@ -67,9 +73,16 @@ ROLE_PERMISSIONS = {
         "view_reports", "export_reports",
         "manage_org_settings", "manage_org_members",
     },
+    # Operations read + light updates (Manager)
     "org_member": {
         "view_outlets", "view_agreements", "view_alerts", "acknowledge_alerts",
         "view_payments", "update_payments", "view_reports",
+    },
+    # Read-only financial view (CFO) — can see all financial data,
+    # run reports, export, but cannot create/edit/delete anything
+    "finance_viewer": {
+        "view_outlets", "view_agreements", "view_alerts",
+        "view_payments", "view_reports", "export_reports",
     },
 }
 
@@ -95,32 +108,104 @@ Important notes:
 # SHARED CLIENTS
 # ============================================
 
-supabase: Client = create_client(
-    os.getenv("SUPABASE_URL", ""),
-    os.getenv("SUPABASE_SERVICE_ROLE_KEY", ""),
-    options=ClientOptions(
-        postgrest_client_timeout=Timeout(10.0, connect=5.0),
-    ),
-)
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY", ""))
-model = genai.GenerativeModel("gemini-2.5-flash")  # Fast model for classification, Q&A, light tasks
-model_pro = genai.GenerativeModel("gemini-3.1-pro-preview")  # Best model for extraction, risk analysis, vision OCR
+class _LazyClientProxy:
+    """Small proxy so heavy SDK clients are created only on first real use."""
+
+    def __init__(self, factory):
+        self._factory = factory
+
+    def __getattr__(self, item):
+        return getattr(self._factory(), item)
+
+
+@lru_cache(maxsize=1)
+def get_supabase_client() -> Client:
+    return create_client(
+        os.getenv("SUPABASE_URL", ""),
+        os.getenv("SUPABASE_SERVICE_ROLE_KEY", ""),
+        options=ClientOptions(
+            postgrest_client_timeout=Timeout(10.0, connect=5.0),
+        ),
+    )
+
+
+@lru_cache(maxsize=1)
+def _get_genai_module():
+    import google.generativeai as genai
+
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        print("[CONFIG] WARNING: GEMINI_API_KEY is not set — extraction will fail.", flush=True)
+    genai.configure(api_key=api_key)
+    return genai
+
+
+@lru_cache(maxsize=1)
+def get_fast_model():
+    genai = _get_genai_module()
+    # Allow env override so we can switch models without a redeploy
+    model_name = os.getenv("GEMINI_FAST_MODEL", "gemini-2.5-flash").strip()
+    return genai.GenerativeModel(model_name)
+
+
+def _normalize_gemini_model_name(model_name: str) -> str:
+    aliases = {
+        # The Gemini API currently exposes 3.1 Pro as a preview model name.
+        "gemini-3.1-pro": "gemini-3.1-pro-preview",
+    }
+    return aliases.get(model_name, model_name)
+
+
+@lru_cache(maxsize=1)
+def get_pro_model():
+    genai = _get_genai_module()
+    # Gemini 3.1 Pro. Keep a compatibility alias for envs that omit the preview suffix.
+    # Override with GEMINI_PRO_MODEL env var if you ever need to switch without redeploy.
+    model_name = _normalize_gemini_model_name(os.getenv("GEMINI_PRO_MODEL", "gemini-3.1-pro-preview").strip())
+    return genai.GenerativeModel(model_name)
+
+
+genai = _LazyClientProxy(_get_genai_module)
+supabase: Client = _LazyClientProxy(get_supabase_client)
+model = _LazyClientProxy(get_fast_model)  # Fast model for classification, Q&A, light tasks
+model_pro = _LazyClientProxy(get_pro_model)  # Best model for extraction, risk analysis, vision OCR
 
 limiter = Limiter(key_func=get_remote_address)
+
+TRANSIENT_SUPABASE_ERRORS = (
+    RemoteProtocolError,
+    ReadTimeout,
+    ConnectTimeout,
+    ConnectError,
+    ReadError,
+    WriteError,
+)
 
 # ============================================
 # ACTIVITY LOG HELPER
 # ============================================
 
 def log_activity(org_id: str, user_id: str | None, entity_type: str, entity_id: str, action: str, details: dict | None = None):
-    """Insert an activity log entry. Non-blocking — failures are silently ignored."""
+    """Insert an activity log entry. Non-blocking — failures are silently ignored.
+
+    If user_id is non-None but not a real UUID (demo sessions), store it as
+    NULL so the `uuid REFERENCES auth.users(id)` FK on activity_log.user_id
+    doesn't reject the insert."""
     import uuid
+    # Guard against demo/synthetic user_ids that would fail the UUID column
+    db_user_id: str | None = None
+    if user_id:
+        try:
+            uuid.UUID(user_id)
+            db_user_id = user_id
+        except (ValueError, AttributeError):
+            db_user_id = None
     try:
         supabase.table("activity_log").insert({
             "id": str(uuid.uuid4()),
             "org_id": org_id,
-            "user_id": user_id,
+            "user_id": db_user_id,
             "entity_type": entity_type,
             "entity_id": entity_id,
             "action": action,
@@ -128,3 +213,14 @@ def log_activity(org_id: str, user_id: str | None, entity_type: str, entity_id: 
         }).execute()
     except Exception:
         pass  # Activity logging should never break the main flow
+
+
+def execute_supabase_query(factory, retries: int = 1, retry_delay_seconds: float = 0.25):
+    """Execute a Supabase/PostgREST query with a small retry budget for transient transport errors."""
+    for attempt in range(retries + 1):
+        try:
+            return factory().execute()
+        except TRANSIENT_SUPABASE_ERRORS:
+            if attempt >= retries:
+                raise
+            time.sleep(retry_delay_seconds * (attempt + 1))

@@ -18,7 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { analyzeLeasebot } from "@/lib/api";
-import Image from "next/image";
+import { Logo } from "@/components/logo";
 import Link from "next/link";
 
 const processingSteps = [
@@ -58,7 +58,7 @@ function ProcessingAnimation() {
           </div>
         </div>
 
-        <h2 className="text-xl font-bold mb-1 text-foreground">
+        <h2 className="text-xl font-semibold mb-1 text-foreground">
           Analyzing your lease...
         </h2>
         <p className="text-sm text-[#6b7280] mb-2">
@@ -206,7 +206,9 @@ export default function LeasebotPage() {
       <header className="border-b border-border bg-card">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2.5">
-            <Image src="/logo.png" alt="GroSpace" width={28} height={28} className="rounded-md" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+              <Logo className="h-4 w-4" />
+            </div>
             <span className="text-[17px] font-semibold tracking-tight text-foreground">GroSpace</span>
           </Link>
           {isLoggedIn ? (
@@ -232,7 +234,7 @@ export default function LeasebotPage() {
           Free AI-Powered Lease Analysis
         </div>
 
-        <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-foreground tracking-tight mb-4">
+        <h1 className="text-3xl sm:text-4xl lg:text-5xl font-semibold text-foreground tracking-tight mb-4">
           Review Your Lease
           <br />
           Before You Sign

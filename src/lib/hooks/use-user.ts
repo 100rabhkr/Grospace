@@ -12,6 +12,17 @@ type UserData = {
   initials: string;
 };
 
+type DemoCookieData = {
+  demoRole: UserData["role"];
+  demoName: string;
+  demoTitle: string;
+  hasDemoRoleCookie: boolean;
+};
+
+let firstOrgIdCache: string | null | undefined;
+let firstOrgIdPromise: Promise<string | null> | null = null;
+const USER_LOOKUP_TIMEOUT_MS = 8000;
+
 function getInitials(name: string): string {
   return name
     .split(" ")
@@ -21,21 +32,55 @@ function getInitials(name: string): string {
     .slice(0, 2);
 }
 
+function withTimeout<T>(promise: PromiseLike<T>, ms: number, fallbackMessage: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeoutId = setTimeout(() => reject(new Error(fallbackMessage)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timeoutId);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      }
+    );
+  });
+}
+
 async function fetchFirstOrgId(): Promise<string | null> {
+  if (firstOrgIdCache !== undefined) {
+    return firstOrgIdCache;
+  }
+  if (firstOrgIdPromise) {
+    return firstOrgIdPromise;
+  }
+
+  firstOrgIdPromise = (async () => {
   try {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
     // Build headers with auth token if available
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const headers: Record<string, string> = {};
     try {
       const supabase = createClient();
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await withTimeout(
+        supabase.auth.getSession(),
+        USER_LOOKUP_TIMEOUT_MS,
+        "Session lookup timed out"
+      );
       if (session?.access_token) {
         headers["Authorization"] = `Bearer ${session.access_token}`;
       }
     } catch {
       // Supabase may not be configured in demo mode — proceed without auth
     }
-    const res = await fetch(`${apiUrl}/api/organizations?page_size=1`, { headers });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), USER_LOOKUP_TIMEOUT_MS);
+    const res = await fetch(`${apiUrl}/api/organizations?page_size=1`, {
+      headers,
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
     if (res.ok) {
       const data = await res.json();
       if (data.items && data.items.length > 0) {
@@ -46,6 +91,29 @@ async function fetchFirstOrgId(): Promise<string | null> {
     // Silently handle — org lookup is best-effort for demo/fallback
   }
   return null;
+  })();
+
+  try {
+    firstOrgIdCache = await firstOrgIdPromise;
+    return firstOrgIdCache;
+  } finally {
+    firstOrgIdPromise = null;
+  }
+}
+
+function readDemoCookies(): DemoCookieData {
+  const cookies = document.cookie.split(";").reduce((acc, c) => {
+    const [k, v] = c.trim().split("=");
+    if (k && v) acc[k] = decodeURIComponent(v);
+    return acc;
+  }, {} as Record<string, string>);
+
+  return {
+    demoRole: (cookies["grospace-demo-role"] || "platform_admin") as UserData["role"],
+    demoName: cookies["grospace-demo-name"] || "Demo Admin",
+    demoTitle: cookies["grospace-demo-title"] || "",
+    hasDemoRoleCookie: Boolean(cookies["grospace-demo-role"]),
+  };
 }
 
 export function useUser() {
@@ -59,29 +127,41 @@ export function useUser() {
       supabaseUrl !== "your-supabase-project-url" &&
       supabaseUrl.startsWith("http");
 
-    async function setDemoUser() {
-      const orgId = await fetchFirstOrgId();
+    function hydrateOrgId(userData: UserData) {
+      if (userData.orgId) {
+        return;
+      }
 
-      // Read role/name from demo cookies (set by tiered login)
-      const cookies = document.cookie.split(";").reduce((acc, c) => {
-        const [k, v] = c.trim().split("=");
-        if (k && v) acc[k] = decodeURIComponent(v);
-        return acc;
-      }, {} as Record<string, string>);
+      void fetchFirstOrgId().then((orgId) => {
+        setUser((prev) => {
+          if (!prev || prev.id !== userData.id) {
+            return prev;
+          }
+          return { ...prev, orgId };
+        });
+      });
+    }
 
-      const demoRole = (cookies["grospace-demo-role"] || "platform_admin") as UserData["role"];
-      const demoName = cookies["grospace-demo-name"] || "Demo Admin";
-      const demoTitle = cookies["grospace-demo-title"] || "";
+    function applyResolvedUser(userData: UserData) {
+      setUser(userData);
+      setLoading(false);
+      hydrateOrgId(userData);
+    }
 
-      setUser({
+    function setDemoUser() {
+      const { demoRole, demoName, demoTitle, hasDemoRoleCookie } = readDemoCookies();
+
+      applyResolvedUser({
         id: "demo-user",
-        email: cookies["grospace-demo-role"] ? `${demoTitle.toLowerCase()}@grospace.in` : "admin@grospace.com",
+        email:
+          hasDemoRoleCookie && demoTitle
+            ? `${demoTitle.toLowerCase().replace(/\s+/g, ".")}@grospace.in`
+            : "admin@grospace.com",
         fullName: demoName,
         role: demoRole,
-        orgId,
+        orgId: null,
         initials: getInitials(demoName),
       });
-      setLoading(false);
     }
 
     if (!isConfigured) {
@@ -94,39 +174,63 @@ export function useUser() {
         const supabase = createClient();
         const {
           data: { user: authUser },
-        } = await supabase.auth.getUser();
+        } = await withTimeout(
+          supabase.auth.getUser(),
+          USER_LOOKUP_TIMEOUT_MS,
+          "User lookup timed out"
+        );
 
         if (!authUser) {
-          await setDemoUser();
+          setDemoUser();
           return;
         }
 
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("full_name, role, org_id")
-          .eq("id", authUser.id)
-          .single();
+        let profile:
+          | {
+              full_name?: string | null;
+              role?: UserData["role"] | null;
+              org_id?: string | null;
+            }
+          | null = null;
+
+        try {
+          const { data } = await withTimeout<{
+            data:
+              | {
+                  full_name?: string | null;
+                  role?: UserData["role"] | null;
+                  org_id?: string | null;
+                }
+              | null;
+          }>(
+            supabase
+              .from("profiles")
+              .select("full_name, role, org_id")
+              .eq("id", authUser.id)
+              .single(),
+            USER_LOOKUP_TIMEOUT_MS,
+            "Profile lookup timed out"
+          );
+          profile = data;
+        } catch {
+          profile = null;
+        }
 
         const fullName =
           profile?.full_name ||
           authUser.email?.split("@")[0] ||
           "User";
 
-        let orgId = profile?.org_id || null;
-        if (!orgId) {
-          orgId = await fetchFirstOrgId();
-        }
-
-        setUser({
+        applyResolvedUser({
           id: authUser.id,
           email: authUser.email || "",
           fullName,
           role: (profile?.role as UserData["role"]) || "org_member",
-          orgId,
+          orgId: profile?.org_id || null,
           initials: getInitials(fullName),
         });
       } catch {
-        await setDemoUser();
+        setDemoUser();
       } finally {
         setLoading(false);
       }

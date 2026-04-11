@@ -5,51 +5,71 @@ CRUD agreements, confirm-and-activate, save-draft endpoints.
 
 import uuid
 import logging
+from functools import lru_cache
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from starlette.requests import Request
 
+from typing import Optional
+
 from core.config import supabase, limiter, log_activity
+from core.dependencies import get_current_user, get_current_user_sync, get_org_filter, require_permission
 from core.models import (
-    ConfirmActivateRequest, UpdateAgreementRequest, SaveDraftRequest,
+    ConfirmActivateRequest, CurrentUser, UpdateAgreementRequest, SaveDraftRequest,
 )
-from core.dependencies import require_permission
-from services.extraction import (
-    get_or_create_demo_org, create_outlet_from_extraction,
-    create_agreement_record, generate_obligations, generate_alerts,
-    get_val, get_num, get_date, get_section,
-)
-from services.sheets_service import write_agreement_to_sheet
+from services.extraction_fields import get_date, get_num, get_section, get_val
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["agreements"])
 
 
+@lru_cache(maxsize=1)
+def _extraction_service():
+    from services import extraction as extraction_service
+
+    return extraction_service
+
+
 @router.get("/agreements", dependencies=[Depends(require_permission("view_agreements"))])
-def list_agreements(
+async def list_agreements(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=500),
+    user: Optional[CurrentUser] = Depends(get_current_user),
 ):
-    """List agreements with outlet info (paginated)."""
+    """List agreements with outlet info (paginated). Scoped to caller's org."""
     offset = (page - 1) * page_size
-    count_result = supabase.table("agreements").select("id", count="exact").execute()
+    org_id = get_org_filter(user)
+
+    count_query = supabase.table("agreements").select("id", count="exact")
+    if org_id:
+        count_query = count_query.eq("org_id", org_id)
+    count_result = count_query.execute()
     total = count_result.count or 0
-    result = supabase.table("agreements").select(
+
+    query = supabase.table("agreements").select(
         "*, outlets(name, city, address, property_type, status)"
-    ).order("created_at", desc=True).range(offset, offset + page_size - 1).execute()
+    )
+    if org_id:
+        query = query.eq("org_id", org_id)
+    result = query.order("created_at", desc=True).range(offset, offset + page_size - 1).execute()
     return {"items": result.data, "total": total, "page": page, "page_size": page_size}
 
 
 @router.get("/agreements/{agreement_id}", dependencies=[Depends(require_permission("view_agreements"))])
-def get_agreement(agreement_id: str):
-    """Get a single agreement with full details."""
+async def get_agreement(agreement_id: str, user: Optional[CurrentUser] = Depends(get_current_user)):
+    """Get a single agreement with full details. 404 if outside caller's org."""
     result = supabase.table("agreements").select("*, outlets(*)").eq("id", agreement_id).single().execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Agreement not found")
 
-    obligations = supabase.table("obligations").select("*").eq("agreement_id", agreement_id).execute()
-    alerts = supabase.table("alerts").select("*").eq("agreement_id", agreement_id).order("trigger_date").execute()
+    # Multi-tenant guard: non-admins can only access their own org
+    org_id = get_org_filter(user)
+    if org_id and result.data.get("org_id") != org_id:
+        raise HTTPException(status_code=404, detail="Agreement not found")
+
+    obligations = supabase.table("obligations").select("*").eq("agreement_id", agreement_id).limit(200).execute()
+    alerts = supabase.table("alerts").select("*").eq("agreement_id", agreement_id).order("trigger_date").limit(200).execute()
 
     return {
         "agreement": result.data,
@@ -59,13 +79,23 @@ def get_agreement(agreement_id: str):
 
 
 @router.patch("/agreements/{agreement_id}", dependencies=[Depends(require_permission("edit_agreements"))])
-def update_agreement(agreement_id: str, body: UpdateAgreementRequest):
-    """Update extracted fields on an agreement (sparse dot-notation merge)."""
-    current = supabase.table("agreements").select("extracted_data").eq("id", agreement_id).single().execute()
+async def update_agreement(
+    agreement_id: str,
+    body: UpdateAgreementRequest,
+    user: Optional[CurrentUser] = Depends(get_current_user),
+):
+    """Update extracted fields on an agreement (sparse dot-notation merge). Org-scoped."""
+    current = supabase.table("agreements").select("extracted_data, org_id").eq("id", agreement_id).single().execute()
     if not current.data:
         raise HTTPException(status_code=404, detail="Agreement not found")
 
+    org_id = get_org_filter(user)
+    if org_id and current.data.get("org_id") != org_id:
+        raise HTTPException(status_code=404, detail="Agreement not found")
+
     extracted = current.data.get("extracted_data") or {}
+    import copy
+    old_extracted = copy.deepcopy(extracted)
 
     if body.field_updates:
         for dot_key, new_val in body.field_updates.items():
@@ -82,23 +112,26 @@ def update_agreement(agreement_id: str, body: UpdateAgreementRequest):
                     else:
                         extracted[section][field] = new_val
 
+    # Mirror edits into denormalized columns on the agreements table.
+    # IMPORTANT: Only keys whose target column actually exists in schema.sql are listed here.
+    # Fields like `revenue_share_pct` and `lock_in_period` live in extracted_data JSON only.
     shortcuts = {}
     shortcut_map = {
         "parties.lessor_name": "lessor_name",
         "parties.lessee_name": "lessee_name",
         "rent.monthly_rent": "monthly_rent",
         "charges.cam_monthly": "cam_monthly",
-        "rent.revenue_share_pct": "revenue_share_pct",
-        "lease_term.lease_start_date": "lease_start_date",
+        "lease_term.lease_commencement_date": "lease_commencement_date",
+        "lease_term.lease_start_date": "lease_commencement_date",  # alias (extraction schema name)
+        "lease_term.rent_commencement_date": "rent_commencement_date",
         "lease_term.lease_expiry_date": "lease_expiry_date",
-        "lease_term.lock_in_period": "lock_in_period",
         "deposits.security_deposit": "security_deposit",
     }
     if body.field_updates:
         for dot_key, new_val in body.field_updates.items():
             if dot_key in shortcut_map:
                 col = shortcut_map[dot_key]
-                if col in ("monthly_rent", "cam_monthly", "security_deposit", "revenue_share_pct"):
+                if col in ("monthly_rent", "cam_monthly", "security_deposit"):
                     try:
                         shortcuts[col] = float(str(new_val).replace(",", ""))
                     except (ValueError, TypeError):
@@ -117,22 +150,42 @@ def update_agreement(agreement_id: str, body: UpdateAgreementRequest):
         agr = result.data[0]
         org_id = agr.get("org_id")
         if org_id:
+            # Build change details with old/new values for audit trail
+            changes = {}
+            for field_key, new_val in body.field_updates.items():
+                old_val = old_extracted.get(field_key.split(".")[-1]) if "." not in field_key else None
+                if "." in field_key:
+                    parts = field_key.split(".")
+                    section = old_extracted.get(parts[0], {})
+                    if isinstance(section, dict):
+                        raw = section.get(parts[1])
+                        old_val = raw.get("value") if isinstance(raw, dict) and "value" in raw else raw
+                changes[field_key] = {"old": old_val, "new": new_val}
             log_activity(org_id, None, "agreement", agreement_id, "fields_edited", {
                 "fields": list(body.field_updates.keys()),
+                "changes": changes,
             })
 
     return {"agreement": result.data[0] if result.data else None}
 
 
 @router.delete("/agreements/{agreement_id}", dependencies=[Depends(require_permission("manage_org_settings"))])
-def delete_agreement(agreement_id: str):
-    """Delete an agreement and all related data (admin only)."""
+async def delete_agreement(
+    agreement_id: str,
+    user: Optional[CurrentUser] = Depends(get_current_user),
+):
+    """Delete an agreement and all related data (admin only). Org-scoped."""
     # Get agreement for audit log
     agreement = supabase.table("agreements").select("org_id, lessor_name, filename, outlet_id").eq("id", agreement_id).single().execute()
     if not agreement.data:
         raise HTTPException(status_code=404, detail="Agreement not found")
 
     org_id = agreement.data["org_id"]
+
+    # Multi-tenant guard: even an org_admin cannot delete another org's agreement
+    user_org = get_org_filter(user)
+    if user_org and org_id != user_org:
+        raise HTTPException(status_code=404, detail="Agreement not found")
 
     # Cascade delete related data
     supabase.table("rent_schedules").delete().eq("agreement_id", agreement_id).execute()
@@ -165,20 +218,32 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
     org_id = req.org_id
     if not org_id:
         # Try to get org_id from the authenticated user's profile
-        auth_header = request.headers.get("authorization", "")
-        if auth_header.startswith("Bearer "):
-            try:
-                from core.config import supabase as sb
-                token = auth_header.split(" ", 1)[1]
-                user_result = sb.auth.get_user(token)
-                if user_result and user_result.user:
-                    profile = sb.table("profiles").select("org_id").eq("id", user_result.user.id).single().execute()
-                    if profile.data and profile.data.get("org_id"):
-                        org_id = profile.data["org_id"]
-            except Exception:
-                pass
+        current_user = get_current_user_sync(request.headers.get("authorization", ""))
+        if current_user and current_user.org_id:
+            org_id = current_user.org_id
     if not org_id:
-        org_id = get_or_create_demo_org()
+        org_id = _extraction_service().get_or_create_demo_org()
+
+    # When the caller passed an existing outlet_id (upload initiated from an
+    # outlet's detail page), look it up first and reuse it for both the RPC
+    # path and the sequential fallback — we do NOT want to create a new outlet.
+    existing_outlet_row = None
+    if req.existing_outlet_id:
+        try:
+            lookup = supabase.table("outlets").select(
+                "id, org_id, name, city, state, property_type, brand_name"
+            ).eq("id", req.existing_outlet_id).single().execute()
+            if lookup.data:
+                # Validate the outlet belongs to the caller's org
+                if lookup.data.get("org_id") == org_id:
+                    existing_outlet_row = lookup.data
+                else:
+                    logger.warning(
+                        "existing_outlet_id %s belongs to different org, ignoring",
+                        req.existing_outlet_id,
+                    )
+        except Exception as e:
+            logger.warning("existing_outlet_id lookup failed: %s", e)
 
     # Prepare all data objects upfront
     from services.extraction import (
@@ -187,6 +252,15 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
     )
 
     outlet_data = build_outlet_data(req.extraction, org_id)
+    # If we have a valid existing outlet, pin the id so build_outlet_data
+    # merges into that record instead of creating a new one.
+    if existing_outlet_row:
+        outlet_data["id"] = existing_outlet_row["id"]
+        # Preserve fields the user already set that shouldn't be overwritten
+        # by extraction defaults — if the extraction returns a name we keep
+        # the original outlet name.
+        if existing_outlet_row.get("name"):
+            outlet_data["name"] = existing_outlet_row["name"]
     agreement_data = build_agreement_data(
         req.extraction, req.document_type, req.risk_flags, req.confidence,
         req.filename, org_id, req.document_text, req.document_url, req.file_hash,
@@ -217,8 +291,15 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
         },
     }
 
-    # Try transactional RPC first (requires migration_015)
+    # Try transactional RPC first (requires migration_015).
+    # When the caller passed an existing_outlet_id we deliberately skip the
+    # RPC — `confirm_and_activate_tx` unconditionally inserts a new outlet
+    # row, which would create a duplicate. The sequential fallback below
+    # reuses the pinned outlet id instead.
+    skip_rpc = existing_outlet_row is not None
     try:
+        if skip_rpc:
+            raise RuntimeError("confirm_and_activate_tx: skipped (existing_outlet_id provided)")
         result = supabase.rpc("confirm_and_activate_tx", {
             "p_outlet": outlet_data,
             "p_agreement": agreement_data,
@@ -234,15 +315,69 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
         obligations_created = tx_result["obligations_created"]
         alerts_created = tx_result["alerts_created"]
 
+        # RPC path does not populate critical dates, rent schedules, or
+        # clauses — call them here so the event system is fully seeded.
+        try:
+            from routes.critical_dates import (
+                populate_critical_dates_from_extraction,
+                back_link_alerts_and_obligations_to_events,
+                materialize_payment_schedules_for_agreement,
+            )
+            populate_critical_dates_from_extraction(
+                agreement_id, org_id, outlet_id, req.extraction,
+            )
+            # Back-link alerts/obligations created by the RPC to matching events
+            # so the Event → Reminder + Payment model is honored end-to-end.
+            back_link_alerts_and_obligations_to_events(agreement_id)
+            # Materialize 12 months of payment_records for every recurring
+            # obligation created by the RPC. Users should never need to hit
+            # "Generate Payments" — Events are the only creation layer and
+            # payment schedules fall out automatically. Per the locked model.
+            materialize_payment_schedules_for_agreement(agreement_id)
+        except Exception as e:
+            logger.warning("RPC path: failed to populate critical dates: %s", e)
+
+        try:
+            from routes.rent_schedules import populate_rent_schedule_from_extraction
+            rent_section = get_section(req.extraction, "rent")
+            rent_sched = get_val(rent_section.get("rent_schedule")) if rent_section else None
+            lease_term_s = get_section(req.extraction, "lease_term")
+            lc_date = get_val(lease_term_s.get("lease_commencement_date")) if lease_term_s else None
+            le_date = get_val(lease_term_s.get("lease_expiry_date")) if lease_term_s else None
+            if isinstance(rent_sched, list) and len(rent_sched) > 0:
+                populate_rent_schedule_from_extraction(
+                    agreement_id, org_id, rent_sched,
+                    lease_commencement=lc_date if isinstance(lc_date, str) else None,
+                    lease_expiry=le_date if isinstance(le_date, str) else None,
+                )
+        except Exception as e:
+            logger.warning("RPC path: failed to populate rent schedule: %s", e)
+
+        try:
+            from routes.india_compliance import populate_clauses_from_extraction
+            populate_clauses_from_extraction(agreement_id, org_id, req.extraction)
+        except Exception as e:
+            logger.warning("RPC path: failed to extract clauses: %s", e)
+
     except Exception as rpc_err:
         if "confirm_and_activate_tx" in str(rpc_err):
-            # Migration not run yet — fall back to sequential inserts
-            logger.warning("confirm_and_activate_tx RPC not found, using sequential fallback")
+            # Migration not run yet OR we deliberately skipped (existing outlet).
+            # Use sequential inserts.
+            if skip_rpc:
+                logger.info("sequential path: attaching to existing outlet %s", existing_outlet_row["id"])
+            else:
+                logger.warning("confirm_and_activate_tx RPC not found, using sequential fallback")
             outlet_id = None
             agreement_id = None
             try:
-                outlet_id = create_outlet_from_extraction(req.extraction, org_id)
-                agreement_id = create_agreement_record(
+                extraction_service = _extraction_service()
+                # Reuse existing outlet if caller provided one, otherwise
+                # create a new outlet from extraction data.
+                if existing_outlet_row is not None:
+                    outlet_id = existing_outlet_row["id"]
+                else:
+                    outlet_id = extraction_service.create_outlet_from_extraction(req.extraction, org_id)
+                agreement_id = extraction_service.create_agreement_record(
                     extraction=req.extraction, doc_type=req.document_type,
                     risk_flags=req.risk_flags, confidence=req.confidence,
                     filename=req.filename, org_id=org_id, outlet_id=outlet_id,
@@ -258,8 +393,8 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
                         }).execute()
                     except Exception:
                         pass
-                obligations = generate_obligations(req.extraction, agreement_id, outlet_id, org_id)
-                alerts = generate_alerts(req.extraction, agreement_id, outlet_id, org_id)
+                obligations = extraction_service.generate_obligations(req.extraction, agreement_id, outlet_id, org_id)
+                alerts = extraction_service.generate_alerts(req.extraction, agreement_id, outlet_id, org_id)
 
                 # Auto-populate rent schedule from extracted rent_schedule array
                 try:
@@ -280,10 +415,20 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
 
                 # Auto-populate critical dates from extraction
                 try:
-                    from routes.critical_dates import populate_critical_dates_from_extraction
+                    from routes.critical_dates import (
+                        populate_critical_dates_from_extraction,
+                        back_link_alerts_and_obligations_to_events,
+                        materialize_payment_schedules_for_agreement,
+                    )
                     populate_critical_dates_from_extraction(
                         agreement_id, org_id, outlet_id, req.extraction,
                     )
+                    # Back-link alerts/obligations to matching events
+                    back_link_alerts_and_obligations_to_events(agreement_id)
+                    # Materialize 12 months of payment_records for every recurring
+                    # obligation. See note in the RPC branch above — Events are
+                    # the only creation layer, payments fall out automatically.
+                    materialize_payment_schedules_for_agreement(agreement_id)
                 except Exception as e:
                     logger.warning(f"Failed to populate critical dates: {e}")
 
@@ -309,6 +454,9 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
                 # Manual rollback for sequential path
                 try:
                     if agreement_id:
+                        supabase.table("critical_dates").delete().eq("agreement_id", agreement_id).execute()
+                        supabase.table("rent_schedules").delete().eq("agreement_id", agreement_id).execute()
+                        supabase.table("agreement_clauses").delete().eq("agreement_id", agreement_id).execute()
                         supabase.table("obligations").delete().eq("agreement_id", agreement_id).execute()
                         supabase.table("alerts").delete().eq("agreement_id", agreement_id).execute()
                         supabase.table("agreements").delete().eq("id", agreement_id).execute()
@@ -317,7 +465,7 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
                         if not other.data:
                             supabase.table("outlets").delete().eq("id", outlet_id).execute()
                 except Exception:
-                    pass
+                    logger.error("Rollback cleanup failed for agreement %s", agreement_id)
                 raise HTTPException(status_code=500, detail=str(e))
         else:
             raise HTTPException(status_code=500, detail=str(rpc_err))
@@ -325,8 +473,8 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
     # Get uploader name for sheets
     uploader_name = None
     try:
-        if 'user_result' in dir() and user_result and user_result.user:
-            profile = supabase.table("profiles").select("full_name, email").eq("id", user_result.user.id).single().execute()
+        if current_user and current_user.user_id:
+            profile = supabase.table("profiles").select("full_name, email").eq("id", current_user.user_id).single().execute()
             if profile.data:
                 uploader_name = profile.data.get("full_name") or profile.data.get("email")
     except Exception:
@@ -353,6 +501,8 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
         cam = get_num(charges.get("cam_monthly"))
         sec_dep = get_num(deposits.get("security_deposit_amount"))
         total_outflow = (m_rent or 0) + (cam or 0)
+
+        from services.sheets_service import write_agreement_to_sheet
 
         write_agreement_to_sheet(
             agreement_id=agreement_id,
@@ -394,79 +544,138 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
 
 @router.post("/agreements/create-draft", dependencies=[Depends(require_permission("edit_agreements"))])
 def create_draft(body: ConfirmActivateRequest, request: Request):
-    """Create a new draft agreement without creating outlet, obligations, or alerts."""
+    """
+    Pre-sign draft flow. Per the locked model:
+        "Draft Lease / LOI → Upload → OCR + review → Risk analysis → NO outlet creation"
+
+    This endpoint stores the extraction + risk flags in the dedicated
+    `lease_drafts` table WITHOUT touching outlets or agreements. Drafts can
+    later be promoted to a real outlet+agreement via confirm-and-activate,
+    which is when the system actually commits to the deal.
+    """
     try:
         org_id = body.org_id
         if not org_id:
-            # Try to get org_id from authenticated user
-            auth_header = request.headers.get("authorization", "")
-            if auth_header.startswith("Bearer "):
-                try:
-                    token = auth_header.split(" ", 1)[1]
-                    user_result = supabase.auth.get_user(token)
-                    if user_result and user_result.user:
-                        profile = supabase.table("profiles").select("org_id").eq("id", user_result.user.id).single().execute()
-                        if profile.data and profile.data.get("org_id"):
-                            org_id = profile.data["org_id"]
-                except Exception as e:
-                    logger.warning(f"Failed to extract org_id from token: {e}")
+            current_user = get_current_user_sync(request.headers.get("authorization", ""))
+            org_id = current_user.org_id if current_user else None
         if not org_id:
-            org_id = get_or_create_demo_org()
+            org_id = _extraction_service().get_or_create_demo_org()
         extraction = body.extraction or {}
 
-        # Create a minimal placeholder outlet for the draft (outlet_id is NOT NULL in agreements)
-        from services.extraction import get_val, get_section
         premises = get_section(extraction, "premises")
         parties = get_section(extraction, "parties")
-        outlet_id = str(uuid.uuid4())
-        minimal_outlet = {
-            "id": outlet_id,
-            "org_id": org_id,
-            "name": get_val(premises.get("property_name")) or get_val(parties.get("brand_name")) or "Draft Outlet",
-            "status": "fit_out",
-        }
-        supabase.table("outlets").insert(minimal_outlet).execute()
+        title = (
+            get_val(premises.get("property_name"))
+            or get_val(parties.get("brand_name"))
+            or body.filename
+            or "Untitled draft"
+        )
 
-        # Create a minimal agreement record in draft status
-        agreement_data = {
+        draft_row = {
             "id": str(uuid.uuid4()),
             "org_id": org_id,
-            "outlet_id": outlet_id,
-            "type": body.document_type or "lease_loi",
+            "title": title,
+            "document_type": body.document_type or "lease_loi",
+            "document_filename": body.filename,
+            "document_url": body.document_url,
+            "document_text": body.document_text,
+            "file_hash": body.file_hash,
             "extracted_data": extraction,
             "risk_flags": [rf.dict() if hasattr(rf, "dict") else rf for rf in (body.risk_flags or [])],
             "extraction_confidence": body.confidence or {},
-            "document_filename": body.filename or "unknown",
-            "document_text": body.document_text,
-            "document_url": body.document_url,
-            "file_hash": body.file_hash,
+            "linked_outlet_id": body.existing_outlet_id,
             "status": "draft",
         }
+        clean = {k: v for k, v in draft_row.items() if v is not None}
 
-        # Clean None values
-        clean = {k: v for k, v in agreement_data.items() if v is not None}
-        result = supabase.table("agreements").insert(clean).execute()
-
-        agreement_id = result.data[0]["id"] if result.data else clean["id"]
+        try:
+            result = supabase.table("lease_drafts").insert(clean).execute()
+            draft_id = result.data[0]["id"] if result.data else clean["id"]
+        except Exception as e:
+            # If migration_029 hasn't been applied yet, fall back to the
+            # legacy placeholder-outlet path so drafts aren't silently lost.
+            # The caller will see a warning in the response.
+            logger.warning("lease_drafts table unavailable, using legacy fallback: %s", e)
+            outlet_id = str(uuid.uuid4())
+            supabase.table("outlets").insert({
+                "id": outlet_id,
+                "org_id": org_id,
+                "name": f"[DRAFT] {title}",
+                "status": "pipeline",
+            }).execute()
+            agreement_data = {
+                "id": str(uuid.uuid4()),
+                "org_id": org_id,
+                "outlet_id": outlet_id,
+                "type": body.document_type or "lease_loi",
+                "extracted_data": extraction,
+                "risk_flags": [rf.dict() if hasattr(rf, "dict") else rf for rf in (body.risk_flags or [])],
+                "extraction_confidence": body.confidence or {},
+                "document_filename": body.filename or "unknown",
+                "document_text": body.document_text,
+                "document_url": body.document_url,
+                "file_hash": body.file_hash,
+                "status": "draft",
+            }
+            clean_ag = {k: v for k, v in agreement_data.items() if v is not None}
+            ag_result = supabase.table("agreements").insert(clean_ag).execute()
+            draft_id = ag_result.data[0]["id"] if ag_result.data else clean_ag["id"]
 
         log_activity(
             org_id=org_id,
             user_id=None,
-            entity_type="agreement",
-            entity_id=agreement_id,
+            entity_type="draft",
+            entity_id=draft_id,
             action="create_draft",
-            details={"agreement_id": agreement_id, "filename": body.filename},
+            details={"draft_id": draft_id, "filename": body.filename, "title": title},
         )
 
         return {
             "status": "draft_saved",
-            "agreement_id": agreement_id,
-            "message": "Draft saved successfully. You can find it in Agreements with 'Draft' status.",
+            "draft_id": draft_id,
+            # Kept for backwards-compat with the frontend which reads agreement_id:
+            "agreement_id": draft_id,
+            "message": "Draft saved. Find it in Pipeline → Drafts. Outlet will be created only when you activate.",
         }
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save draft: {str(e)}")
+
+
+@router.get("/lease-drafts", dependencies=[Depends(require_permission("view_agreements"))])
+def list_lease_drafts(request: Request, status: str = "draft"):
+    """List pre-sign drafts for the caller's org (default: only active drafts)."""
+    current_user = get_current_user_sync(request.headers.get("authorization", ""))
+    try:
+        query = supabase.table("lease_drafts").select("*").order("created_at", desc=True)
+        if current_user and current_user.org_id:
+            query = query.eq("org_id", current_user.org_id)
+        if status != "all":
+            query = query.eq("status", status)
+        result = query.execute()
+        return {"drafts": result.data or []}
+    except Exception:
+        # Migration not applied yet — return empty instead of 500
+        return {"drafts": [], "warning": "lease_drafts table unavailable; migration_029 not applied"}
+
+
+@router.delete("/lease-drafts/{draft_id}", dependencies=[Depends(require_permission("delete_agreements"))])
+def delete_lease_draft(draft_id: str, request: Request):
+    """Discard a pre-sign draft. Never touches outlets or agreements."""
+    current_user = get_current_user_sync(request.headers.get("authorization", ""))
+    try:
+        query = supabase.table("lease_drafts").select("id, org_id").eq("id", draft_id).single().execute()
+        if not query.data:
+            raise HTTPException(status_code=404, detail="Draft not found")
+        if current_user and current_user.org_id and query.data.get("org_id") != current_user.org_id:
+            raise HTTPException(status_code=404, detail="Draft not found")
+        supabase.table("lease_drafts").delete().eq("id", draft_id).execute()
+        return {"deleted": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete draft: {str(e)}")
 
 
 @router.patch("/agreements/{agreement_id}/save-draft", dependencies=[Depends(require_permission("edit_agreements"))])

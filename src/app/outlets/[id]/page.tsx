@@ -121,8 +121,11 @@ interface Obligation {
   amount: number;
   frequency?: string;
   due_date?: string;
+  start_date?: string;
   status?: string;
+  is_active?: boolean;
   agreement_id?: string;
+  notes?: string;
 }
 
 interface AlertItem {
@@ -154,6 +157,10 @@ interface OutletDetail {
   monthly_net_revenue: number | null;
   revenue_updated_at: string | null;
   profile_photo_url?: string | null;
+  business_category?: string | null;
+  company_name?: string | null;
+  carpet_area_sqft?: number | null;
+  notes?: string | null;
 }
 
 interface OutletDocument {
@@ -206,6 +213,9 @@ const DOCUMENT_CATEGORIES = [
   { value: "layout_plan", label: "Layout Plan / Floor Plan" },
   { value: "license", label: "License / Certificate" },
   { value: "noc", label: "NOC / Approval" },
+  { value: "photos", label: "Photos" },
+  { value: "insurance", label: "Insurance Documents" },
+  { value: "compliance", label: "Compliance / Regulatory" },
   { value: "other", label: "Other" },
 ];
 
@@ -353,8 +363,13 @@ export default function OutletDetailPage() {
   // Reminder creation state
   const [showCreateReminder, setShowCreateReminder] = useState(false);
   const [showCreateEvent, setShowCreateEvent] = useState(false);
-  const [eventForm, setEventForm] = useState({ title: "", event_type: "custom", date_value: "", priority: "medium", description: "" });
+  const [eventForm, setEventForm] = useState({
+    title: "", event_type: "custom", date_value: "", priority: "medium",
+    description: "", amount: "", is_financial: false, is_recurring: false,
+    recurrence_frequency: "monthly",
+  });
   const [eventSaving, setEventSaving] = useState(false);
+  const [eventCreatedMessage, setEventCreatedMessage] = useState("");
   const [reminderForm, setReminderForm] = useState({ title: "", message: "", trigger_date: "", severity: "medium" });
   const [reminderSaving, setReminderSaving] = useState(false);
 
@@ -365,7 +380,7 @@ export default function OutletDetailPage() {
 
   // Edit outlet state
   const [showEditOutlet, setShowEditOutlet] = useState(false);
-  const [editOutletData, setEditOutletData] = useState({ name: "", city: "", address: "", property_type: "", floor: "", unit_number: "" });
+  const [editOutletData, setEditOutletData] = useState({ name: "", city: "", address: "", property_type: "", floor: "", unit_number: "", business_category: "", company_name: "" });
 
   const fetchContacts = useCallback(async () => {
     if (!outletId) return;
@@ -477,6 +492,8 @@ export default function OutletDetailPage() {
         property_type: data.outlet.property_type || "",
         floor: data.outlet.floor || "",
         unit_number: data.outlet.unit_number || "",
+        business_category: data.outlet.business_category || "",
+        company_name: data.outlet.company_name || "",
       });
     }
   }, [data?.outlet]);
@@ -492,7 +509,8 @@ export default function OutletDetailPage() {
         outlet: { ...prev.outlet, monthly_net_revenue: value, revenue_updated_at: new Date().toISOString() },
       } : prev);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save revenue");
+      console.error("Revenue save failed:", err);
+      alert(err instanceof Error ? err.message : "Failed to save revenue");
     } finally {
       setRevenueSaving(false);
     }
@@ -619,7 +637,7 @@ export default function OutletDetailPage() {
     return (
       <div className="flex flex-col items-center justify-center h-96 gap-4">
         <AlertTriangle className="h-10 w-10 text-rose-500" />
-        <h1 className="text-xl font-semibold text-foreground">
+        <h1 className="text-[17px] font-semibold text-foreground tracking-tight">
           {error || "Outlet not found"}
         </h1>
         <p className="text-sm text-muted-foreground">
@@ -699,7 +717,7 @@ export default function OutletDetailPage() {
           </label>
           <div>
             <div className="flex items-center gap-3">
-              <h1 className="text-xl font-semibold tracking-tight">{outlet.name}</h1>
+              <h1 className="text-[17px] font-semibold tracking-tight text-foreground">{outlet.name}</h1>
               {outlet.site_code && (
                 <span className="font-mono text-xs bg-muted text-muted-foreground px-2 py-1 rounded border border-border">
                   {outlet.site_code}
@@ -722,19 +740,30 @@ export default function OutletDetailPage() {
               <Badge variant="outline" className="border-border text-foreground">
                 {propertyTypeLabel(outlet.property_type)}
               </Badge>
-              {outlet.floor && (
-                <Badge variant="outline" className="border-border text-foreground">
-                  {outlet.floor}
-                </Badge>
-              )}
-              {outlet.unit_number && (
-                <Badge variant="outline" className="border-border text-foreground">
-                  Unit {outlet.unit_number}
-                </Badge>
-              )}
               <Badge variant="outline" className="border-border text-foreground">
                 {outlet.franchise_model}
               </Badge>
+              {outlet.super_area_sqft > 0 && (
+                <Badge variant="outline" className="border-border text-foreground">
+                  {outlet.super_area_sqft.toLocaleString("en-IN")} sqft
+                </Badge>
+              )}
+              {outlet.business_category && (
+                <Badge variant="outline" className="border-blue-200 text-blue-700 bg-blue-50">
+                  {outlet.business_category.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}
+                </Badge>
+              )}
+              {outlet.company_name && (
+                <Badge variant="outline" className="border-border text-muted-foreground">
+                  {outlet.company_name}
+                </Badge>
+              )}
+              {agreements[0]?.lease_expiry_date && (() => {
+                const months = Math.ceil((new Date(agreements[0].lease_expiry_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24 * 30));
+                if (months <= 0) return <Badge className="bg-rose-100 text-rose-700 border-0 text-xs">Lease Expired</Badge>;
+                const color = months < 3 ? "bg-rose-100 text-rose-700" : months < 12 ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700";
+                return <Badge className={`${color} border-0 text-xs`}>{months < 12 ? `${months}mo left` : `${Math.round(months / 12)}yr ${months % 12}mo left`}</Badge>;
+              })()}
             </div>
           </div>
         </div>
@@ -889,7 +918,7 @@ export default function OutletDetailPage() {
               {agreements[0]?.lessor_name && (
                 <div className="flex items-center gap-3 p-3 rounded-xl bg-muted border border-border">
                   <div className="w-9 h-9 rounded-full bg-neutral-50 flex items-center justify-center flex-shrink-0">
-                    <span className="text-xs font-bold text-neutral-900">{agreements[0].lessor_name.charAt(0).toUpperCase()}</span>
+                    <span className="text-xs font-semibold text-neutral-900">{agreements[0].lessor_name.charAt(0).toUpperCase()}</span>
                   </div>
                   <div className="min-w-0">
                     <p className="text-xs font-semibold text-foreground truncate">{agreements[0].lessor_name}</p>
@@ -901,7 +930,7 @@ export default function OutletDetailPage() {
               {agreements[0]?.lessee_name && (
                 <div className="flex items-center gap-3 p-3 rounded-xl bg-muted border border-border">
                   <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
-                    <span className="text-xs font-bold text-foreground">{agreements[0].lessee_name.charAt(0).toUpperCase()}</span>
+                    <span className="text-xs font-semibold text-foreground">{agreements[0].lessee_name.charAt(0).toUpperCase()}</span>
                   </div>
                   <div className="min-w-0">
                     <p className="text-xs font-semibold text-foreground truncate">{agreements[0].lessee_name}</p>
@@ -913,7 +942,7 @@ export default function OutletDetailPage() {
               {contacts.slice(0, 4).map((c) => (
                 <div key={c.id} className="flex items-center gap-3 p-3 rounded-xl bg-muted border border-border">
                   <div className="w-9 h-9 rounded-full bg-neutral-50 flex items-center justify-center flex-shrink-0">
-                    <span className="text-xs font-bold text-neutral-700">{c.name.charAt(0).toUpperCase()}</span>
+                    <span className="text-xs font-semibold text-neutral-700">{c.name.charAt(0).toUpperCase()}</span>
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="text-xs font-semibold text-foreground truncate">{c.name}</p>
@@ -936,6 +965,35 @@ export default function OutletDetailPage() {
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* ----------------------------------------------------------------- */}
+      {/* ASSIGNED PROPERTY MANAGER                                         */}
+      {/* ----------------------------------------------------------------- */}
+      {contacts.length > 0 && (
+        <div className="flex items-center gap-3 px-4 py-2.5 rounded-lg border border-border bg-card">
+          <span className="text-xs text-muted-foreground font-medium">Assigned Manager:</span>
+          <Select
+            value={contacts.find(c => c.designation === "Property Manager")?.name || "unassigned"}
+            onValueChange={async (name) => {
+              if (name === "unassigned") return;
+              const contact = contacts.find(c => c.name === name);
+              if (contact) {
+                try { await updateOutlet(outletId, { assigned_to: contact.name } as Record<string, unknown>); } catch { /* silent */ }
+              }
+            }}
+          >
+            <SelectTrigger className="w-[200px] h-8 text-xs">
+              <SelectValue placeholder="Select manager" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="unassigned">Unassigned</SelectItem>
+              {contacts.map(c => (
+                <SelectItem key={c.id} value={c.name}>{c.name} — {c.designation || "Team"}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       )}
 
       {/* ----------------------------------------------------------------- */}
@@ -982,7 +1040,7 @@ export default function OutletDetailPage() {
               <div className="font-medium">{outlet.unit_number || "--"}</div>
             </div>
             <div>
-              <span className="text-muted-foreground text-xs">Super Area</span>
+              <span className="text-muted-foreground text-xs">Super Area (Total)</span>
               <div className="font-medium">
                 {outlet.super_area_sqft
                   ? `${outlet.super_area_sqft.toLocaleString("en-IN")} sqft`
@@ -990,11 +1048,16 @@ export default function OutletDetailPage() {
               </div>
             </div>
             <div>
-              <span className="text-muted-foreground text-xs">Covered Area</span>
+              <span className="text-muted-foreground text-xs">Covered Area (Usable)</span>
               <div className="font-medium">
                 {outlet.covered_area_sqft
                   ? `${outlet.covered_area_sqft.toLocaleString("en-IN")} sqft`
                   : "--"}
+                {outlet.super_area_sqft > 0 && outlet.covered_area_sqft > 0 && (
+                  <span className="text-[10px] text-muted-foreground ml-1">
+                    ({((outlet.covered_area_sqft / outlet.super_area_sqft) * 100).toFixed(0)}% of super)
+                  </span>
+                )}
               </div>
             </div>
             <div>
@@ -1013,7 +1076,49 @@ export default function OutletDetailPage() {
         </CardContent>
       </Card>
 
-      {/* Photos section removed — use Document Storage instead */}
+      {/* ----------------------------------------------------------------- */}
+      {/* NOTES SECTION                                                     */}
+      {/* ----------------------------------------------------------------- */}
+      <Card className="border-border">
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <FileText className="h-4 w-4" />
+            Notes
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <textarea
+            className="w-full min-h-[80px] rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-y"
+            placeholder="Add notes about this outlet..."
+            defaultValue={outlet.notes || ""}
+            onBlur={async (e) => {
+              const val = e.target.value;
+              if (val !== (outlet.notes || "")) {
+                try {
+                  await updateOutlet(outletId, { notes: val });
+                } catch { /* silent */ }
+              }
+            }}
+          />
+        </CardContent>
+      </Card>
+
+      {/* Show upload prompt when no agreements exist */}
+      {agreements.length === 0 && (
+        <Card className="border-dashed border-2 border-muted-foreground/20">
+          <CardContent className="py-8 text-center">
+            <Upload className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
+            <p className="text-sm font-medium text-muted-foreground mb-1">No lease document uploaded yet</p>
+            <p className="text-xs text-muted-foreground/60 mb-3">Upload a lease agreement to see rent model, events, payments, and financial details.</p>
+            <Link href={`/agreements/upload?outlet_id=${outlet.id}`}>
+              <Button size="sm" className="gap-1.5">
+                <Upload className="h-3.5 w-3.5" />
+                Upload Lease Document
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
+      )}
 
       {/* ----------------------------------------------------------------- */}
       {/* REVENUE INPUT                                                     */}
@@ -1101,6 +1206,47 @@ export default function OutletDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* ----------------------------------------------------------------- */}
+      {/* REVENUE INSIGHTS                                                 */}
+      {/* ----------------------------------------------------------------- */}
+      {agreements.length > 0 && outlet.monthly_net_revenue && outlet.monthly_net_revenue > 0 && (
+        <Card className="border-border">
+          <CardContent className="pt-5 pb-4">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-3">Revenue Insights</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div>
+                <p className="text-xs text-muted-foreground">Monthly Revenue</p>
+                <p className="text-lg font-semibold tabular-nums">{formatCurrency(outlet.monthly_net_revenue)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Monthly Rent</p>
+                <p className="text-lg font-semibold tabular-nums">{agreements[0]?.monthly_rent ? formatCurrency(agreements[0].monthly_rent) : "--"}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Rent-to-Revenue</p>
+                <p className={`text-lg font-semibold tabular-nums ${
+                  agreements[0]?.monthly_rent && outlet.monthly_net_revenue > 0
+                    ? ((agreements[0].monthly_rent / outlet.monthly_net_revenue) * 100 < 12 ? "text-emerald-700" : (agreements[0].monthly_rent / outlet.monthly_net_revenue) * 100 < 18 ? "text-amber-700" : "text-rose-700")
+                    : ""
+                }`}>
+                  {agreements[0]?.monthly_rent && outlet.monthly_net_revenue > 0
+                    ? `${((agreements[0].monthly_rent / outlet.monthly_net_revenue) * 100).toFixed(1)}%`
+                    : "--"}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Net Margin</p>
+                <p className="text-lg font-semibold tabular-nums">
+                  {agreements[0]?.monthly_rent
+                    ? formatCurrency(outlet.monthly_net_revenue - agreements[0].monthly_rent)
+                    : "--"}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* ----------------------------------------------------------------- */}
       {/* CSV UPLOAD DIALOG                                                */}
@@ -1614,8 +1760,59 @@ export default function OutletDetailPage() {
       )}
 
       {/* ----------------------------------------------------------------- */}
+      {/* LICENSE & COMPLIANCE                                              */}
+      {/* ----------------------------------------------------------------- */}
+      {agreements.length > 0 && (
+        <Card className="border-border">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <ShieldAlert className="h-4 w-4" />
+              License & Compliance
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div>
+                <p className="text-xs text-muted-foreground">Lease Expiry</p>
+                <p className="text-sm font-medium">{agreements[0]?.lease_expiry_date ? formatDate(agreements[0].lease_expiry_date) : "--"}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Agreement Type</p>
+                <p className="text-sm font-medium">{agreements[0]?.type ? agreementTypeLabel(agreements[0].type) : "--"}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Status</p>
+                <Badge variant="outline" className={`text-xs ${statusColor(agreements[0]?.status || "")}`}>
+                  {statusLabel(agreements[0]?.status || "unknown")}
+                </Badge>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Risk Flags</p>
+                <p className="text-sm font-medium">{agreements[0]?.risk_flags?.length || 0} flags</p>
+              </div>
+            </div>
+            {agreements[0]?.lease_expiry_date && (() => {
+              const months = Math.ceil((new Date(agreements[0].lease_expiry_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24 * 30));
+              if (months <= 6) return (
+                <div className="mt-3 p-2 rounded-md bg-amber-50 border border-amber-200 text-xs text-amber-700">
+                  Lease expiring in {months <= 0 ? "expired" : `${months} month${months !== 1 ? "s" : ""}`} — consider renewal planning.
+                </div>
+              );
+              return null;
+            })()}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ----------------------------------------------------------------- */}
       {/* EVENTS TABLE                                                      */}
       {/* ----------------------------------------------------------------- */}
+      {eventCreatedMessage && (
+        <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800">
+          <svg className="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" /></svg>
+          {eventCreatedMessage}
+        </div>
+      )}
       <Card className="border-border">
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
@@ -1633,86 +1830,106 @@ export default function OutletDetailPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {obligations.length === 0 ? (
-            <div className="text-sm text-muted-foreground py-4 text-center">
-              No events recorded for this outlet.
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-muted hover:bg-muted">
-                    <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                      Type
-                    </TableHead>
-                    <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wide text-right">
-                      Amount
-                    </TableHead>
-                    <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                      Frequency
-                    </TableHead>
-                    <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                      Due Date
-                    </TableHead>
-                    <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                      Status
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {obligations.map((obl) => (
-                    <TableRow key={obl.id} className="hover:bg-muted transition-colors">
-                      <TableCell className="text-sm font-medium">
-                        {obligationTypeLabel(obl.type)}
-                      </TableCell>
-                      <TableCell className="text-sm font-semibold text-right">
-                        {obl.amount > 0 ? formatCurrency(obl.amount) : "--"}
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {obl.frequency
-                          ? obl.frequency.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
-                          : "--"}
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {obl.due_date ? formatDate(obl.due_date) : "--"}
-                      </TableCell>
-                      <TableCell>
-                        {obl.status ? (
-                          <Badge className={`${statusColor(obl.status)} border-0 text-xs font-medium`}>
-                            {statusLabel(obl.status)}
-                          </Badge>
-                        ) : (
-                          <span className="text-sm text-muted-foreground">--</span>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-          {/* Critical Dates / Custom Events */}
-          {(data?.criticalDates || []).length > 0 && (
-            <div className="mt-4 space-y-2">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Custom Events</p>
-              {(data?.criticalDates || []).map((cd: Record<string, unknown>) => (
-                <div key={cd.id as string} className="flex items-center gap-3 p-3 rounded-lg bg-muted border border-border">
-                  <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                    cd.priority === "critical" ? "bg-rose-500" : cd.priority === "high" ? "bg-amber-500" : "bg-blue-400"
-                  }`} />
-                  <div className="flex-1 min-w-0">
-                    <span className="text-sm font-semibold">{cd.label as string}</span>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <Badge variant="outline" className="text-[10px]">{((cd.event_type as string) || "custom").replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}</Badge>
-                      <span className="text-xs text-muted-foreground">{cd.date_value as string}</span>
-                      <Badge variant="outline" className="text-[10px]">{(cd.task_status as string) || "pending"}</Badge>
-                    </div>
-                    {cd.notes ? <p className="text-xs text-muted-foreground mt-1">{String(cd.notes)}</p> : null}
-                  </div>
+          {(() => {
+            // Merge obligations (auto from agreement) + criticalDates (events) into unified list
+            const allEvents = [
+              ...obligations.map((obl) => ({
+                id: obl.id,
+                label: obligationTypeLabel(obl.type),
+                event_type: obl.type,
+                amount: obl.amount,
+                frequency: obl.frequency,
+                date: obl.due_date || obl.start_date,
+                status: obl.status || (obl.is_active ? "active" : "inactive"),
+                source: "agreement" as const,
+                is_financial: true,
+                priority: "medium" as string,
+                notes: obl.notes,
+              })),
+              ...(data?.criticalDates || []).map((cd: Record<string, unknown>) => ({
+                id: cd.id as string,
+                label: cd.label as string,
+                event_type: (cd.event_type as string) || "custom",
+                amount: cd.amount as number | null,
+                frequency: cd.is_recurring ? (cd.recurrence_frequency as string) || "one_time" : "one_time",
+                date: cd.date_value as string,
+                status: (cd.task_status as string) || "pending",
+                source: "event" as const,
+                is_financial: (cd.is_financial as boolean) || false,
+                priority: (cd.priority as string) || "medium",
+                notes: cd.notes as string | null,
+              })),
+            ].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+
+            if (allEvents.length === 0) {
+              return (
+                <div className="text-sm text-muted-foreground py-4 text-center">
+                  No events recorded for this outlet. Create an event to auto-generate reminders and payments.
                 </div>
-              ))}
-            </div>
-          )}
+              );
+            }
+
+            return (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted hover:bg-muted">
+                      <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Event</TableHead>
+                      <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Type</TableHead>
+                      <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wide text-right">Amount</TableHead>
+                      <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Frequency</TableHead>
+                      <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Date</TableHead>
+                      <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Status</TableHead>
+                      <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Source</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {allEvents.map((evt) => (
+                      <TableRow key={evt.id} className="hover:bg-muted transition-colors">
+                        <TableCell className="text-sm font-medium">
+                          <div className="flex items-center gap-2">
+                            <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                              evt.priority === "critical" ? "bg-rose-500" : evt.priority === "high" ? "bg-amber-500" : "bg-blue-400"
+                            }`} />
+                            {evt.label}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1.5">
+                            <Badge variant="outline" className="text-[10px]">
+                              {evt.event_type.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase())}
+                            </Badge>
+                            {evt.is_financial && (
+                              <Badge className="bg-blue-100 text-blue-800 border-0 text-[10px]">Financial</Badge>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-sm font-semibold text-right">
+                          {evt.amount && evt.amount > 0 ? formatCurrency(evt.amount) : "--"}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {evt.frequency ? evt.frequency.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()) : "--"}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {evt.date ? formatDate(evt.date) : "--"}
+                        </TableCell>
+                        <TableCell>
+                          <Badge className={`${statusColor(evt.status)} border-0 text-xs font-medium`}>
+                            {statusLabel(evt.status)}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className={`text-[10px] ${evt.source === "agreement" ? "bg-slate-50" : "bg-violet-50 text-violet-700"}`}>
+                            {evt.source === "agreement" ? "Auto" : "Manual"}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            );
+          })()}
         </CardContent>
       </Card>
 
@@ -1731,9 +1948,10 @@ export default function OutletDetailPage() {
             )}
             <Button variant="outline" size="sm" className="gap-1.5 text-xs ml-auto" onClick={() => setShowCreateReminder(true)}>
               <Plus className="h-3.5 w-3.5" />
-              Create Reminder
+              Add Manual Reminder
             </Button>
           </CardTitle>
+          <p className="text-xs text-muted-foreground mt-1">Reminders are auto-created when you add an Event above.</p>
         </CardHeader>
         <CardContent>
           {(() => {
@@ -1836,9 +2054,35 @@ export default function OutletDetailPage() {
                       e.target.value = "";
                       return;
                     }
+                    // Licenses: prompt for expiry date so the system can
+                    // auto-schedule a renewal reminder (matches required flow:
+                    // "Upload license → Add expiry → System creates reminder")
+                    let expiryDate: string | undefined;
+                    let licenseNumber: string | undefined;
+                    if (docCategory === "license") {
+                      const expiryInput = window.prompt(
+                        "Enter license expiry date (YYYY-MM-DD).\n\nA renewal reminder will be auto-scheduled.",
+                        ""
+                      );
+                      if (expiryInput === null) {
+                        e.target.value = "";
+                        return;
+                      }
+                      if (expiryInput && !/^\d{4}-\d{2}-\d{2}$/.test(expiryInput.trim())) {
+                        alert("Invalid date format. Use YYYY-MM-DD.");
+                        e.target.value = "";
+                        return;
+                      }
+                      expiryDate = expiryInput.trim() || undefined;
+                      const numInput = window.prompt("License number (optional):", "");
+                      licenseNumber = numInput?.trim() || undefined;
+                    }
                     setDocUploading(true);
                     try {
-                      const res = await uploadOutletDocument(outlet.id, file, docCategory);
+                      const res = await uploadOutletDocument(outlet.id, file, docCategory, {
+                        expiryDate,
+                        licenseNumber,
+                      });
                       setData((prev) =>
                         prev
                           ? {
@@ -1847,6 +2091,16 @@ export default function OutletDetailPage() {
                             }
                           : prev
                       );
+                      if (docCategory === "license" && expiryDate) {
+                        // Refresh alerts/events so the new reminder shows up
+                        // immediately without a manual page reload.
+                        try {
+                          const refreshed = await (
+                            await import("@/lib/api")
+                          ).getOutlet(outlet.id);
+                          setData(refreshed);
+                        } catch { /* non-critical */ }
+                      }
                     } catch {
                       // handle silently
                     } finally {
@@ -2210,22 +2464,77 @@ export default function OutletDetailPage() {
           <div className="bg-white rounded-xl p-6 max-w-lg mx-4 space-y-4 shadow-xl w-full">
             <h3 className="text-lg font-semibold">Edit Outlet Details</h3>
             <div className="grid grid-cols-2 gap-3">
-              {Object.entries(editOutletData).map(([key, val]) => (
-                <div key={key}>
-                  <label className="text-xs text-muted-foreground mb-1 block capitalize">{key.replace(/_/g, " ")}</label>
-                  <Input
-                    value={val}
-                    onChange={(e) => setEditOutletData((p) => ({ ...p, [key]: e.target.value }))}
-                    placeholder={key.replace(/_/g, " ")}
-                  />
-                </div>
-              ))}
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Name</label>
+                <Input value={editOutletData.name} onChange={(e) => setEditOutletData(p => ({ ...p, name: e.target.value }))} />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">City</label>
+                <Input value={editOutletData.city} onChange={(e) => setEditOutletData(p => ({ ...p, city: e.target.value }))} />
+              </div>
+              <div className="col-span-2">
+                <label className="text-xs text-muted-foreground mb-1 block">Address</label>
+                <Input value={editOutletData.address} onChange={(e) => setEditOutletData(p => ({ ...p, address: e.target.value }))} />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Property Type</label>
+                <Select value={editOutletData.property_type || ""} onValueChange={(v) => setEditOutletData(p => ({ ...p, property_type: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="mall">Mall</SelectItem>
+                    <SelectItem value="high_street">High Street</SelectItem>
+                    <SelectItem value="cloud_kitchen">Cloud Kitchen</SelectItem>
+                    <SelectItem value="metro">Metro</SelectItem>
+                    <SelectItem value="transit">Transit</SelectItem>
+                    <SelectItem value="cyber_park">Cyber Park</SelectItem>
+                    <SelectItem value="hospital">Hospital</SelectItem>
+                    <SelectItem value="college">College</SelectItem>
+                    <SelectItem value="unknown">Unknown</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Business Category</label>
+                <Select value={editOutletData.business_category || "other"} onValueChange={(v) => setEditOutletData(p => ({ ...p, business_category: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="dine_in">Dine In</SelectItem>
+                    <SelectItem value="retail">Retail</SelectItem>
+                    <SelectItem value="cloud_kitchen">Cloud Kitchen</SelectItem>
+                    <SelectItem value="mall">Mall</SelectItem>
+                    <SelectItem value="qsr">QSR</SelectItem>
+                    <SelectItem value="cafe">Cafe</SelectItem>
+                    <SelectItem value="co_working">Co-Working</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Company Name</label>
+                <Input value={editOutletData.company_name} onChange={(e) => setEditOutletData(p => ({ ...p, company_name: e.target.value }))} placeholder="e.g. Tan Coffee Pvt Ltd" />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Floor</label>
+                <Input value={editOutletData.floor} onChange={(e) => setEditOutletData(p => ({ ...p, floor: e.target.value }))} />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Unit Number</label>
+                <Input value={editOutletData.unit_number} onChange={(e) => setEditOutletData(p => ({ ...p, unit_number: e.target.value }))} />
+              </div>
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" size="sm" onClick={() => setShowEditOutlet(false)}>Cancel</Button>
               <Button size="sm" onClick={async () => {
                 try {
-                  await updateOutlet(outletId, editOutletData as Record<string, unknown>);
+                  // Only send fields that have non-empty values to avoid clearing data
+                  const changedFields = Object.fromEntries(
+                    Object.entries(editOutletData).filter(([, v]) => v !== "")
+                  );
+                  if (Object.keys(changedFields).length === 0) {
+                    setShowEditOutlet(false);
+                    return;
+                  }
+                  await updateOutlet(outletId, changedFields as Record<string, unknown>);
                   setShowEditOutlet(false);
                   window.location.reload();
                 } catch (err) {
@@ -2240,27 +2549,36 @@ export default function OutletDetailPage() {
       {/* Create Event Dialog */}
       {showCreateEvent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl p-6 max-w-md mx-4 space-y-4 shadow-xl w-full">
+          <div className="bg-white rounded-xl p-6 max-w-md mx-4 space-y-4 shadow-xl w-full max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-semibold">Create Event</h3>
+            <p className="text-xs text-muted-foreground">A reminder will be auto-created. Financial events also generate payment entries.</p>
             <div className="space-y-3">
               <div>
                 <label className="text-xs text-muted-foreground mb-1 block">Event Title *</label>
-                <Input value={eventForm.title} onChange={(e) => setEventForm(p => ({ ...p, title: e.target.value }))} placeholder="e.g. Rent escalation due" />
+                <Input value={eventForm.title} onChange={(e) => setEventForm(p => ({ ...p, title: e.target.value }))} placeholder="e.g. Electricity bill, Rent escalation" />
               </div>
               <div>
                 <label className="text-xs text-muted-foreground mb-1 block">Event Type *</label>
-                <Select value={eventForm.event_type} onValueChange={(v) => setEventForm(p => ({ ...p, event_type: v }))}>
+                <Select value={eventForm.event_type} onValueChange={(v) => {
+                  const financialTypes = new Set(["rent_escalation","electricity","water","cam","insurance_renewal","license_renewal","property_tax","tds_filing","gst_rcm","security_deposit_topup","cam_reconciliation"]);
+                  setEventForm(p => ({ ...p, event_type: v, is_financial: financialTypes.has(v) ? true : p.is_financial }));
+                }}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="custom">Custom</SelectItem>
+                    <SelectItem value="electricity">Electricity</SelectItem>
+                    <SelectItem value="water">Water</SelectItem>
+                    <SelectItem value="cam">CAM (Common Area Maintenance)</SelectItem>
+                    <SelectItem value="property_tax">Property Tax</SelectItem>
+                    <SelectItem value="insurance_renewal">Insurance Renewal</SelectItem>
+                    <SelectItem value="license_renewal">License Renewal</SelectItem>
                     <SelectItem value="rent_escalation">Rent Escalation</SelectItem>
                     <SelectItem value="renewal_option">Renewal Option</SelectItem>
                     <SelectItem value="notice_deadline">Notice Deadline</SelectItem>
-                    <SelectItem value="insurance_renewal">Insurance Renewal</SelectItem>
-                    <SelectItem value="license_renewal">License Renewal</SelectItem>
                     <SelectItem value="registration_deadline">Registration Deadline</SelectItem>
                     <SelectItem value="security_deposit_topup">Security Deposit Top-up</SelectItem>
                     <SelectItem value="tds_filing">TDS Filing</SelectItem>
+                    <SelectItem value="gst_rcm">GST RCM</SelectItem>
                     <SelectItem value="cam_reconciliation">CAM Reconciliation</SelectItem>
                     <SelectItem value="fit_out_end">Fit-Out End</SelectItem>
                     <SelectItem value="rent_commencement">Rent Commencement</SelectItem>
@@ -2283,6 +2601,33 @@ export default function OutletDetailPage() {
                   </SelectContent>
                 </Select>
               </div>
+              <div className="flex items-center justify-between py-1">
+                <label className="text-xs text-muted-foreground">Financial Event (has payment)</label>
+                <input type="checkbox" className="h-4 w-4 accent-primary" checked={eventForm.is_financial} onChange={(e) => setEventForm(p => ({ ...p, is_financial: e.target.checked }))} />
+              </div>
+              {eventForm.is_financial && (
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">Amount (INR)</label>
+                  <Input type="number" min="0" step="100" value={eventForm.amount} onChange={(e) => setEventForm(p => ({ ...p, amount: e.target.value }))} placeholder="e.g. 20000" />
+                </div>
+              )}
+              <div className="flex items-center justify-between py-1">
+                <label className="text-xs text-muted-foreground">Recurring</label>
+                <input type="checkbox" className="h-4 w-4 accent-primary" checked={eventForm.is_recurring} onChange={(e) => setEventForm(p => ({ ...p, is_recurring: e.target.checked }))} />
+              </div>
+              {eventForm.is_recurring && (
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">Frequency</label>
+                  <Select value={eventForm.recurrence_frequency} onValueChange={(v) => setEventForm(p => ({ ...p, recurrence_frequency: v }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="monthly">Monthly</SelectItem>
+                      <SelectItem value="quarterly">Quarterly</SelectItem>
+                      <SelectItem value="yearly">Yearly</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div>
                 <label className="text-xs text-muted-foreground mb-1 block">Description</label>
                 <Input value={eventForm.description} onChange={(e) => setEventForm(p => ({ ...p, description: e.target.value }))} placeholder="Optional details" />
@@ -2294,7 +2639,7 @@ export default function OutletDetailPage() {
                 setEventSaving(true);
                 try {
                   const { createCriticalDate } = await import("@/lib/api");
-                  await createCriticalDate({
+                  const result = await createCriticalDate({
                     outlet_id: outletId,
                     agreement_id: agreements.length > 0 ? agreements[0].id : undefined,
                     title: eventForm.title,
@@ -2302,9 +2647,18 @@ export default function OutletDetailPage() {
                     date_value: eventForm.date_value,
                     priority: eventForm.priority,
                     description: eventForm.description,
+                    amount: eventForm.amount ? parseFloat(eventForm.amount) : undefined,
+                    is_financial: eventForm.is_financial,
+                    is_recurring: eventForm.is_recurring,
+                    recurrence_frequency: eventForm.is_recurring ? eventForm.recurrence_frequency : undefined,
                   });
                   setShowCreateEvent(false);
-                  setEventForm({ title: "", event_type: "custom", date_value: "", priority: "medium", description: "" });
+                  setEventForm({ title: "", event_type: "custom", date_value: "", priority: "medium", description: "", amount: "", is_financial: false, is_recurring: false, recurrence_frequency: "monthly" });
+                  const msgs: string[] = ["Event created"];
+                  if (result?.reminder_created) msgs.push("reminder scheduled");
+                  if (result?.payment_created) msgs.push("payment entry created");
+                  setEventCreatedMessage(msgs.join(" — "));
+                  setTimeout(() => setEventCreatedMessage(""), 5000);
                   setRefreshKey((k) => k + 1);
                 } catch (err) {
                   alert(err instanceof Error ? err.message : "Failed to create event");

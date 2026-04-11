@@ -7,18 +7,79 @@ import { createClient } from "@/lib/supabase/client";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+let _cachedToken: string | null = null;
+let _tokenExpiry = 0;
+
+/** Read a cookie value by name (browser only). */
+function readCookie(name: string): string | null {
+  if (typeof document === "undefined") return null;
+  const match = document.cookie.split(";").map((c) => c.trim()).find((c) => c.startsWith(`${name}=`));
+  if (!match) return null;
+  const value = match.slice(name.length + 1);
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+/**
+ * Build a demo bearer token from the `grospace-demo-*` cookies set by
+ * /api/auth/demo. The backend recognizes `demo:<role>:<id>` as a
+ * valid synthetic session (see backend/core/dependencies.py).
+ *
+ * IMPORTANT: `grospace-demo-session` is set as HttpOnly so JavaScript
+ * cannot read it. We detect an active demo session via the non-HttpOnly
+ * companion cookies `grospace-demo-role` / `grospace-demo-name` which
+ * are always set together with the session cookie.
+ */
+function buildDemoToken(): string | null {
+  const role = readCookie("grospace-demo-role");
+  const name = readCookie("grospace-demo-name");
+  if (!role && !name) return null;
+  const safeId = (name || "demo-user").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  return `demo:${role || "platform_admin"}:${safeId}`;
+}
+
 async function getAuthToken(): Promise<string | null> {
+  // Cache token for 60s to avoid redundant session lookups on every API call
+  const now = Date.now();
+  if (_cachedToken && now < _tokenExpiry) return _cachedToken;
+
+  // Try a real Supabase session first
   try {
     const supabase = createClient();
     const { data: { session } } = await supabase.auth.getSession();
-    return session?.access_token || null;
+    if (session?.access_token) {
+      _cachedToken = session.access_token;
+      _tokenExpiry = now + 60_000; // 1 minute cache
+      return _cachedToken;
+    }
   } catch {
-    return null;
+    // fall through to demo-cookie check
   }
+
+  // No real session — fall back to demo cookie if present
+  const demoToken = buildDemoToken();
+  if (demoToken) {
+    _cachedToken = demoToken;
+    _tokenExpiry = now + 60_000;
+    return _cachedToken;
+  }
+
+  _cachedToken = null;
+  return null;
+}
+
+/** Force the next API call to re-read the auth token (e.g. after login/logout). */
+export function resetAuthTokenCache(): void {
+  _cachedToken = null;
+  _tokenExpiry = 0;
 }
 
 // Endpoints that involve AI processing need longer timeouts
 const LONG_TIMEOUT_PATTERNS = [
+  "/api/upload-and-extract-async",
   "/api/upload-and-extract",
   "/api/extract",
   "/api/qa",
@@ -31,12 +92,16 @@ const LONG_TIMEOUT_PATTERNS = [
   "/api/cron",
 ];
 
+const STANDARD_TIMEOUT_MS = 25000;
+const LONG_RUNNING_TIMEOUT_MS = 600000;
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function apiFetch(endpoint: string, options: RequestInit = {}, retryCount = 0): Promise<any> {
   const token = await getAuthToken();
   const isFormData = options.body instanceof FormData;
+  const hasBody = options.body != null;
   const headers: Record<string, string> = {
-    ...(isFormData ? {} : { "Content-Type": "application/json" }),
+    ...(!isFormData && hasBody ? { "Content-Type": "application/json" } : {}),
     ...(options.headers as Record<string, string>),
   };
   if (token) {
@@ -44,9 +109,13 @@ async function apiFetch(endpoint: string, options: RequestInit = {}, retryCount 
   }
 
   const isLongRunning = LONG_TIMEOUT_PATTERNS.some((p) => endpoint.startsWith(p));
-  // 120s for normal calls (Railway cold start can take 90s), 10min for AI processing
+  // Fail fast for normal UI calls so the app doesn't sit on skeletons forever.
+  // Keep long AI/document tasks generous.
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), isLongRunning ? 600000 : 120000);
+  const timeoutId = setTimeout(
+    () => controller.abort(),
+    isLongRunning ? LONG_RUNNING_TIMEOUT_MS : STANDARD_TIMEOUT_MS
+  );
 
   let response: Response;
   try {
@@ -149,6 +218,9 @@ export async function confirmAndActivate(data: {
   risk_flags: unknown[];
   confidence: Record<string, string>;
   filename: string;
+  /** If set, attach the new agreement to this existing outlet instead of
+   *  creating a new one from extraction data. */
+  existing_outlet_id?: string;
   document_text?: string | null;
   document_url?: string | null;
   file_hash?: string | null;
@@ -201,19 +273,17 @@ export async function listAlerts(params?: { page?: number; page_size?: number; m
 }
 
 /** List pending/completed extraction jobs for the current user */
-export async function listExtractionJobs(params?: { status?: string }) {
+export async function listExtractionJobs(params?: { status?: string; seen?: boolean; limit?: number }) {
   const sp = new URLSearchParams();
   if (params?.status) sp.set("status", params.status);
+  if (params?.seen != null) sp.set("seen", String(params.seen));
+  if (params?.limit != null) sp.set("limit", String(params.limit));
   const qs = sp.toString();
   return apiFetch(`/api/extraction-jobs${qs ? `?${qs}` : ""}`);
 }
 
 /** Update an outlet (revenue, status, site_code) */
-export async function updateOutlet(outletId: string, data: {
-  monthly_net_revenue?: number;
-  status?: string;
-  site_code?: string;
-}) {
+export async function updateOutlet(outletId: string, data: Record<string, unknown>) {
   return apiFetch(`/api/outlets/${outletId}`, {
     method: "PATCH",
     body: JSON.stringify(data),
@@ -241,6 +311,21 @@ export async function createOrganization(name: string) {
   formData.append("name", name);
 
   return apiFetch("/api/organizations", {
+    method: "POST",
+    body: formData,
+  });
+}
+
+/**
+ * Self-serve org creation for a brand-new user who isn't yet a member of
+ * any organization. Auto-promotes the caller to org_admin of the new org.
+ * Used by the pending-approval page "Create Your Own Organization" flow.
+ */
+export async function selfServeCreateOrganization(name: string) {
+  const formData = new FormData();
+  formData.append("name", name);
+
+  return apiFetch("/api/organizations/self-serve", {
     method: "POST",
     body: formData,
   });
@@ -568,10 +653,20 @@ export async function updatePipelineDeal(outletId: string, data: { deal_priority
 // ============================================
 
 /** Ask the AI assistant a question about your portfolio */
-export async function smartChat(question: string, orgId?: string) {
+export async function smartChat(
+  question: string,
+  orgId?: string,
+  outletId?: string,
+  sessionHistory?: { role: string; message: string }[]
+) {
   return apiFetch("/api/smart-chat", {
     method: "POST",
-    body: JSON.stringify({ question, org_id: orgId }),
+    body: JSON.stringify({
+      question,
+      org_id: orgId,
+      outlet_id: outletId,
+      session_history: sessionHistory,
+    }),
   });
 }
 
@@ -594,10 +689,17 @@ export async function listOutletDocuments(outletId: string) {
 }
 
 /** Upload a document to an outlet */
-export async function uploadOutletDocument(outletId: string, file: File, category: string = "other") {
+export async function uploadOutletDocument(
+  outletId: string,
+  file: File,
+  category: string = "other",
+  options?: { expiryDate?: string; licenseNumber?: string },
+) {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("category", category);
+  if (options?.expiryDate) formData.append("expiry_date", options.expiryDate);
+  if (options?.licenseNumber) formData.append("license_number", options.licenseNumber);
 
   return apiFetch(`/api/outlets/${outletId}/documents`, {
     method: "POST",
@@ -666,6 +768,58 @@ export async function createDraft(data: {
     method: "POST",
     body: JSON.stringify(data),
   });
+}
+
+/** List pre-sign lease drafts (Pipeline → Drafts tab) */
+export async function listLeaseDrafts(status: string = "draft") {
+  return apiFetch(`/api/lease-drafts?status=${encodeURIComponent(status)}`);
+}
+
+/** Discard a pre-sign lease draft */
+export async function deleteLeaseDraft(draftId: string) {
+  return apiFetch(`/api/lease-drafts/${draftId}`, { method: "DELETE" });
+}
+
+// ============================================
+// BRANDS
+// ============================================
+
+export interface Brand {
+  id: string;
+  org_id: string;
+  name: string;
+  logo_url?: string | null;
+  notes?: string | null;
+  created_at?: string;
+}
+
+/** List all brands for the caller's org */
+export async function listBrands(): Promise<{ brands: Brand[]; warning?: string }> {
+  return apiFetch("/api/brands");
+}
+
+/** Create a new brand */
+export async function createBrand(data: { name: string; logo_url?: string; notes?: string }) {
+  return apiFetch("/api/brands", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+/** Update a brand */
+export async function updateBrand(
+  brandId: string,
+  data: { name?: string; logo_url?: string; notes?: string },
+) {
+  return apiFetch(`/api/brands/${brandId}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+/** Delete a brand */
+export async function deleteBrand(brandId: string) {
+  return apiFetch(`/api/brands/${brandId}`, { method: "DELETE" });
 }
 
 // ============================================
@@ -1218,7 +1372,11 @@ export async function markExtractionJobSeen(jobId: string) {
   return apiFetch(`/api/extraction-jobs/${jobId}/seen`, { method: "PATCH" });
 }
 
-/** Create a critical date / event for an outlet */
+export async function cancelExtractionJob(jobId: string) {
+  return apiFetch(`/api/extraction-jobs/${jobId}/cancel`, { method: "PATCH" });
+}
+
+/** Create an event for an outlet — auto-creates linked reminder + optional payment */
 export async function createCriticalDate(data: {
   outlet_id: string;
   agreement_id?: string;
@@ -1227,7 +1385,12 @@ export async function createCriticalDate(data: {
   date_value: string;
   priority?: string;
   description?: string;
-}) {
+  amount?: number;
+  is_financial?: boolean;
+  is_recurring?: boolean;
+  recurrence_frequency?: string;
+  assigned_to?: string;
+}): Promise<{ event: Record<string, unknown>; reminder_created: boolean; payment_created: boolean }> {
   return apiFetch("/api/critical-dates", {
     method: "POST",
     body: JSON.stringify(data),

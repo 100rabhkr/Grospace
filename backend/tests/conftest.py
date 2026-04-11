@@ -224,8 +224,10 @@ def patched_app(mock_supabase, mock_gemini_model):
     # Swap module-level clients so every function uses our mocks
     _orig_sb = _config.supabase
     _orig_model = _config.model
+    _orig_model_pro = _config.model_pro
     _config.supabase = mock_supabase
     _config.model = mock_gemini_model
+    _config.model_pro = mock_gemini_model
 
     # Also make sure genai.GenerationConfig is available
     _config.genai.GenerationConfig = MagicMock()
@@ -239,6 +241,9 @@ def patched_app(mock_supabase, mock_gemini_model):
         if hasattr(mod, 'model'):
             _patched.append((mod, 'model', getattr(mod, 'model')))
             mod.model = mock_gemini_model
+        if hasattr(mod, 'model_pro'):
+            _patched.append((mod, 'model_pro', getattr(mod, 'model_pro')))
+            mod.model_pro = mock_gemini_model
 
     proxy = _AppProxy(_main, _config, _extra_modules)
     yield proxy
@@ -246,6 +251,7 @@ def patched_app(mock_supabase, mock_gemini_model):
     # Restore originals
     _config.supabase = _orig_sb
     _config.model = _orig_model
+    _config.model_pro = _orig_model_pro
     for mod, attr, orig_val in _patched:
         setattr(mod, attr, orig_val)
 

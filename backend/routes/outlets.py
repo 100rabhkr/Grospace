@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from core.config import supabase, log_activity
 from core.models import CurrentUser, UpdateOutletRequest
-from core.dependencies import get_current_user, require_permission
+from core.dependencies import get_current_user, get_db_user_id, get_org_filter, require_permission
 
 
 class CreateOutletRequest(BaseModel):
@@ -22,37 +22,74 @@ class CreateOutletRequest(BaseModel):
 router = APIRouter(prefix="/api", tags=["outlets"])
 
 
+def _exclude_deleted(query):
+    """Apply the deleted-at filter when the query builder supports it."""
+    return query.is_("deleted_at", "null") if hasattr(query, "is_") else query
+
+
 @router.get("/outlets", dependencies=[Depends(require_permission("view_outlets"))])
-def list_outlets(
+async def list_outlets(
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=500),
+    page_size: int = Query(50, ge=1, le=200),
+    user: Optional[CurrentUser] = Depends(get_current_user),
 ):
-    """List outlets (paginated)."""
+    """List outlets (paginated). Scoped to caller's org."""
     offset = (page - 1) * page_size
-    count_result = supabase.table("outlets").select("id", count="exact").execute()
+    org_id = get_org_filter(user)
+
+    count_query = supabase.table("outlets").select("id", count="exact")
+    if org_id:
+        count_query = count_query.eq("org_id", org_id)
+    count_result = _exclude_deleted(count_query).execute()
     total = count_result.count or 0
-    result = supabase.table("outlets").select(
+
+    query = supabase.table("outlets").select(
         "*, agreements(id, type, status, monthly_rent, lease_expiry_date, risk_flags)"
-    ).is_("deleted_at", "null").order("created_at", desc=True).range(offset, offset + page_size - 1).execute()
+    )
+    if org_id:
+        query = query.eq("org_id", org_id)
+    result = _exclude_deleted(query).order("created_at", desc=True).range(offset, offset + page_size - 1).execute()
     return {"items": result.data, "total": total, "page": page, "page_size": page_size}
 
 
 @router.post("/outlets", dependencies=[Depends(require_permission("edit_outlets"))])
 def create_outlet(req: CreateOutletRequest, user: Optional[CurrentUser] = Depends(get_current_user)):
-    """Create a new outlet."""
-    org_id = user.org_id if user else None
-    if not org_id:
+    """Create a new outlet. Always scoped to the caller's organization —
+    refuses to guess if the caller has no org_id rather than silently
+    dropping the outlet into a random org's workspace."""
+    import logging as _logging
+    _logger = _logging.getLogger(__name__)
+
+    org_id: Optional[str] = user.org_id if user else None
+
+    # If the token didn't carry an org_id, try to resolve it from the
+    # caller's profile. Surface failures instead of silently falling
+    # through to "grab the first org in the DB".
+    if not org_id and user and user.user_id:
         try:
-            if user:
-                profile = supabase.table("profiles").select("org_id").eq("id", user.user_id).single().execute()
-                org_id = profile.data.get("org_id") if profile.data else None
-        except Exception:
-            pass
+            profile = supabase.table("profiles").select("org_id").eq("id", user.user_id).single().execute()
+            if profile.data and profile.data.get("org_id"):
+                org_id = profile.data["org_id"]
+        except Exception as e:
+            _logger.warning("create_outlet: profile lookup for user %s failed: %s", user.user_id, e)
+
+    # Platform admins don't have their own org but ARE allowed to create
+    # outlets. For them the "first org in the DB" fallback is acceptable
+    # as a last resort so platform-admin seeding works. Everyone else
+    # MUST have a real org_id — no silent cross-tenant leaks.
     if not org_id:
-        orgs = supabase.table("organizations").select("id").limit(1).execute()
-        org_id = orgs.data[0]["id"] if orgs.data else None
-    if not org_id:
-        raise HTTPException(status_code=400, detail="Could not determine organization")
+        is_platform_admin = bool(user and user.role == "platform_admin")
+        if is_platform_admin:
+            try:
+                orgs = supabase.table("organizations").select("id").limit(1).execute()
+                org_id = orgs.data[0]["id"] if orgs.data else None
+            except Exception as e:
+                _logger.warning("create_outlet: platform_admin org fallback failed: %s", e)
+        if not org_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Your account isn't attached to any organization. Create one from the pending-approval screen or ask an admin to assign you.",
+            )
 
     outlet_data = {
         "id": str(uuid.uuid4()),
@@ -65,7 +102,7 @@ def create_outlet(req: CreateOutletRequest, user: Optional[CurrentUser] = Depend
     result = supabase.table("outlets").insert(clean).execute()
 
     if result.data and org_id:
-        log_activity(org_id, user.user_id if user else None, "outlet", outlet_data["id"], "outlet_created", {
+        log_activity(org_id, get_db_user_id(user), "outlet", outlet_data["id"], "outlet_created", {
             "name": req.name,
             "city": req.city,
         })
@@ -74,25 +111,32 @@ def create_outlet(req: CreateOutletRequest, user: Optional[CurrentUser] = Depend
 
 
 @router.get("/outlets/deleted", dependencies=[Depends(require_permission("manage_org_settings"))])
-def list_deleted_outlets():
-    """List soft-deleted outlets (recycle bin)."""
-    result = supabase.table("outlets").select(
-        "*, agreements(id, type, status)"
-    ).not_.is_("deleted_at", "null").order("deleted_at", desc=True).execute()
+async def list_deleted_outlets(user: Optional[CurrentUser] = Depends(get_current_user)):
+    """List soft-deleted outlets (recycle bin). Scoped to caller's org."""
+    org_id = get_org_filter(user)
+    query = supabase.table("outlets").select("*, agreements(id, type, status)")
+    if org_id:
+        query = query.eq("org_id", org_id)
+    result = query.not_.is_("deleted_at", "null").order("deleted_at", desc=True).execute()
     return {"items": result.data or []}
 
 
 @router.get("/outlets/{outlet_id}", dependencies=[Depends(require_permission("view_outlets"))])
-def get_outlet(outlet_id: str):
-    """Get a single outlet with agreements, obligations, alerts, and documents."""
+async def get_outlet(outlet_id: str, user: Optional[CurrentUser] = Depends(get_current_user)):
+    """Get a single outlet with agreements, obligations, alerts, and documents. Org-scoped."""
     result = supabase.table("outlets").select("*").eq("id", outlet_id).single().execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Outlet not found")
 
-    agreements = supabase.table("agreements").select("*").eq("outlet_id", outlet_id).execute()
-    obligations = supabase.table("obligations").select("*").eq("outlet_id", outlet_id).execute()
-    alerts = supabase.table("alerts").select("*").eq("outlet_id", outlet_id).order("trigger_date").execute()
-    documents = supabase.table("documents").select("*").eq("outlet_id", outlet_id).order("uploaded_at", desc=True).execute()
+    # Multi-tenant guard
+    org_id = get_org_filter(user)
+    if org_id and result.data.get("org_id") != org_id:
+        raise HTTPException(status_code=404, detail="Outlet not found")
+
+    agreements = supabase.table("agreements").select("*").eq("outlet_id", outlet_id).limit(50).execute()
+    obligations = supabase.table("obligations").select("*").eq("outlet_id", outlet_id).limit(200).execute()
+    alerts = supabase.table("alerts").select("*").eq("outlet_id", outlet_id).order("trigger_date").limit(200).execute()
+    documents = supabase.table("documents").select("*").eq("outlet_id", outlet_id).order("uploaded_at", desc=True).limit(100).execute()
 
     # Fetch critical dates/events for this outlet
     try:
@@ -113,9 +157,14 @@ def get_outlet(outlet_id: str):
 
 @router.patch("/outlets/{outlet_id}", dependencies=[Depends(require_permission("edit_outlets"))])
 def update_outlet(outlet_id: str, req: UpdateOutletRequest, user: Optional[CurrentUser] = Depends(get_current_user)):
-    """Update outlet fields (revenue, status)."""
+    """Update outlet fields (revenue, status). Org-scoped."""
     current = supabase.table("outlets").select("status, monthly_net_revenue, org_id").eq("id", outlet_id).single().execute()
     if not current.data:
+        raise HTTPException(status_code=404, detail="Outlet not found")
+
+    # Multi-tenant guard
+    user_org = get_org_filter(user)
+    if user_org and current.data.get("org_id") != user_org:
         raise HTTPException(status_code=404, detail="Outlet not found")
 
     update_data: dict = {}
@@ -129,6 +178,17 @@ def update_outlet(outlet_id: str, req: UpdateOutletRequest, user: Optional[Curre
         update_data["status"] = req.status
     if req.site_code is not None:
         update_data["site_code"] = req.site_code
+    # Direct text fields
+    for field in ("name", "city", "address", "property_type", "floor", "unit_number",
+                  "business_category", "company_name", "notes"):
+        val = getattr(req, field, None)
+        if val is not None:
+            update_data[field] = val
+    # Numeric area fields
+    for field in ("super_area_sqft", "covered_area_sqft", "carpet_area_sqft"):
+        val = getattr(req, field, None)
+        if val is not None:
+            update_data[field] = val
     if not update_data:
         raise HTTPException(status_code=400, detail="No fields to update")
 
@@ -191,6 +251,13 @@ async def upload_profile_photo(
     if not outlet.data:
         raise HTTPException(status_code=404, detail="Outlet not found")
 
+    # Multi-tenant guard — prevent cross-tenant profile photo writes. Without
+    # this an attacker who guessed a valid outlet_id could overwrite another
+    # org's outlet photo.
+    caller_org = get_org_filter(user)
+    if caller_org and outlet.data.get("org_id") != caller_org:
+        raise HTTPException(status_code=404, detail="Outlet not found")
+
     file_bytes = await file.read()
     if len(file_bytes) > 10 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="File too large. Maximum 10MB.")
@@ -228,37 +295,51 @@ def delete_outlet(outlet_id: str, user: Optional[CurrentUser] = Depends(get_curr
     if not outlet.data:
         raise HTTPException(status_code=404, detail="Outlet not found")
 
+    # Multi-tenant guard — don't let an admin in Org A delete Org B's outlet.
+    org_id = outlet.data.get("org_id")
+    caller_org = get_org_filter(user)
+    if caller_org and org_id and org_id != caller_org:
+        raise HTTPException(status_code=404, detail="Outlet not found")
+
     if outlet.data.get("deleted_at"):
         raise HTTPException(status_code=400, detail="Outlet is already deleted")
 
-    org_id = outlet.data.get("org_id")
-    deleted_by = user.user_id if user else None
+    # outlets.deleted_by is `uuid REFERENCES auth.users(id)` — demo sessions
+    # carry synthetic non-UUID ids that would fail the FK. Pass None for demos.
+    deleted_by_uuid = get_db_user_id(user)
 
     # Soft delete — set timestamp, don't actually remove
-    supabase.table("outlets").update({
-        "deleted_at": datetime.utcnow().isoformat(),
-        "deleted_by": deleted_by,
-    }).eq("id", outlet_id).execute()
+    try:
+        supabase.table("outlets").update({
+            "deleted_at": datetime.utcnow().isoformat(),
+            "deleted_by": deleted_by_uuid,
+        }).eq("id", outlet_id).execute()
+    except Exception as e:
+        # Surface the real DB error to the caller instead of a generic 500
+        raise HTTPException(status_code=500, detail=f"Failed to delete outlet: {str(e)[:200]}")
 
     # Log to activity
     if org_id:
-        log_activity(org_id, deleted_by, "outlet", outlet_id, "outlet_deleted", {
+        log_activity(org_id, deleted_by_uuid, "outlet", outlet_id, "outlet_deleted", {
             "name": outlet.data.get("name"),
             "city": outlet.data.get("city"),
             "brand_name": outlet.data.get("brand_name"),
         })
 
-    # Log to Google Sheets
+    # Log to Google Sheets (non-critical, never block the delete on this)
     try:
         from services.sheets_service import write_deletion_to_sheet
         profile_name = None
-        if deleted_by:
+        if deleted_by_uuid:
             try:
-                profile = supabase.table("profiles").select("full_name, email").eq("id", deleted_by).single().execute()
+                profile = supabase.table("profiles").select("full_name, email").eq("id", deleted_by_uuid).single().execute()
                 if profile.data:
                     profile_name = profile.data.get("full_name") or profile.data.get("email")
             except Exception:
                 pass
+        # Demo users: use their display name from the token role instead of "Unknown"
+        if not profile_name and user:
+            profile_name = user.email or "Demo user"
         write_deletion_to_sheet(
             outlet_id=outlet_id,
             outlet_name=outlet.data.get("name", ""),
@@ -280,6 +361,11 @@ def restore_outlet(outlet_id: str, user: Optional[CurrentUser] = Depends(get_cur
     if not outlet.data:
         raise HTTPException(status_code=404, detail="Outlet not found")
 
+    # Multi-tenant guard
+    caller_org = get_org_filter(user)
+    if caller_org and outlet.data.get("org_id") and outlet.data["org_id"] != caller_org:
+        raise HTTPException(status_code=404, detail="Outlet not found")
+
     if not outlet.data.get("deleted_at"):
         raise HTTPException(status_code=400, detail="Outlet is not deleted")
 
@@ -290,7 +376,7 @@ def restore_outlet(outlet_id: str, user: Optional[CurrentUser] = Depends(get_cur
 
     org_id = outlet.data.get("org_id")
     if org_id:
-        log_activity(org_id, user.user_id if user else None, "outlet", outlet_id, "outlet_restored", {
+        log_activity(org_id, get_db_user_id(user), "outlet", outlet_id, "outlet_restored", {
             "name": outlet.data.get("name"),
         })
 

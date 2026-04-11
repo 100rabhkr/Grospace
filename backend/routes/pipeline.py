@@ -13,7 +13,7 @@ from core.models import (
     CurrentUser, MovePipelineRequest, UpdatePipelineDealRequest,
     CreateShowcaseRequest, UpdateShowcaseRequest,
 )
-from core.dependencies import get_current_user, get_org_filter, require_permission
+from core.dependencies import get_current_user, get_db_user_id, get_org_filter, require_permission
 
 router = APIRouter(prefix="/api", tags=["pipeline"])
 
@@ -122,7 +122,7 @@ def create_showcase(req: CreateShowcaseRequest, user: Optional[CurrentUser] = De
     if req.expires_at:
         insert_data["expires_at"] = req.expires_at
     if user:
-        insert_data["created_by"] = user.user_id
+        insert_data["created_by"] = get_db_user_id(user)
 
     result = supabase.table("showcase_tokens").insert(insert_data).execute()
     return {"showcase": result.data[0] if result.data else None}

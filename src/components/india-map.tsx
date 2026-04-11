@@ -120,6 +120,9 @@ export interface OutletInfo {
   name: string;
   status: string;
   rent?: number;
+  area?: number;
+  brand?: string;
+  property_type?: string;
 }
 
 export interface ClusterData {
@@ -307,6 +310,7 @@ export default function IndiaMap({
 }: IndiaMapProps) {
   const [mounted, setMounted] = useState(false);
   const [selectedState, setSelectedState] = useState<string | null>(null);
+  const [mapZoom, setMapZoom] = useState(1);
   const fadeResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Auto-reset selection after 2 seconds
@@ -534,7 +538,25 @@ export default function IndiaMap({
       </div>
       )}
 
-      <div className={compact ? "w-full" : "flex-1 min-h-0 overflow-hidden flex items-center justify-center"}>
+      <div className={compact ? "w-full" : "flex-1 min-h-0 overflow-hidden flex items-center justify-center relative"}>
+      {/* Zoom controls */}
+      {!compact && (
+        <div className="absolute top-3 right-3 z-10 flex flex-col gap-1">
+          <button onClick={() => setMapZoom(z => Math.min(z + 0.2, 2.5))} className="w-7 h-7 rounded bg-white border shadow-sm flex items-center justify-center text-sm font-bold hover:bg-muted">+</button>
+          <button onClick={() => setMapZoom(1)} className="w-7 h-7 rounded bg-white border shadow-sm flex items-center justify-center text-[10px] font-medium hover:bg-muted">1x</button>
+          <button onClick={() => setMapZoom(z => Math.max(z - 0.2, 0.5))} className="w-7 h-7 rounded bg-white border shadow-sm flex items-center justify-center text-sm font-bold hover:bg-muted">-</button>
+        </div>
+      )}
+      <div style={{
+        transform: `scale(${mapZoom})`,
+        transformOrigin: "center center",
+        transition: "transform 0.2s ease",
+        width: compact ? "100%" : "100%",
+        height: compact ? "auto" : "100%",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}>
       <ComposableMap
         projection="geoMercator"
         projectionConfig={compact
@@ -549,12 +571,11 @@ export default function IndiaMap({
           opacity: mounted ? 1 : 0,
           transition: "opacity 0.5s ease",
         } : {
-          width: "auto",
+          width: "100%",
           height: "100%",
           maxWidth: "100%",
           maxHeight: "100%",
           display: "block",
-          margin: "0 auto",
           background: "#edf0f4",
           borderRadius: 12,
           opacity: mounted ? 1 : 0,
@@ -736,6 +757,7 @@ export default function IndiaMap({
           })}
       </ComposableMap>
       </div>
+      </div>
 
       {/* Hover Popup */}
       {visibleCluster && (() => {
@@ -852,13 +874,22 @@ export default function IndiaMap({
                                 </p>
                                 <p className="text-[8px] text-neutral-400 capitalize mt-0.5 leading-tight">
                                   {outlet.status?.replace(/_/g, " ")}
+                                  {outlet.brand && <span className="ml-1 text-neutral-500">&middot; {outlet.brand}</span>}
                                 </p>
-                                {outlet.rent ? (
-                                  <p className="text-[9px] font-semibold text-neutral-600 tabular-nums mt-1">
-                                    {`\u20B9${Math.round(outlet.rent).toLocaleString("en-IN")}`}
-                                    <span className="text-[7px] font-normal text-neutral-400">/mo</span>
-                                  </p>
-                                ) : null}
+                                <div className="flex items-center gap-2 mt-0.5">
+                                  {outlet.rent ? (
+                                    <span className="text-[9px] font-semibold text-neutral-600 tabular-nums">
+                                      {`\u20B9${Math.round(outlet.rent).toLocaleString("en-IN")}`}
+                                      <span className="text-[7px] font-normal text-neutral-400">/mo</span>
+                                    </span>
+                                  ) : null}
+                                  {outlet.area ? (
+                                    <span className="text-[8px] text-neutral-400">{outlet.area.toLocaleString("en-IN")} sqft</span>
+                                  ) : null}
+                                  {outlet.property_type ? (
+                                    <span className="text-[8px] text-neutral-400 capitalize">{outlet.property_type.replace(/_/g, " ")}</span>
+                                  ) : null}
+                                </div>
                               </div>
                             </div>
                           </div>

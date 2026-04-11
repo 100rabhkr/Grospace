@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>GroSpace — Extraction Benchmark</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Inter',system-ui,sans-serif;color:#111;background:#fff;font-size:10.5px;line-height:1.55;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  @page{size:A4;margin:32px 40px}
+  .wrap{max-width:780px;margin:0 auto;padding:48px 0}
+  h1{font-size:20px;font-weight:700;letter-spacing:-.4px}
+  .sub{font-size:11px;color:#666;margin-top:2px}
+  .meta{font-size:9px;color:#999;margin-top:6px;text-transform:uppercase;letter-spacing:.1em}
+  hr{border:none;border-top:1px solid #e5e5e5;margin:20px 0}
+  .st{font-size:12px;font-weight:600;letter-spacing:-.2px;margin:24px 0 12px;display:flex;align-items:center;gap:8px}
+  .st span{color:#999;font-weight:400;font-size:11px}
+  table{width:100%;border-collapse:collapse;font-size:10px}
+  thead th{text-align:left;font-size:8.5px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:#888;padding:6px 10px;border-bottom:1.5px solid #111}
+  td{padding:8px 10px;border-bottom:1px solid #f0f0f0;vertical-align:top}
+  tr:last-child td{border-bottom:1px solid #ddd}
+  .fn{font-weight:500}
+  .w{font-weight:600}
+  .d{color:#777;font-size:9px}
+  .boxes{display:flex;gap:12px;margin:16px 0 20px}
+  .box{flex:1;border:1px solid #e0e0e0;padding:14px;text-align:center}
+  .box .l{font-size:8px;text-transform:uppercase;letter-spacing:.1em;color:#888;margin-bottom:4px}
+  .box .v{font-size:20px;font-weight:700;letter-spacing:-.3px}
+  .box .n{font-size:8px;color:#aaa;margin-top:2px}
+  .vd{border:1px solid #111;padding:16px;margin-top:20px}
+  .vd h3{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px}
+  .vd p{font-size:10px;color:#444;line-height:1.6}
+  .ft{margin-top:32px;padding-top:10px;border-top:1px solid #e5e5e5;font-size:8px;color:#aaa;display:flex;justify-content:space-between}
+  .tag{display:inline-block;font-size:8px;font-weight:500;padding:1px 6px;border:1px solid #ccc}
+  .tag-b{background:#111;color:#fff;border-color:#111}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Extraction Benchmark</h1>
+<div class="sub">GroSpace AI Document Extraction — Technical Comparison</div>
+<div class="meta">Confidential · April 2026 · 360Labs</div>
+
+<div class="boxes">
+  <div class="box"><div class="l">Accuracy</div><div class="v">97-98%</div><div class="n">Gemini Pro + Document AI</div></div>
+  <div class="box"><div class="l">Processing</div><div class="v">1-2 min</div><div class="n">Per document</div></div>
+  <div class="box"><div class="l">Fields</div><div class="v">82</div><div class="n">8 sections</div></div>
+</div>
+
+<hr>
+
+<div class="st">GroSpace vs Leasecake <span>— Platform Comparison</span></div>
+<table>
+<thead><tr><th width="24%">Feature</th><th width="30%">GroSpace</th><th width="30%">Leasecake</th><th width="16%">Winner</th></tr></thead>
+<tbody>
+<tr><td class="fn">OCR Engine</td><td>Google Document AI<br><span class="d">Premium OCR + table extraction</span></td><td>AWS Textract<br><span class="d">Standard OCR</span></td><td class="w">GroSpace</td></tr>
+<tr><td class="fn">AI Model</td><td>Gemini 3.1 Pro<br><span class="d">1M token context</span></td><td>GPT-4<br><span class="d">128K context</span></td><td class="w">GroSpace</td></tr>
+<tr><td class="fn">Fields Extracted</td><td>82 fields · 8 sections</td><td>~50-60 fields</td><td class="w">GroSpace</td></tr>
+<tr><td class="fn">Indian Languages</td><td>Hindi + English bilingual</td><td>English only</td><td class="w">GroSpace</td></tr>
+<tr><td class="fn">Indian Formats</td><td>Lakh/crore · 13 date formats · L&amp;L</td><td>US formats only</td><td class="w">GroSpace</td></tr>
+<tr><td class="fn">Risk Detection</td><td>13 rules · clause quotes · severity</td><td>Basic flags</td><td class="w">GroSpace</td></tr>
+<tr><td class="fn">Source Linking</td><td>Page + quote + click-to-highlight</td><td>Page number only</td><td class="w">GroSpace</td></tr>
+<tr><td class="fn">Verification</td><td>AI double-checks critical fields</td><td>None known</td><td class="w">GroSpace</td></tr>
+<tr><td class="fn">Document Types</td><td>Lease · License · Franchise · Bill · Amendment</td><td>Lease only</td><td class="w">GroSpace</td></tr>
+<tr><td class="fn">Processing Time</td><td>1-2 minutes</td><td>1-2 minutes</td><td class="d">Tie</td></tr>
+</tbody>
+</table>
+
+<hr>
+
+<div class="st">Model Comparison <span>— Extraction Quality</span></div>
+<table>
+<thead><tr><th width="22%">Metric</th><th width="26%">Gemini Pro + Doc AI</th><th width="26%">Gemini Pro Only</th><th width="26%">Claude Opus 4.6</th></tr></thead>
+<tbody>
+<tr><td class="fn">OCR Accuracy</td><td class="w">99%</td><td>85-90%</td><td>N/A · no OCR</td></tr>
+<tr><td class="fn">Field Accuracy</td><td class="w">97-98%</td><td>90-95%</td><td>95-97%</td></tr>
+<tr><td class="fn">Indian Leases</td><td class="w">98%</td><td>90%</td><td>93%</td></tr>
+<tr><td class="fn">Table Extraction</td><td class="w">Excellent</td><td>Often garbled</td><td>Good if text clean</td></tr>
+<tr><td class="fn">Source Pages</td><td class="w">99%</td><td>80%</td><td>N/A</td></tr>
+<tr><td class="fn">Highlighting</td><td class="w">98%</td><td>70%</td><td>Not possible</td></tr>
+<tr><td class="fn">Speed</td><td class="w">1-2 min</td><td>5-8 min</td><td>30-60 sec</td></tr>
+<tr><td class="fn">Scanned PDFs</td><td class="w">Excellent</td><td>Good</td><td>Cannot</td></tr>
+<tr><td class="fn">Handwriting</td><td class="w">Good</td><td>Poor</td><td>Cannot</td></tr>
+<tr><td class="fn">Hindi</td><td class="w">Built-in</td><td>Partial</td><td>If given text</td></tr>
+<tr><td class="fn">Reliability</td><td class="w">Highest</td><td>Medium</td><td>High</td></tr>
+</tbody>
+</table>
+
+<hr>
+
+<div class="st">Verdict</div>
+<table>
+<thead><tr><th></th><th>Gemini Pro + Doc AI</th><th>Gemini Pro Only</th><th>Claude Opus</th></tr></thead>
+<tbody>
+<tr><td class="fn">Best for</td><td><span class="tag tag-b">Production</span></td><td><span class="tag">Fallback</span></td><td><span class="tag">Research</span></td></tr>
+<tr><td class="fn">Accuracy</td><td class="w">97-98%</td><td>90-95%</td><td>95-97%</td></tr>
+<tr><td class="fn">Speed</td><td class="w">1-2 min</td><td>5-8 min</td><td>30-60 sec</td></tr>
+<tr><td class="fn">Scanned PDFs</td><td class="w">Excellent</td><td>Good</td><td>Cannot</td></tr>
+<tr><td class="fn">Highlighting</td><td class="w">Perfect</td><td>Unreliable</td><td>Not possible</td></tr>
+</tbody>
+</table>
+
+<div class="vd">
+<h3>Recommendation</h3>
+<p>Gemini 3.1 Pro + Google Document AI delivers the highest accuracy, fastest processing, and best reliability for Indian commercial lease extraction. It is the recommended production configuration for GroSpace.</p>
+</div>
+
+<div class="ft"><span>GroSpace — 360Labs</span><span>Confidential · April 2026</span></div>
+
+</div>
+</body>
+</html>

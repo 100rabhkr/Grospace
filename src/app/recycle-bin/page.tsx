@@ -70,8 +70,8 @@ export default function RecycleBinPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Recycle Bin</h1>
-        <p className="text-sm text-muted-foreground mt-1">
+        <h1 className="text-[17px] font-semibold tracking-tight text-foreground">Recycle Bin</h1>
+        <p className="text-[12.5px] text-muted-foreground mt-1 font-medium">
           Deleted outlets can be restored here. Items are kept indefinitely.
         </p>
       </div>

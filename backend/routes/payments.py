@@ -4,7 +4,7 @@ Payment obligations, mark-paid, bulk-paid endpoints.
 
 import uuid
 from typing import Optional
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from dateutil.relativedelta import relativedelta
 
 from fastapi import APIRouter, HTTPException, Depends, Query
@@ -15,8 +15,8 @@ from core.models import (
     CurrentUser, PaymentUpdateRequest, GeneratePaymentsRequest,
     BulkMarkPaidRequest, MGLRRequest, CreateObligationRequest, UpdateObligationRequest,
 )
-from core.dependencies import get_current_user, get_org_filter, require_permission
-from services.extraction import get_num
+from core.dependencies import get_current_user, get_db_user_id, get_org_filter, require_permission
+from services.extraction_fields import get_num
 
 router = APIRouter(prefix="/api", tags=["payments"])
 
@@ -36,7 +36,7 @@ def list_payments(
 
     count_query = supabase.table("payment_records").select("id", count="exact")
     data_query = supabase.table("payment_records").select(
-        "*, obligations(type, frequency, amount), outlets(name, city)"
+        "*, obligations(type, frequency, amount, custom_label, source), outlets(name, city, brand_name, company_name)"
     )
 
     org_id = get_org_filter(user)
@@ -75,13 +75,13 @@ def update_payment(
 
     update_data: dict = {"status": req.status}
     if req.status == "paid":
-        update_data["paid_at"] = datetime.utcnow().isoformat()
+        update_data["paid_at"] = datetime.now(timezone.utc).isoformat()
     if req.paid_amount is not None:
         update_data["paid_amount"] = req.paid_amount
     if req.notes is not None:
         update_data["notes"] = req.notes
     if user:
-        update_data["marked_by"] = user.user_id
+        update_data["marked_by"] = get_db_user_id(user)
 
     result = supabase.table("payment_records").update(update_data).eq("id", payment_id).execute()
     if not result.data:
@@ -194,35 +194,38 @@ def bulk_mark_paid(body: BulkMarkPaidRequest):
     """Bulk mark payments as paid -- by IDs or by month/year."""
     updated = 0
 
-    now_iso = datetime.utcnow().isoformat()
+    now_iso = datetime.now(timezone.utc).isoformat()
 
     if body.payment_ids:
-        for pid in body.payment_ids:
-            rec = supabase.table("payment_records").select("due_amount").eq("id", pid).single().execute()
-            if not rec.data:
-                continue
-            supabase.table("payment_records").update({
-                "status": "paid",
-                "paid_amount": rec.data.get("due_amount", 0),
-                "paid_at": now_iso,
-            }).eq("id", pid).execute()
-            updated += 1
+        # Batch update: single UPDATE for all matching IDs
+        result = (
+            supabase.table("payment_records")
+            .update({"status": "paid", "paid_at": now_iso})
+            .in_("id", body.payment_ids)
+            .in_("status", ["pending", "due", "overdue", "upcoming"])
+            .execute()
+        )
+        updated = len(result.data) if result.data else 0
     elif body.month and body.year:
-        query = supabase.table("payment_records").select("id, due_amount").eq(
-            "period_month", body.month
-        ).eq("period_year", body.year).in_(
-            "status", ["pending", "due", "overdue", "upcoming"]
+        # Fetch IDs first (needed for org_id scoping), then batch update
+        query = (
+            supabase.table("payment_records")
+            .select("id")
+            .eq("period_month", body.month)
+            .eq("period_year", body.year)
+            .in_("status", ["pending", "due", "overdue", "upcoming"])
         )
         if body.org_id:
             query = query.eq("org_id", body.org_id)
-        payments = query.execute().data or []
-        for p in payments:
-            supabase.table("payment_records").update({
-                "status": "paid",
-                "paid_amount": p.get("due_amount", 0),
-                "paid_at": now_iso,
-            }).eq("id", p["id"]).execute()
-            updated += 1
+        ids = [r["id"] for r in (query.execute().data or [])]
+        if ids:
+            result = (
+                supabase.table("payment_records")
+                .update({"status": "paid", "paid_at": now_iso})
+                .in_("id", ids)
+                .execute()
+            )
+            updated = len(result.data) if result.data else 0
 
     return {"status": "ok", "updated_count": updated}
 
@@ -253,15 +256,17 @@ async def mark_all_paid(request: Request):
         query = query.eq("org_id", org_id)
     result = query.execute()
 
-    now_iso = datetime.utcnow().isoformat()
+    now_iso = datetime.now(timezone.utc).isoformat()
+    ids = [r["id"] for r in (result.data or [])]
     marked = 0
-    for rec in (result.data or []):
-        supabase.table("payment_records").update({
-            "status": "paid",
-            "paid_amount": rec.get("due_amount", 0),
-            "paid_at": now_iso,
-        }).eq("id", rec["id"]).execute()
-        marked += 1
+    if ids:
+        update_result = (
+            supabase.table("payment_records")
+            .update({"status": "paid", "paid_at": now_iso})
+            .in_("id", ids)
+            .execute()
+        )
+        marked = len(update_result.data) if update_result.data else 0
 
     return {"status": "ok", "marked_paid": marked, "month": month_str}
 
@@ -311,43 +316,63 @@ def create_obligation(
     req: CreateObligationRequest,
     user: Optional[CurrentUser] = Depends(get_current_user),
 ):
-    """Create a custom (manual) obligation for an outlet."""
-    outlet = supabase.table("outlets").select("id, org_id").eq("id", outlet_id).single().execute()
-    if not outlet.data:
-        raise HTTPException(status_code=404, detail="Outlet not found")
+    """
+    DEPRECATED: Forwards to the Event creation pipeline.
 
-    org_id = outlet.data.get("org_id")
+    Per the locked data model (Event = master → Reminder + optional Payment),
+    users never create obligations or payments directly. This endpoint now
+    routes every call through create_critical_date() so the full cascade
+    (event → reminder → obligation → 12 months of payment_records) fires
+    correctly. Existing frontend callers don't need to change.
+    """
+    from routes.critical_dates import QuickEventCreate, create_critical_date
 
-    valid_types = {"rent", "cam", "electricity", "water", "hvac", "insurance", "property_tax", "custom"}
-    if req.type not in valid_types:
-        raise HTTPException(status_code=400, detail=f"Invalid type. Must be one of: {', '.join(valid_types)}")
-
-    if req.type == "custom" and not req.custom_label:
-        raise HTTPException(status_code=400, detail="custom_label is required when type is 'custom'")
-
-    valid_frequencies = {"monthly", "quarterly", "yearly", "one_time"}
-    if req.frequency not in valid_frequencies:
-        raise HTTPException(status_code=400, detail=f"Invalid frequency. Must be one of: {', '.join(valid_frequencies)}")
-
-    obl_data = {
-        "id": str(uuid.uuid4()),
-        "outlet_id": outlet_id,
-        "org_id": org_id,
-        "type": req.type,
-        "custom_label": req.custom_label,
-        "amount": req.amount,
-        "frequency": req.frequency,
-        "due_day_of_month": req.due_day,
-        "start_date": req.start_date,
-        "end_date": req.end_date,
-        "notes": req.notes,
-        "source": "manual",
-        "is_active": True,
+    # Map legacy obligation.type → event_type. "rent" and "cam" already
+    # live in FINANCIAL_EVENT_TYPES as rent_due / cam_due.
+    type_map = {
+        "rent": "rent_due",
+        "cam": "cam_due",
+        "electricity": "electricity",
+        "water": "water",
+        "hvac": "cam",  # HVAC rolls under CAM financial bucket
+        "insurance": "insurance_renewal",
+        "property_tax": "property_tax",
+        "custom": "custom",
     }
-    clean = {k: v for k, v in obl_data.items() if v is not None}
+    event_type = type_map.get(req.type, "custom")
 
-    result = supabase.table("obligations").insert(clean).execute()
-    return {"obligation": result.data[0] if result.data else clean}
+    title = req.custom_label or req.type.replace("_", " ").title()
+    # A "due day of month N" without an explicit start_date means "starting
+    # next occurrence of day N". Default to today if nothing was supplied.
+    from datetime import date as _date
+    start_date = req.start_date or _date.today().isoformat()
+
+    body = QuickEventCreate(
+        outlet_id=outlet_id,
+        agreement_id=None,
+        title=title,
+        event_type=event_type,
+        date_value=start_date,
+        priority="medium",
+        description=req.notes,
+        amount=req.amount,
+        is_financial=True,
+        is_recurring=req.frequency in ("monthly", "quarterly", "yearly"),
+        recurrence_frequency=req.frequency if req.frequency != "one_time" else None,
+    )
+
+    result = create_critical_date(body)
+    # Return shape compatible with the legacy caller (ObligationResponse)
+    return {
+        "obligation": {
+            "id": result.get("event", {}).get("id"),
+            "deprecated": True,
+            "routed_through": "events",
+            "reminder_created": result.get("reminder_created", False),
+            "payment_created": result.get("payment_created", False),
+            "payments_generated": result.get("payments_generated", 0),
+        }
+    }
 
 
 @router.patch("/obligations/{obligation_id}", dependencies=[Depends(require_permission("update_payments"))])

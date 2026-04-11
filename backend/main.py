@@ -20,7 +20,7 @@ from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from core.config import limiter
-from routes import auth, documents, outlets, agreements, payments, alerts, pipeline, admin, reports, contacts, leasebot, revenue, rent_schedules, critical_dates, india_compliance
+from routes import auth, documents, outlets, agreements, payments, alerts, pipeline, admin, reports, contacts, leasebot, revenue, rent_schedules, critical_dates, india_compliance, brands
 
 # ============================================
 # SENTRY MONITORING
@@ -81,6 +81,9 @@ _is_production = os.getenv("RAILWAY_ENVIRONMENT", "") == "production" or os.gete
 
 _dev_origins = [
     "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
 ]
 
 _prod_origins = [
@@ -112,13 +115,24 @@ app.add_middleware(
 async def health_check():
     env = os.getenv("RAILWAY_ENVIRONMENT", "development")
 
-    # Optional Supabase connectivity check
-    db_status = "ok"
-    try:
-        from core.config import supabase as sb
-        sb.table("outlets").select("id", count="exact").limit(1).execute()
-    except Exception:
-        db_status = "unreachable"
+    # Keep Railway health checks fast and predictable.
+    # Opt into the DB probe only when explicitly enabled.
+    db_status = "unchecked"
+    should_check_db = os.getenv("HEALTHCHECK_INCLUDE_DB", "").lower() in {"1", "true", "yes"}
+    if should_check_db:
+        try:
+            from core.config import supabase as sb
+            await asyncio.wait_for(
+                asyncio.to_thread(
+                    lambda: sb.table("outlets").select("id", count="exact").limit(1).execute()
+                ),
+                timeout=3.0,
+            )
+            db_status = "ok"
+        except asyncio.TimeoutError:
+            db_status = "timeout"
+        except Exception:
+            db_status = "unreachable"
 
     return {
         "status": "healthy",
@@ -148,6 +162,7 @@ app.include_router(revenue.router)
 app.include_router(rent_schedules.router)
 app.include_router(critical_dates.router)
 app.include_router(india_compliance.router)
+app.include_router(brands.router)
 
 # ============================================
 # ENTRYPOINT

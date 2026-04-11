@@ -6,25 +6,55 @@ import os
 import json
 import uuid
 import asyncio
+from functools import lru_cache
 from typing import Optional
 from datetime import datetime, date, timedelta
 from dateutil.relativedelta import relativedelta
 
-from fastapi import APIRouter, HTTPException, Depends, Header, Query, Form
+from fastapi import APIRouter, HTTPException, Depends, Header, Query, Form, Response
 from starlette.requests import Request
 
-from core.config import supabase, model, limiter, PORTFOLIO_QA_SCHEMA, CITY_ABBREVIATIONS
+import logging
+from core.config import (
+    supabase,
+    model,
+    limiter,
+    PORTFOLIO_QA_SCHEMA,
+    CITY_ABBREVIATIONS,
+    execute_supabase_query,
+    log_activity,
+)
+
+logger = logging.getLogger(__name__)
+from core.dependencies import get_current_user, get_current_user_sync, get_db_user_id, get_org_filter, require_permission
 from core.models import (
     CurrentUser, UpdateOrganizationRequest, InviteMemberRequest,
     PortfolioQARequest, SmartChatRequest, FeedbackRequest,
     CreatePilotRequest,
 )
-from core.dependencies import get_current_user, require_permission
-from services.extraction import get_num, get_or_create_demo_org
+from services.extraction_fields import get_num
 from services.email_service import send_email_via_resend
-import google.generativeai as genai
 
 router = APIRouter(prefix="/api", tags=["admin"])
+
+
+@lru_cache(maxsize=1)
+def _extraction_service():
+    from services import extraction as extraction_service
+
+    return extraction_service
+
+
+@lru_cache(maxsize=1)
+def _genai_module():
+    import google.generativeai as genai
+
+    return genai
+
+
+def _exclude_deleted(query):
+    """Apply the deleted-at filter when the query builder supports it."""
+    return query.is_("deleted_at", "null") if hasattr(query, "is_") else query
 
 
 # ============================================
@@ -40,7 +70,8 @@ async def log_usage(request: Request, user: Optional[CurrentUser] = Depends(get_
 
     try:
         org_id = user.org_id if user else None
-        user_id = user.id if user else None
+        # activity_log.user_id is uuid — drop for demo sessions
+        user_id = get_db_user_id(user)
         supabase.table("activity_log").insert({
             "id": str(uuid.uuid4()),
             "org_id": org_id,
@@ -101,11 +132,12 @@ def approve_signup_request(
 
     supabase.table("profiles").update(profile_update).eq("id", signup["user_id"]).execute()
 
-    # Mark signup request as approved
+    # Mark signup request as approved (reviewed_by is uuid type — demo
+    # sessions with synthetic ids would fail the cast, so guard via helper)
     supabase.table("signup_requests").update({
         "status": "approved",
         "reviewed_at": datetime.utcnow().isoformat(),
-        "reviewed_by": user.id if user else None,
+        "reviewed_by": get_db_user_id(user),
     }).eq("id", request_id).execute()
 
     return {"ok": True, "user_id": signup["user_id"], "org_id": org_id, "role": role}
@@ -120,7 +152,7 @@ def reject_signup_request(
     supabase.table("signup_requests").update({
         "status": "rejected",
         "reviewed_at": datetime.utcnow().isoformat(),
-        "reviewed_by": user.id if user else None,
+        "reviewed_by": get_db_user_id(user),
     }).eq("id", request_id).execute()
     return {"ok": True}
 
@@ -133,12 +165,35 @@ def reject_signup_request(
 def list_organizations(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=500),
+    user: Optional[CurrentUser] = Depends(get_current_user),
 ):
     """List all organizations (paginated)."""
     offset = (page - 1) * page_size
-    count_result = supabase.table("organizations").select("id", count="exact").execute()
-    total = count_result.count or 0
-    result = supabase.table("organizations").select("*").order("created_at", desc=True).range(offset, offset + page_size - 1).execute()
+
+    def _build_count_query():
+        query = supabase.table("organizations").select("id", count="exact")
+        if user and user.role != "platform_admin" and user.org_id:
+            query = query.eq("id", user.org_id)
+        return query
+
+    def _build_data_query():
+        query = supabase.table("organizations").select(
+            "id, name, logo_url, created_at, created_by, alert_preferences"
+        ).order("created_at", desc=True)
+        if user and user.role != "platform_admin" and user.org_id:
+            query = query.eq("id", user.org_id)
+        return query.range(offset, offset + page_size - 1)
+
+    total = 0
+    try:
+        count_result = execute_supabase_query(_build_count_query)
+        total = count_result.count or 0
+    except Exception:
+        total = 0
+
+    result = execute_supabase_query(_build_data_query)
+    if total == 0:
+        total = len(result.data or [])
     return {"items": result.data, "total": total, "page": page, "page_size": page_size}
 
 
@@ -149,6 +204,78 @@ def create_organization(name: str = Form(...)):
     if not result.data:
         raise HTTPException(status_code=500, detail="Failed to create organization")
     return {"organization": result.data[0]}
+
+
+@router.post("/organizations/self-serve")
+def self_serve_create_organization(
+    name: str = Form(...),
+    user: Optional[CurrentUser] = Depends(get_current_user),
+):
+    """
+    Self-serve org creation for a newly-approved user who isn't yet a
+    member of any organization. Matches the locked flow:
+        "Login / Signup → Create Organization → Add Brand(s) → Add Team & Roles → Dashboard"
+
+    Guarded by two rules (enforced together):
+      1. The caller must be authenticated.
+      2. The caller must NOT already belong to an org.
+
+    On success the caller is auto-promoted to `org_admin` of the new org
+    so they can immediately invite members, add brands, and create outlets
+    without begging an admin.
+    """
+    if not user or not user.user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    # Refuse the call if the user already belongs to an org — we never want
+    # an existing org member to orphan themselves from their current org.
+    if user.org_id:
+        raise HTTPException(
+            status_code=403,
+            detail="You already belong to an organization. Ask an admin to create additional orgs.",
+        )
+
+    clean_name = (name or "").strip()
+    if not clean_name:
+        raise HTTPException(status_code=400, detail="Organization name is required")
+
+    org_id = str(uuid.uuid4())
+    try:
+        org_result = supabase.table("organizations").insert({
+            "id": org_id,
+            "name": clean_name,
+            "created_by": get_db_user_id(user),
+        }).execute()
+        if not org_result.data:
+            raise HTTPException(status_code=500, detail="Failed to create organization")
+
+        # Only attempt the profile promotion if user_id is a real UUID —
+        # demo sessions can't write to profiles.id (uuid PK).
+        db_uid = get_db_user_id(user)
+        if db_uid:
+            try:
+                supabase.table("profiles").update({
+                    "org_id": org_id,
+                    "role": "org_admin",
+                }).eq("id", db_uid).execute()
+            except Exception as e:
+                logger.warning("self_serve_create_organization: profile promotion failed: %s", e)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create organization: {str(e)[:200]}")
+
+    log_activity(
+        org_id, get_db_user_id(user),
+        "organization", org_id, "org_created_self_serve",
+        {"name": clean_name},
+    )
+
+    return {
+        "organization": org_result.data[0],
+        "role": "org_admin",
+        "message": "Organization created. You're now its admin.",
+    }
 
 
 @router.get("/organizations/{org_id}", dependencies=[Depends(require_permission("manage_org_settings"))])
@@ -280,15 +407,41 @@ def remove_org_member(org_id: str, user_id: str):
 # ============================================
 
 @router.get("/dashboard", dependencies=[Depends(require_permission("view_reports"))])
-async def dashboard_stats():
-    """Get dashboard statistics."""
-    # Run all sync Supabase queries in threads to avoid blocking the event loop
-    outlets, agreements, _, alerts, payments = await asyncio.gather(
-        asyncio.to_thread(lambda: supabase.table("outlets").select("id, name, status, city, property_type, franchise_model, monthly_net_revenue, deal_stage").is_("deleted_at", "null").execute()),
-        asyncio.to_thread(lambda: supabase.table("agreements").select("id, outlet_id, type, status, monthly_rent, cam_monthly, total_monthly_outflow, lease_expiry_date, extracted_data, risk_flags").execute()),
-        asyncio.to_thread(lambda: supabase.table("obligations").select("id, type, amount, is_active").execute()),
-        asyncio.to_thread(lambda: supabase.table("alerts").select("id, type, severity, status, trigger_date").execute()),
-        asyncio.to_thread(lambda: supabase.table("payment_records").select("id, status, due_amount").execute()),
+async def dashboard_stats(
+    response: Response,
+    user: Optional[CurrentUser] = Depends(get_current_user),
+):
+    """Get dashboard statistics. Cached 30s on the client."""
+    # Browser + CDN cache hint — dashboard tolerates 30s staleness
+    response.headers["Cache-Control"] = "private, max-age=30, stale-while-revalidate=60"
+    org_id = get_org_filter(user)
+
+    outlets_query = _exclude_deleted(
+        supabase.table("outlets").select(
+            "id, name, status, city, property_type, franchise_model, monthly_net_revenue, deal_stage"
+        )
+    )
+    # NOTE: do NOT select extracted_data here — it's a heavy JSONB blob
+    # (100KB-2MB per row) and we only need scalars + risk_flags for counts.
+    # License expiry metadata we compute separately with a tiny targeted query.
+    agreements_query = supabase.table("agreements").select(
+        "id, outlet_id, type, status, monthly_rent, cam_monthly, total_monthly_outflow, lease_expiry_date, risk_flags"
+    )
+    alerts_query = supabase.table("alerts").select("id, type, severity, status, trigger_date")
+    payments_query = supabase.table("payment_records").select("id, status, due_amount")
+
+    if org_id:
+        outlets_query = outlets_query.eq("org_id", org_id)
+        agreements_query = agreements_query.eq("org_id", org_id)
+        alerts_query = alerts_query.eq("org_id", org_id)
+        payments_query = payments_query.eq("org_id", org_id)
+
+    # Run sync Supabase queries in threads to avoid blocking the event loop.
+    outlets, agreements, alerts, payments = await asyncio.gather(
+        asyncio.to_thread(outlets_query.execute),
+        asyncio.to_thread(agreements_query.execute),
+        asyncio.to_thread(alerts_query.execute),
+        asyncio.to_thread(payments_query.execute),
     )
 
     # Filter agreements to only include those from non-deleted outlets
@@ -322,27 +475,33 @@ async def dashboard_stats():
         except (ValueError, TypeError):
             pass
 
-    # Expiring licenses: license_certificate agreements with valid_to in extracted_data
+    # Expiring licenses: targeted lightweight query (no JSONB blob)
     expiring_licenses_30d = 0
     expiring_licenses_60d = 0
     expiring_licenses_90d = 0
-    for a in agreements_data:
-        if a.get("type") != "license_certificate":
-            continue
-        extracted = a.get("extracted_data") or {}
-        valid_to = extracted.get("valid_to")
-        if not valid_to:
-            continue
-        try:
-            days_left = (date.fromisoformat(valid_to) - today).days
-            if 0 <= days_left < 30:
-                expiring_licenses_30d += 1
-            elif 30 <= days_left < 60:
-                expiring_licenses_60d += 1
-            elif 60 <= days_left <= 90:
-                expiring_licenses_90d += 1
-        except (ValueError, TypeError):
-            pass
+    try:
+        lic_query = supabase.table("agreements").select("id, valid_to") \
+            .eq("type", "license_certificate") \
+            .not_.is_("valid_to", "null")
+        if org_id:
+            lic_query = lic_query.eq("org_id", org_id)
+        lic_rows = await asyncio.to_thread(lic_query.execute)
+        for row in (lic_rows.data or []):
+            valid_to = row.get("valid_to")
+            if not valid_to:
+                continue
+            try:
+                days_left = (date.fromisoformat(valid_to) - today).days
+                if 0 <= days_left < 30:
+                    expiring_licenses_30d += 1
+                elif 30 <= days_left < 60:
+                    expiring_licenses_60d += 1
+                elif 60 <= days_left <= 90:
+                    expiring_licenses_90d += 1
+            except (ValueError, TypeError):
+                pass
+    except Exception:
+        pass  # Non-critical — dashboard should still load
 
     cities = {}
     for o in outlets.data:
@@ -353,6 +512,11 @@ async def dashboard_stats():
     for o in outlets.data:
         s = o.get("status") or "unknown"
         statuses[s] = statuses.get(s, 0) + 1
+
+    property_types = {}
+    for o in outlets.data:
+        ptype = o.get("property_type") or "unknown"
+        property_types[ptype] = property_types.get(ptype, 0) + 1
 
     rent_by_outlet = {}
     for a in agreements_data:
@@ -390,6 +554,7 @@ async def dashboard_stats():
         "overdue_payments_count": len(overdue_payments),
         "overdue_amount": overdue_amount,
         "pipeline_stages": pipeline_stages,
+        "outlets_by_property_type": property_types,
     }
 
 
@@ -401,7 +566,7 @@ async def dashboard_stats():
 def seed_demo_data():
     """Seed 6 realistic demo outlets with agreements, obligations, and alerts."""
     try:
-        org_id = get_or_create_demo_org()
+        org_id = _extraction_service().get_or_create_demo_org()
 
         outlets_data = [
             {
@@ -1241,15 +1406,9 @@ async def portfolio_qa_endpoint(request: Request, req: PortfolioQARequest, autho
     try:
         org_id = req.org_id
         if not org_id and authorization:
-            try:
-                token = authorization.replace("Bearer ", "")
-                user_resp = supabase.auth.get_user(token)
-                if user_resp and user_resp.user:
-                    profile = supabase.table("profiles").select("org_id").eq("id", user_resp.user.id).single().execute()
-                    if profile.data:
-                        org_id = profile.data.get("org_id")
-            except Exception:
-                pass
+            user = await get_current_user(authorization)
+            if user:
+                org_id = user.org_id
 
         if not org_id:
             raise HTTPException(status_code=400, detail="Organization context required")
@@ -1265,7 +1424,7 @@ async def portfolio_qa_endpoint(request: Request, req: PortfolioQARequest, autho
 
         sql_response = model.generate_content(
             sql_prompt,
-            generation_config=genai.GenerationConfig(temperature=0, max_output_tokens=500),
+            generation_config=_genai_module().GenerationConfig(temperature=0, max_output_tokens=500),
         )
         generated_sql = sql_response.text.strip()
 
@@ -1323,7 +1482,7 @@ async def portfolio_qa_endpoint(request: Request, req: PortfolioQARequest, autho
 
         answer_response = model.generate_content(
             answer_prompt,
-            generation_config=genai.GenerationConfig(temperature=0.2, max_output_tokens=1000),
+            generation_config=_genai_module().GenerationConfig(temperature=0.2, max_output_tokens=1000),
         )
 
         return {
@@ -1360,34 +1519,47 @@ async def smart_chat(request: Request, req: SmartChatRequest, user: Optional[Cur
     if not org_id:
         raise HTTPException(status_code=400, detail="Organization context required")
 
+    # If outlet_id specified, focus context on that single outlet
+    focused_outlet_id = req.outlet_id
+
     try:
         outlets_q = supabase.table("outlets").select("id, name, brand_name, city, status, property_type, franchise_model, monthly_net_revenue, deal_stage, deal_priority")
         if org_id:
             outlets_q = outlets_q.eq("org_id", org_id)
+        if focused_outlet_id:
+            outlets_q = outlets_q.eq("id", focused_outlet_id)
         outlets_result = outlets_q.limit(200).execute()
         outlets = outlets_result.data or []
 
         agreements_q = supabase.table("agreements").select("id, outlet_id, type, status, monthly_rent, cam_monthly, total_monthly_outflow, security_deposit, lease_commencement_date, lease_expiry_date, lock_in_end_date, rent_model, risk_flags, lessor_name, lessee_name, brand_name")
         if org_id:
             agreements_q = agreements_q.eq("org_id", org_id)
+        if focused_outlet_id:
+            agreements_q = agreements_q.eq("outlet_id", focused_outlet_id)
         agreements_result = agreements_q.limit(200).execute()
         agreements = agreements_result.data or []
 
         alerts_q = supabase.table("alerts").select("id, type, severity, title, trigger_date, status, outlet_id")
         if org_id:
             alerts_q = alerts_q.eq("org_id", org_id)
+        if focused_outlet_id:
+            alerts_q = alerts_q.eq("outlet_id", focused_outlet_id)
         alerts_result = alerts_q.eq("status", "pending").limit(100).execute()
         alerts = alerts_result.data or []
 
         payments_q = supabase.table("payment_records").select("id, outlet_id, due_amount, due_date, status, period_month, period_year")
         if org_id:
             payments_q = payments_q.eq("org_id", org_id)
+        if focused_outlet_id:
+            payments_q = payments_q.eq("outlet_id", focused_outlet_id)
         payments_result = payments_q.in_("status", ["overdue", "due", "upcoming"]).limit(200).execute()
         payments = payments_result.data or []
 
         obligations_q = supabase.table("obligations").select("id, outlet_id, type, frequency, amount, escalation_pct, is_active")
         if org_id:
             obligations_q = obligations_q.eq("org_id", org_id)
+        if focused_outlet_id:
+            obligations_q = obligations_q.eq("outlet_id", focused_outlet_id)
         obligations_result = obligations_q.eq("is_active", True).limit(200).execute()
         obligations = obligations_result.data or []
 
@@ -1416,7 +1588,7 @@ async def smart_chat(request: Request, req: SmartChatRequest, user: Optional[Cur
 
     # Build data lists outside f-string to avoid {{}} set-literal bug
     outlets_json = json.dumps([{"name": o.get("name"), "city": o.get("city"), "status": o.get("status"), "type": o.get("property_type"), "revenue": o.get("monthly_net_revenue"), "deal_stage": o.get("deal_stage"), "priority": o.get("deal_priority")} for o in outlets[:20]])
-    active_agreements_json = json.dumps([{"outlet": outlet_names.get(a.get("outlet_id"), "Unknown"), "type": a.get("type"), "monthly_rent": a.get("monthly_rent"), "total_outflow": a.get("total_monthly_outflow"), "rent_model": a.get("rent_model"), "expiry": a.get("lease_expiry_date"), "lock_in_end": a.get("lock_in_end_date")} for a in agreements if a.get("status") == "active"][:20])
+    active_agreements_json = json.dumps([{"outlet": outlet_names.get(a.get("outlet_id"), "Unknown"), "type": a.get("type"), "monthly_rent": a.get("monthly_rent"), "cam_monthly": a.get("cam_monthly"), "total_outflow": a.get("total_monthly_outflow"), "rent_model": a.get("rent_model"), "expiry": a.get("lease_expiry_date"), "lock_in_end": a.get("lock_in_end_date"), "security_deposit": a.get("security_deposit")} for a in agreements if a.get("status") == "active"][:20])
     escalation_json = json.dumps([{"outlet": outlet_names.get(o.get("outlet_id"), "Unknown"), "type": o.get("type"), "amount": o.get("amount"), "escalation_pct": o.get("escalation_pct")} for o in escalation_obligations[:15]])
     risk_flags_json = json.dumps(all_risk_flags[:15])
     alerts_json = json.dumps([{"title": a.get("title"), "type": a.get("type"), "severity": a.get("severity"), "outlet": outlet_names.get(a.get("outlet_id"), "Unknown")} for a in alerts[:15]])
@@ -1465,7 +1637,8 @@ LEASE RULES REFERENCE (India Commercial Leasing):
 - Rent Commencement: Only after store opening/operational readiness.
 - Fit-out: 30-90 days rent-free for setup.
 - Escalation: Standard 5-7% annually or 15% every 3 years. Above 10% is high.
-- CAM: Require transparency, audit rights, capped increases.
+- CAM (Common Area Maintenance): Require transparency, audit rights, capped increases (typically 5-8% annual cap). CAM should be billed on carpet/covered area NOT super area. Include reconciliation clause. CAM charges listed per agreement in cam_monthly field.
+- HVAC: Separate from CAM. Charged per sqft typically Rs 15-25/sqft/month.
 - Security Deposit: Typically 3-6 months. Above 6 is high.
 - Exclusivity: Prevent leasing to direct competitors.
 - Co-tenancy (malls): Rent relief or exit if anchor tenants leave.
@@ -1485,9 +1658,19 @@ doesn't contain the answer. You are a knowledgeable real estate AI assistant, no
 For example, if someone asks "what is FSSAI" or "how does rent escalation work" or "what are typical CAM charges",
 answer from your knowledge. Never say you can't answer — always provide helpful information."""
 
+    # Build conversation with session history for context awareness
+    conversation_parts = [context]
+    if req.session_history:
+        for entry in req.session_history[-5:]:  # Last 5 exchanges for context
+            if entry.get("role") == "user":
+                conversation_parts.append(f"User: {entry.get('message', '')}")
+            elif entry.get("role") == "assistant":
+                conversation_parts.append(f"Assistant: {entry.get('message', '')}")
+    conversation_parts.append(f"User question: {question}")
+
     try:
         response = model.generate_content(
-            [context, f"User question: {question}"],
+            conversation_parts,
             generation_config={"temperature": 0.3, "max_output_tokens": 4096},
         )
         if not response.candidates or not response.candidates[0].content.parts:
@@ -1687,8 +1870,8 @@ def unified_cron(cron_secret: Optional[str] = Header(None, alias="X-Cron-Secret"
     Secured via CRON_SECRET env var.
     """
     expected_secret = os.getenv("CRON_SECRET")
-    if expected_secret and cron_secret != expected_secret:
-        raise HTTPException(status_code=401, detail="Invalid cron secret")
+    if not expected_secret or cron_secret != expected_secret:
+        raise HTTPException(status_code=401, detail="Invalid or missing cron secret")
 
     results = {}
     for name, fn in [
@@ -1872,7 +2055,7 @@ def submit_feedback(
     authorization: Optional[str] = Header(None),
 ):
     """Submit extraction feedback for a field."""
-    user = get_current_user(authorization)
+    user = get_current_user_sync(authorization)
 
     # agreement_id may be a filename (pre-confirmation) or a UUID
     agr_id = req.agreement_id
@@ -1894,7 +2077,9 @@ def submit_feedback(
         feedback_data["agreement_id"] = agr_id
 
     if user:
-        feedback_data["user_id"] = user.user_id
+        # feedback.user_id is a uuid column — demo sessions carry synthetic
+        # ids that would fail the type cast. Use the helper to drop them.
+        feedback_data["user_id"] = get_db_user_id(user)
         feedback_data["org_id"] = user.org_id
 
     result = supabase.table("feedback").insert(feedback_data).execute()

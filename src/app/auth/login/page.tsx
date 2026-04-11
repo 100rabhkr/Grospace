@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import Image from "next/image";
+import { Logo } from "@/components/logo";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -166,7 +166,9 @@ function LoginContent() {
             }}
           >
             <div className="flex items-center gap-3 mb-3">
-              <Image src="/logo.png" alt="GroSpace" width={36} height={36} className="rounded-lg invert brightness-200" />
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-white ring-1 ring-white/15">
+                <Logo className="h-5 w-5" />
+              </div>
               <span className="text-xl font-semibold tracking-tight text-white">GroSpace</span>
             </div>
             <p className="text-white/35 text-sm tracking-wide">
@@ -239,7 +241,9 @@ function LoginContent() {
         <div className="w-full max-w-[380px] relative z-10 py-8">
           {/* Mobile logo */}
           <div className="flex items-center gap-2.5 mb-10 lg:hidden">
-            <Image src="/logo.png" alt="GroSpace" width={32} height={32} className="rounded-lg" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+              <Logo className="h-[18px] w-[18px]" />
+            </div>
             <span className="text-lg font-semibold tracking-tight text-foreground">GroSpace</span>
           </div>
 

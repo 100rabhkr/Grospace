@@ -55,8 +55,9 @@ type Payment = {
   paid_amount: number | null;
   paid_at: string | null;
   notes: string | null;
-  obligations: { type: string; frequency: string; amount: number | null } | null;
-  outlets: { name: string; city: string } | null;
+  source_event_id: string | null;
+  obligations: { type: string; frequency: string; amount: number | null; custom_label?: string; source?: string } | null;
+  outlets: { name: string; city: string; brand_name?: string; company_name?: string } | null;
 };
 
 // ---------- Helpers ----------
@@ -130,6 +131,10 @@ export default function PaymentsPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [outletFilter, setOutletFilter] = useState<string>("all");
+  const [monthFilter, setMonthFilter] = useState<string>("all");
+  const [yearFilter, setYearFilter] = useState<string>("all");
+  const [brandFilter, setBrandFilter] = useState<string>("all");
+  const [companyFilter, setCompanyFilter] = useState<string>("all");
 
   // ---------- Fetch ----------
 
@@ -273,14 +278,40 @@ export default function PaymentsPage() {
     return Array.from(types).sort();
   }, [payments]);
 
+  const uniqueBrands = useMemo(() => {
+    const brands = new Set<string>();
+    payments.forEach((p) => {
+      if (p.outlets?.brand_name) brands.add(p.outlets.brand_name);
+    });
+    return Array.from(brands).sort();
+  }, [payments]);
+
+  const uniqueCompanies = useMemo(() => {
+    const companies = new Set<string>();
+    payments.forEach((p) => {
+      if (p.outlets?.company_name) companies.add(p.outlets.company_name);
+    });
+    return Array.from(companies).sort();
+  }, [payments]);
+
+  const uniqueYears = useMemo(() => {
+    const years = new Set<number>();
+    payments.forEach((p) => years.add(p.period_year));
+    return Array.from(years).sort();
+  }, [payments]);
+
   const filteredPayments = useMemo(() => {
     return payments.filter((p) => {
       if (statusFilter !== "all" && p.status !== statusFilter) return false;
       if (typeFilter !== "all" && p.obligations?.type !== typeFilter) return false;
       if (outletFilter !== "all" && p.outlet_id !== outletFilter) return false;
+      if (monthFilter !== "all" && String(p.period_month) !== monthFilter) return false;
+      if (yearFilter !== "all" && String(p.period_year) !== yearFilter) return false;
+      if (brandFilter !== "all" && p.outlets?.brand_name !== brandFilter) return false;
+      if (companyFilter !== "all" && p.outlets?.company_name !== companyFilter) return false;
       return true;
     });
-  }, [payments, statusFilter, typeFilter, outletFilter]);
+  }, [payments, statusFilter, typeFilter, outletFilter, monthFilter, yearFilter, brandFilter, companyFilter]);
 
   // ---------- Aggregates ----------
 
@@ -295,12 +326,16 @@ export default function PaymentsPage() {
     .reduce((s, p) => s + (p.due_amount || 0), 0);
   const upcomingCount = filteredPayments.filter((p) => p.status === "upcoming").length;
 
-  const hasActiveFilters = statusFilter !== "all" || typeFilter !== "all" || outletFilter !== "all";
+  const hasActiveFilters = statusFilter !== "all" || typeFilter !== "all" || outletFilter !== "all" || monthFilter !== "all" || yearFilter !== "all" || brandFilter !== "all" || companyFilter !== "all";
 
   function clearFilters() {
     setStatusFilter("all");
     setTypeFilter("all");
     setOutletFilter("all");
+    setMonthFilter("all");
+    setYearFilter("all");
+    setBrandFilter("all");
+    setCompanyFilter("all");
   }
 
   return (
@@ -359,42 +394,33 @@ export default function PaymentsPage() {
         </div>
       )}
 
-      {/* Summary Cards */}
+      {/* Summary strip — four inline metrics, divider style, zero card clutter */}
       {!loading && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <Card>
-            <CardContent className="pt-6">
-              <p className="text-xs text-muted-foreground uppercase tracking-wide">Due + Overdue</p>
-              <p className="text-2xl font-semibold mt-1">{formatCurrency(totalDue)}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <p className="text-xs text-muted-foreground uppercase tracking-wide">Total Paid</p>
-              <p className="text-2xl font-semibold text-emerald-700 mt-1">{formatCurrency(totalPaid)}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <p className="text-xs text-muted-foreground uppercase tracking-wide">Overdue</p>
-              <p className={`text-2xl font-semibold mt-1 ${totalOverdue > 0 ? "text-rose-600" : ""}`}>
-                {formatCurrency(totalOverdue)}
-              </p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <p className="text-xs text-muted-foreground uppercase tracking-wide">Upcoming</p>
-              <p className="text-2xl font-semibold text-foreground mt-1">{upcomingCount}</p>
-            </CardContent>
-          </Card>
+        <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-border border-y border-border">
+          <div className="px-5 py-5">
+            <p className="text-micro mb-2">Due + Overdue</p>
+            <p className="text-metric tabular-nums">{formatCurrency(totalDue)}</p>
+          </div>
+          <div className="px-5 py-5">
+            <p className="text-micro mb-2">Total Paid</p>
+            <p className="text-metric tabular-nums text-foreground">{formatCurrency(totalPaid)}</p>
+          </div>
+          <div className="px-5 py-5">
+            <p className="text-micro mb-2">Overdue</p>
+            <p className={`text-metric tabular-nums ${totalOverdue > 0 ? "text-destructive" : "text-foreground"}`}>
+              {formatCurrency(totalOverdue)}
+            </p>
+          </div>
+          <div className="px-5 py-5">
+            <p className="text-micro mb-2">Upcoming</p>
+            <p className="text-metric tabular-nums text-foreground">{upcomingCount}</p>
+          </div>
         </div>
       )}
 
-      {/* Filters */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      {/* Filters — flat row, no card */}
+      <div className="rounded-xl border border-border bg-muted/40 p-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger><SelectValue placeholder="Status" /></SelectTrigger>
               <SelectContent>
@@ -427,14 +453,57 @@ export default function PaymentsPage() {
               </SelectContent>
             </Select>
 
-            {hasActiveFilters && (
-              <Button variant="ghost" size="sm" onClick={clearFilters} className="self-end h-9">
-                <X className="h-3.5 w-3.5 mr-1" /> Clear
-              </Button>
+            <Select value={monthFilter} onValueChange={setMonthFilter}>
+              <SelectTrigger><SelectValue placeholder="Month" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Months</SelectItem>
+                {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                  <SelectItem key={m} value={String(m)}>{monthName(m)}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={yearFilter} onValueChange={setYearFilter}>
+              <SelectTrigger><SelectValue placeholder="Year" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Years</SelectItem>
+                {uniqueYears.map((y) => (
+                  <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {uniqueBrands.length > 1 && (
+              <Select value={brandFilter} onValueChange={setBrandFilter}>
+                <SelectTrigger><SelectValue placeholder="Brand" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Brands</SelectItem>
+                  {uniqueBrands.map((b) => (
+                    <SelectItem key={b} value={b}>{b}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             )}
-          </div>
-        </CardContent>
-      </Card>
+
+            {uniqueCompanies.length > 1 && (
+              <Select value={companyFilter} onValueChange={setCompanyFilter}>
+                <SelectTrigger><SelectValue placeholder="Company" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Companies</SelectItem>
+                  {uniqueCompanies.map((c) => (
+                    <SelectItem key={c} value={c}>{c}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+
+          {hasActiveFilters && (
+            <Button variant="ghost" size="sm" onClick={clearFilters} className="self-end h-9">
+              <X className="h-3.5 w-3.5 mr-1" /> Clear
+            </Button>
+          )}
+        </div>
+      </div>
 
       {/* Loading */}
       {loading && (
