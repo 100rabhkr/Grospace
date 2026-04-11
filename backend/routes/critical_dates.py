@@ -193,8 +193,11 @@ def _create_critical_date_impl(body: QuickEventCreate):
     except (ValueError, TypeError):
         raise HTTPException(status_code=400, detail="date_value must be a valid ISO date (YYYY-MM-DD)")
 
-    if body.amount is not None and body.amount < 0:
-        raise HTTPException(status_code=400, detail="Amount must be non-negative")
+    # Reject zero AND negative amounts. A zero-amount obligation would
+    # create a ghost row that never generates payment_records because the
+    # cascade checks `amount > 0`. Audit finding #4.
+    if body.amount is not None and body.amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be a positive number")
 
     # Validate recurrence_frequency
     if body.is_recurring and body.recurrence_frequency not in (
@@ -329,11 +332,14 @@ create_critical_date = _create_critical_date_impl
     "/critical-dates",
     dependencies=[Depends(require_permission("edit_agreements"))],
 )
-@limiter.limit("30/minute")
+@limiter.limit("10/minute")
 def create_critical_date_route(request: Request, body: QuickEventCreate):
     """
     HTTP route for creating a custom event (cascades to reminder + payment).
-    Rate limited to 30/min per IP to protect the event pipeline from abuse.
+    Rate limited to 10/min per IP because each call can materialize up to
+    24 payment_records in a single cascade. The lower cap protects against
+    abuse of the schedule generator — audit finding #1.
+
     Delegates to _create_critical_date_impl so internal forwarders (from
     the deprecated /outlets/{id}/obligations endpoint) can skip the limiter.
     """
@@ -350,6 +356,7 @@ def create_critical_date_route(request: Request, body: QuickEventCreate):
 # Per the locked model: payment creation lives here and ONLY here.
 
 _SCHEDULE_HORIZON_MONTHS = 12  # Roll forward one year of dues
+_SCHEDULE_HORIZON_MAX = 24  # Hard cap — never materialize > 2 years in one call
 
 
 def _generate_payment_schedule_for_event(
@@ -371,6 +378,17 @@ def _generate_payment_schedule_for_event(
     uses (obligation_id, period_year, period_month) de-duplication so
     re-running doesn't duplicate entries.
     """
+    # Hard cap on horizon — audit finding #8. Prevents accidental DB
+    # bloat if a caller passes a huge horizon value.
+    if horizon_months > _SCHEDULE_HORIZON_MAX:
+        logger.warning(
+            "payment schedule: horizon_months=%d capped to %d",
+            horizon_months, _SCHEDULE_HORIZON_MAX,
+        )
+        horizon_months = _SCHEDULE_HORIZON_MAX
+    if horizon_months < 1:
+        horizon_months = 1
+
     try:
         from dateutil.relativedelta import relativedelta
     except ImportError:
@@ -386,6 +404,16 @@ def _generate_payment_schedule_for_event(
             end = date.fromisoformat(end_date)
         except (ValueError, TypeError):
             end = None
+
+    # Sanity: end_date before start_date means zero valid dues. Audit
+    # finding #5 — surface this so the caller can distinguish it from
+    # a silent no-op.
+    if end and end < start:
+        logger.warning(
+            "payment schedule: end_date %s is before start_date %s — 0 records",
+            end, start,
+        )
+        return 0
 
     # Build the schedule based on frequency
     due_dates: list[date] = []
@@ -1159,10 +1187,28 @@ def back_link_alerts_and_obligations_to_events(agreement_id: str):
             candidates = type_to_events.get(target_type, [])
             if not candidates:
                 continue
-            # Pick the event whose date_value is closest to the alert's trigger_date
-            trigger = alert.get("trigger_date") or ""
-            candidates.sort(key=lambda c: abs((c[1] or "").__hash__() - (trigger or "").__hash__()))
-            # Simple strategy: first matching event (covers the common 1:1 case)
+            # Pick the event whose date_value is closest to the alert's
+            # trigger_date. Uses real date arithmetic — the old version
+            # compared string hashes which gave non-deterministic linkage.
+            trigger_str = alert.get("trigger_date") or ""
+            try:
+                trigger_date = date.fromisoformat(trigger_str) if trigger_str else None
+            except (ValueError, TypeError):
+                trigger_date = None
+
+            def _date_distance(candidate: tuple[str, str]) -> int:
+                # Sort by absolute day distance. Rows with unparseable dates
+                # get a large constant distance so they sort last.
+                cand_str = candidate[1] or ""
+                try:
+                    cand_date = date.fromisoformat(cand_str) if cand_str else None
+                except (ValueError, TypeError):
+                    cand_date = None
+                if cand_date is None or trigger_date is None:
+                    return 10_000_000
+                return abs((cand_date - trigger_date).days)
+
+            candidates.sort(key=_date_distance)
             best_event_id = candidates[0][0]
             try:
                 supabase.table("alerts").update(

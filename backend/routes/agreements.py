@@ -332,10 +332,12 @@ def delete_agreement_forever(agreement_id: str, user: Optional[CurrentUser] = De
             detail="Agreement must be in the recycle bin before permanent deletion",
         )
 
-    # Cascade-delete everything that was rolled up from this agreement
+    # Cascade-delete everything that was rolled up from this agreement.
+    # Includes `documents` so license/attached docs linked to the agreement
+    # don't stay orphaned (audit flagged this as missing).
     for table in (
         "rent_schedules", "critical_dates", "agreement_clauses",
-        "payment_records", "obligations", "alerts",
+        "payment_records", "obligations", "alerts", "documents",
     ):
         try:
             supabase.table(table).delete().eq("agreement_id", agreement_id).execute()
