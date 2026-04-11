@@ -206,10 +206,10 @@ export default function OrganizationDetailPage() {
         {/* Header */}
         <div className="flex items-center gap-4">
           <div className="w-14 h-14 rounded-full bg-foreground flex items-center justify-center shrink-0">
-            <span className="text-white text-2xl font-bold">{initial}</span>
+            <span className="text-white text-2xl font-semibold">{initial}</span>
           </div>
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-foreground">
+            <h1 className="text-[17px] font-semibold tracking-tight text-foreground">
               {organization.name}
             </h1>
             <div className="flex items-center gap-1.5 mt-1 text-sm text-muted-foreground">
@@ -227,7 +227,7 @@ export default function OrganizationDetailPage() {
                 <Store className="w-5 h-5 text-foreground" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-foreground">
+                <p className="text-2xl font-semibold text-foreground">
                   {outlets.length}
                 </p>
                 <p className="text-xs text-muted-foreground">Outlets</p>
@@ -240,7 +240,7 @@ export default function OrganizationDetailPage() {
                 <FileCheck className="w-5 h-5 text-foreground" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-foreground">
+                <p className="text-2xl font-semibold text-foreground">
                   {agreements.length}
                 </p>
                 <p className="text-xs text-muted-foreground">Agreements</p>
@@ -253,7 +253,7 @@ export default function OrganizationDetailPage() {
                 <Bell className="w-5 h-5 text-foreground" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-foreground">
+                <p className="text-2xl font-semibold text-foreground">
                   {alerts.length}
                 </p>
                 <p className="text-xs text-muted-foreground">Reminders</p>

@@ -44,7 +44,7 @@ def get_reports(user: Optional[CurrentUser] = Depends(get_current_user)):
         outlet_id = outlet["id"]
         outlet_agreements = [
             a for a in agreements_result.data
-            if a.get("outlet_id") == outlet_id and a.get("type") == "lease_loi"
+            if a.get("outlet_id") == outlet_id and a.get("type") in ("lease_loi", "lease", "franchise_agreement", "amendment")
         ]
         primary = next(
             (a for a in outlet_agreements if a.get("status") in ("active", "expiring")),
@@ -75,12 +75,16 @@ def get_reports(user: Optional[CurrentUser] = Depends(get_current_user)):
             "outlet_id": outlet_id,
             "outlet_name": outlet.get("name", ""),
             "brand": outlet.get("brand_name", ""),
+            "company": outlet.get("company_name", ""),
+            "business_category": outlet.get("business_category", ""),
             "city": outlet.get("city", ""),
             "state": outlet.get("state", ""),
             "property_type": outlet.get("property_type", ""),
             "franchise_model": outlet.get("franchise_model", ""),
             "outlet_status": outlet.get("status", ""),
+            "agreement_status": (primary.get("status") or "") if primary else "",
             "super_area": outlet.get("super_area_sqft") or 0,
+            "security_deposit": (primary.get("security_deposit") or 0) if primary else 0,
             "monthly_rent": monthly_rent,
             "rent_per_sqft": rent_per_sqft,
             "monthly_cam": cam_monthly,

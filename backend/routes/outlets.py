@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from core.config import supabase, log_activity
 from core.models import CurrentUser, UpdateOutletRequest
-from core.dependencies import get_current_user, require_permission
+from core.dependencies import get_current_user, get_org_filter, require_permission
 
 
 class CreateOutletRequest(BaseModel):
@@ -28,17 +28,26 @@ def _exclude_deleted(query):
 
 
 @router.get("/outlets", dependencies=[Depends(require_permission("view_outlets"))])
-def list_outlets(
+async def list_outlets(
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=500),
+    page_size: int = Query(50, ge=1, le=200),
+    user: Optional[CurrentUser] = Depends(get_current_user),
 ):
-    """List outlets (paginated)."""
+    """List outlets (paginated). Scoped to caller's org."""
     offset = (page - 1) * page_size
-    count_result = supabase.table("outlets").select("id", count="exact").execute()
+    org_id = get_org_filter(user)
+
+    count_query = supabase.table("outlets").select("id", count="exact")
+    if org_id:
+        count_query = count_query.eq("org_id", org_id)
+    count_result = _exclude_deleted(count_query).execute()
     total = count_result.count or 0
+
     query = supabase.table("outlets").select(
         "*, agreements(id, type, status, monthly_rent, lease_expiry_date, risk_flags)"
     )
+    if org_id:
+        query = query.eq("org_id", org_id)
     result = _exclude_deleted(query).order("created_at", desc=True).range(offset, offset + page_size - 1).execute()
     return {"items": result.data, "total": total, "page": page, "page_size": page_size}
 
@@ -80,19 +89,26 @@ def create_outlet(req: CreateOutletRequest, user: Optional[CurrentUser] = Depend
 
 
 @router.get("/outlets/deleted", dependencies=[Depends(require_permission("manage_org_settings"))])
-def list_deleted_outlets():
-    """List soft-deleted outlets (recycle bin)."""
-    result = supabase.table("outlets").select(
-        "*, agreements(id, type, status)"
-    ).not_.is_("deleted_at", "null").order("deleted_at", desc=True).execute()
+async def list_deleted_outlets(user: Optional[CurrentUser] = Depends(get_current_user)):
+    """List soft-deleted outlets (recycle bin). Scoped to caller's org."""
+    org_id = get_org_filter(user)
+    query = supabase.table("outlets").select("*, agreements(id, type, status)")
+    if org_id:
+        query = query.eq("org_id", org_id)
+    result = query.not_.is_("deleted_at", "null").order("deleted_at", desc=True).execute()
     return {"items": result.data or []}
 
 
 @router.get("/outlets/{outlet_id}", dependencies=[Depends(require_permission("view_outlets"))])
-def get_outlet(outlet_id: str):
-    """Get a single outlet with agreements, obligations, alerts, and documents."""
+async def get_outlet(outlet_id: str, user: Optional[CurrentUser] = Depends(get_current_user)):
+    """Get a single outlet with agreements, obligations, alerts, and documents. Org-scoped."""
     result = supabase.table("outlets").select("*").eq("id", outlet_id).single().execute()
     if not result.data:
+        raise HTTPException(status_code=404, detail="Outlet not found")
+
+    # Multi-tenant guard
+    org_id = get_org_filter(user)
+    if org_id and result.data.get("org_id") != org_id:
         raise HTTPException(status_code=404, detail="Outlet not found")
 
     agreements = supabase.table("agreements").select("*").eq("outlet_id", outlet_id).limit(50).execute()
@@ -119,9 +135,14 @@ def get_outlet(outlet_id: str):
 
 @router.patch("/outlets/{outlet_id}", dependencies=[Depends(require_permission("edit_outlets"))])
 def update_outlet(outlet_id: str, req: UpdateOutletRequest, user: Optional[CurrentUser] = Depends(get_current_user)):
-    """Update outlet fields (revenue, status)."""
+    """Update outlet fields (revenue, status). Org-scoped."""
     current = supabase.table("outlets").select("status, monthly_net_revenue, org_id").eq("id", outlet_id).single().execute()
     if not current.data:
+        raise HTTPException(status_code=404, detail="Outlet not found")
+
+    # Multi-tenant guard
+    user_org = get_org_filter(user)
+    if user_org and current.data.get("org_id") != user_org:
         raise HTTPException(status_code=404, detail="Outlet not found")
 
     update_data: dict = {}
@@ -135,6 +156,17 @@ def update_outlet(outlet_id: str, req: UpdateOutletRequest, user: Optional[Curre
         update_data["status"] = req.status
     if req.site_code is not None:
         update_data["site_code"] = req.site_code
+    # Direct text fields
+    for field in ("name", "city", "address", "property_type", "floor", "unit_number",
+                  "business_category", "company_name", "notes"):
+        val = getattr(req, field, None)
+        if val is not None:
+            update_data[field] = val
+    # Numeric area fields
+    for field in ("super_area_sqft", "covered_area_sqft", "carpet_area_sqft"):
+        val = getattr(req, field, None)
+        if val is not None:
+            update_data[field] = val
     if not update_data:
         raise HTTPException(status_code=400, detail="No fields to update")
 

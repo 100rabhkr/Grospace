@@ -4,8 +4,8 @@ FastAPI dependencies: authentication, permissions, rate limiter.
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
+import os
 import time
 from typing import Optional
 from fastapi import Header, HTTPException
@@ -18,6 +18,11 @@ from core.models import CurrentUser
 _AUTH_CACHE_TTL_SECONDS = 30.0
 _AUTH_CACHE_MAX_ITEMS = 512
 _auth_cache: dict[str, tuple[float, Optional[CurrentUser]]] = {}
+_REQUIRE_AUTH_IN_PRODUCTION = (
+    os.getenv("REQUIRE_AUTH", "").lower() in {"1", "true", "yes"}
+    or os.getenv("RAILWAY_ENVIRONMENT", "").lower() == "production"
+    or os.getenv("NODE_ENV", "").lower() == "production"
+)
 
 
 def _get_cache_key(token: str) -> str:
@@ -83,7 +88,7 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> Optio
         return None
 
     token = authorization.split(" ", 1)[1]
-    return await asyncio.to_thread(_resolve_current_user_from_token, token)
+    return _resolve_current_user_from_token(token)
 
 
 def get_org_filter(user: Optional[CurrentUser]) -> Optional[str]:
@@ -107,7 +112,8 @@ def require_permission(action: str):
         user = await get_current_user(authorization)
 
         if not user:
-            # Allow unauthenticated for now (demo mode) but log warning
+            if _REQUIRE_AUTH_IN_PRODUCTION:
+                raise HTTPException(status_code=401, detail="Not authenticated")
             return None
 
         if not check_role_permission(user.role, action):

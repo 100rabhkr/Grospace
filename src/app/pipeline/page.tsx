@@ -11,7 +11,7 @@ import {
   type DraggableProvided,
   type DraggableStateSnapshot,
 } from "@hello-pangea/dnd";
-import { getPipeline, movePipelineCard, updatePipelineDeal } from "@/lib/api";
+import { getPipeline, movePipelineCard, updatePipelineDeal, createOutlet } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,6 +31,7 @@ import {
   ChevronRight,
   Ruler,
   Building2,
+  Plus,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 
@@ -62,7 +63,10 @@ const STAGES = [
   { key: "loi", label: "LOI", color: "bg-muted text-foreground" },
   { key: "agreement", label: "Agreement", color: "bg-muted text-foreground" },
   { key: "fitout", label: "Fitout", color: "bg-muted text-foreground" },
-  { key: "operational", label: "Operational", color: "bg-muted text-foreground" },
+  { key: "operational", label: "Operational", color: "bg-emerald-50 text-emerald-700" },
+  { key: "won", label: "Won (Signed)", color: "bg-emerald-100 text-emerald-800" },
+  { key: "closed", label: "Closed", color: "bg-rose-50 text-rose-700" },
+  { key: "abandoned", label: "Abandoned", color: "bg-muted text-muted-foreground" },
 ];
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -143,6 +147,10 @@ export default function PipelinePage() {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [priorityFilter, setPriorityFilter] = useState<string | null>(null);
+  const [showCreateLead, setShowCreateLead] = useState(false);
+  const [newLeadName, setNewLeadName] = useState("");
+  const [newLeadCity, setNewLeadCity] = useState("");
+  const [creatingLead, setCreatingLead] = useState(false);
 
   const fetchPipeline = useCallback(async () => {
     try {
@@ -244,8 +252,12 @@ export default function PipelinePage() {
   }
 
   // Filter outlets
-  function filterOutlets(outlets: PipelineOutlet[]): PipelineOutlet[] {
+  function filterOutlets(outlets: PipelineOutlet[], stageKey?: string): PipelineOutlet[] {
     return outlets.filter((o) => {
+      // Filter out operational outlets from early stages (lead, site_visit, negotiation)
+      if (stageKey && ["lead", "site_visit", "negotiation"].includes(stageKey)) {
+        if (o.status === "operational") return false;
+      }
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
         if (!o.name.toLowerCase().includes(q) && !o.city.toLowerCase().includes(q)) return false;
@@ -279,6 +291,10 @@ export default function PipelinePage() {
   }
 
   const totalLeads = Object.values(stages).reduce((sum, arr) => sum + arr.length, 0);
+  const activeDeals = (stages["negotiation"]?.length || 0) + (stages["loi"]?.length || 0) + (stages["agreement"]?.length || 0) + (stages["fitout"]?.length || 0);
+  const operationalCount = stages["operational"]?.length || 0;
+  const conversionRate = totalLeads > 0 ? Math.round((operationalCount / totalLeads) * 100) : 0;
+  const closedCount = operationalCount + (stages["closed"]?.length || 0);
 
   // ---------------------------------------------------------------------------
   // Render
@@ -286,7 +302,7 @@ export default function PipelinePage() {
   return (
     <div className="space-y-4 animate-fade-in">
       {/* Header */}
-      <PageHeader title={<span className="flex items-center gap-2">Pipeline <Badge variant="outline" className="text-[10px] font-medium bg-amber-50 text-amber-700 border-amber-200">Beta</Badge></span>} description={`${totalLeads} lead${totalLeads !== 1 ? "s" : ""} across ${STAGES.length} stages`}>
+      <PageHeader title={<span className="flex items-center gap-2">Pipeline <Badge variant="outline" className="text-[10px] font-medium">Beta</Badge></span>} description={`${totalLeads} lead${totalLeads !== 1 ? "s" : ""} across ${STAGES.length} stages`}>
         <div className="flex items-center gap-2">
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
@@ -310,13 +326,40 @@ export default function PipelinePage() {
               </Button>
             ))}
           </div>
+          <Button size="sm" className="h-8 text-xs gap-1.5" onClick={() => setShowCreateLead(true)}>
+            <Plus className="h-3.5 w-3.5" />
+            Create New Lead
+          </Button>
         </div>
       </PageHeader>
+
+      {/* Top summary strip */}
+      <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-border border-y border-border">
+        <div className="px-5 py-4">
+          <p className="text-micro mb-1.5">Total Leads</p>
+          <p className="text-[22px] font-semibold text-foreground tabular-nums leading-none">{totalLeads}</p>
+        </div>
+        <div className="px-5 py-4">
+          <p className="text-micro mb-1.5">Active Deals</p>
+          <p className="text-[22px] font-semibold text-foreground tabular-nums leading-none">{activeDeals}</p>
+          <p className="text-[11px] text-muted-foreground mt-1.5">In negotiation</p>
+        </div>
+        <div className="px-5 py-4">
+          <p className="text-micro mb-1.5">Conversion Rate</p>
+          <p className="text-[22px] font-semibold text-foreground tabular-nums leading-none">{conversionRate}%</p>
+          <p className="text-[11px] text-muted-foreground mt-1.5">Lead → operational</p>
+        </div>
+        <div className="px-5 py-4">
+          <p className="text-micro mb-1.5">Closed</p>
+          <p className="text-[22px] font-semibold text-foreground tabular-nums leading-none">{closedCount}</p>
+          <p className="text-[11px] text-muted-foreground mt-1.5">Operational + won</p>
+        </div>
+      </div>
 
       {/* Mobile List View — stacked cards grouped by stage */}
       <div className="block lg:hidden space-y-4">
         {STAGES.map((stage) => {
-          const outlets = filterOutlets(stages[stage.key] || []);
+          const outlets = filterOutlets(stages[stage.key] || [], stage.key);
           if (outlets.length === 0) return null;
           return (
             <div key={stage.key}>
@@ -431,21 +474,23 @@ export default function PipelinePage() {
       {/* Desktop Kanban Board — hidden on mobile */}
       <div className="hidden lg:block">
         <DragDropContext onDragEnd={handleDragEnd}>
-          <div className="flex gap-3 overflow-x-auto pb-4 min-h-[calc(100vh-160px)]">
+          <div className="flex gap-3 overflow-x-auto pb-3 min-h-[calc(100vh-160px)]">
             {STAGES.map((stage) => {
-              const outlets = filterOutlets(stages[stage.key] || []);
+              const outlets = filterOutlets(stages[stage.key] || [], stage.key);
               return (
                 <div
                   key={stage.key}
-                  className="flex-shrink-0 w-[300px] bg-muted rounded-lg border border-border"
+                  className="flex-shrink-0 w-[260px] bg-muted/50 rounded-lg"
                 >
                   {/* Column Header */}
-                  <div className="flex items-center justify-between p-3 border-b border-border">
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline" className={`text-xs font-semibold ${stage.color}`}>
+                  <div className="flex items-center justify-between px-3 py-2.5">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="text-[10.5px] font-semibold uppercase tracking-wider text-foreground/70 truncate">
                         {stage.label}
-                      </Badge>
-                      <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-border text-[11px] font-semibold text-foreground">{outlets.length}</span>
+                      </span>
+                      <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-background text-[10px] font-semibold text-foreground border border-border">
+                        {outlets.length}
+                      </span>
                     </div>
                   </div>
 
@@ -455,8 +500,8 @@ export default function PipelinePage() {
                       <div
                         ref={provided.innerRef}
                         {...provided.droppableProps}
-                        className={`p-2 space-y-2 min-h-[100px] transition-colors ${
-                          snapshot.isDraggingOver ? "bg-muted/50" : ""
+                        className={`px-2 pb-2 space-y-2 min-h-[120px] transition-colors duration-base rounded-b-lg ${
+                          snapshot.isDraggingOver ? "bg-muted" : ""
                         }`}
                       >
                         {outlets.map((outlet, index) => (
@@ -464,14 +509,14 @@ export default function PipelinePage() {
                             {(dragProvided, dragSnapshot) => (
                               <PortalAwareDraggable provided={dragProvided} snapshot={dragSnapshot}>
                                 <div
-                                  className={`bg-card rounded-xl border-l-4 border p-3.5 ${
+                                  className={`bg-card rounded-lg border border-border p-2.5 transition-all duration-base ease-out-quint ${
                                     dragSnapshot.isDragging
-                                      ? "shadow-xl border-border border-l-foreground w-[284px]"
-                                      : `shadow-sm hover:shadow-md border-border ${
-                                          (outlet.deal_priority || "medium") === "high" ? "border-l-rose-500" :
-                                          (outlet.deal_priority || "medium") === "low" ? "border-l-slate-300" :
-                                          "border-l-amber-400"
-                                        }`
+                                      ? "elevation-3 border-border-strong w-[240px] rotate-1"
+                                      : "hover:elevation-1 hover:border-border-strong"
+                                  } ${
+                                    (outlet.deal_priority || "medium") === "high" ? "border-l-[3px] border-l-destructive" :
+                                    (outlet.deal_priority || "medium") === "low" ? "border-l-[3px] border-l-foreground/20" :
+                                    "border-l-[3px] border-l-warning"
                                   }`}
                                 >
                                   <div className="flex items-start gap-2">
@@ -580,6 +625,54 @@ export default function PipelinePage() {
           </div>
         </DragDropContext>
       </div>
+
+      {/* Create New Lead Dialog */}
+      {showCreateLead && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl p-6 max-w-md mx-4 space-y-4 shadow-xl w-full">
+            <h3 className="text-lg font-semibold">Create New Lead</h3>
+            <p className="text-xs text-muted-foreground">Create a new outlet as a lead in the pipeline.</p>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">Outlet Name *</label>
+                <Input value={newLeadName} onChange={(e) => setNewLeadName(e.target.value)} placeholder="e.g. Le Fresh Sector 47" />
+                {newLeadName.trim() && (() => {
+                  const existing = Object.values(stages).flat().find(o => o.name.toLowerCase() === newLeadName.trim().toLowerCase());
+                  if (existing) return (
+                    <p className="text-[10px] text-amber-600 mt-1">
+                      An outlet named &quot;{existing.name}&quot; already exists in {existing.deal_stage?.replace(/_/g, " ")} stage.
+                    </p>
+                  );
+                  return null;
+                })()}
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground mb-1 block">City</label>
+                <Input value={newLeadCity} onChange={(e) => setNewLeadCity(e.target.value)} placeholder="e.g. Gurugram" />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => { setShowCreateLead(false); setNewLeadName(""); setNewLeadCity(""); }}>Cancel</Button>
+              <Button size="sm" disabled={creatingLead || !newLeadName.trim()} onClick={async () => {
+                setCreatingLead(true);
+                try {
+                  const data = await createOutlet({ name: newLeadName, city: newLeadCity || undefined });
+                  setShowCreateLead(false);
+                  setNewLeadName("");
+                  setNewLeadCity("");
+                  window.location.href = `/outlets/${data.outlet?.id || data.id}`;
+                } catch (err) {
+                  alert(err instanceof Error ? err.message : "Failed to create lead");
+                } finally {
+                  setCreatingLead(false);
+                }
+              }}>
+                {creatingLead ? "Creating..." : "Create Lead"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

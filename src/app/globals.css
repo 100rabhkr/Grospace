@@ -2,50 +2,102 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ──────────────────────────────────────────────────────────────
+ * GroSpace Design System v2 — Monochrome Supremacy
+ * Built for: Staff-level SaaS quality. Linear × Stripe × Apple.
+ *
+ * Rules:
+ *  - Color: black / white / gray only. Semantic accents in extreme moderation.
+ *  - Type: strict scale, no arbitrary sizes, tabular numbers everywhere.
+ *  - Motion: always opacity + transform, 60fps, never layout.
+ *  - Shadows: whisper-soft, layered, felt not seen.
+ * ────────────────────────────────────────────────────────────── */
+
 @layer base {
   :root {
-    /* ── Premium Light Mode: Stripe-like airy aesthetic ── */
-    --background: 210 20% 98%;           /* #f8fafc — slate-50, airy off-white */
-    --foreground: 222 47% 11%;           /* #0f172a — slate-900 */
-    --card: 0 0% 100%;                   /* #ffffff */
-    --card-foreground: 222 47% 11%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
-    --primary: 222 47% 11%;              /* slate-900 for primary actions */
-    --primary-foreground: 0 0% 100%;
-    --secondary: 210 20% 96%;            /* slate-100 */
-    --secondary-foreground: 222 47% 11%;
-    --muted: 210 20% 96%;
-    --muted-foreground: 215 16% 47%;     /* slate-500 */
-    --accent: 210 20% 96%;
-    --accent-foreground: 222 47% 11%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 214 14% 89%;              /* slate-200 */
-    --input: 214 14% 89%;
-    --ring: 222 47% 11%;
-    --chart-1: 221 83% 53%;             /* blue-600 */
-    --chart-2: 160 84% 39%;             /* emerald-600 */
-    --chart-3: 38 92% 50%;              /* amber-500 */
-    --chart-4: 262 83% 58%;             /* violet-500 */
-    --chart-5: 347 77% 50%;             /* rose-500 */
-    --radius: 0.75rem;
+    /* ── Color (HSL, zero tint, pure neutral) ── */
+    --background: 0 0% 100%;
+    --foreground: 0 0% 9%;
 
-    /* ── Premium soft shadows ── */
-    --shadow-xs: 0 1px 2px rgb(0 0 0 / 0.04);
-    --shadow-card:
-      0 2px 8px -2px rgb(0 0 0 / 0.05);
-    --shadow-card-hover:
-      0 4px 16px -4px rgb(0 0 0 / 0.08);
-    --shadow-elevated:
-      0 8px 30px -6px rgb(0 0 0 / 0.1),
-      0 16px 48px -12px rgb(0 0 0 / 0.06);
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 9%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 9%;
+
+    /* Primary = foreground. Monochrome means the CTA is ink, not blue. */
+    --primary: 0 0% 9%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 9%;
+
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 45%;
+
+    --accent: 0 0% 96%;
+    --accent-foreground: 0 0% 9%;
+
+    /* Semantic — used ONLY for status. Never decoration. */
+    --success: 152 64% 36%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 9%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Surfaces + outlines */
+    --border: 0 0% 92%;
+    --border-strong: 0 0% 85%;
+    --input: 0 0% 94%;
+    --ring: 0 0% 9%;
+
+    /* Charts (monochrome with one accent) */
+    --chart-1: 0 0% 9%;
+    --chart-2: 0 0% 35%;
+    --chart-3: 0 0% 55%;
+    --chart-4: 0 0% 72%;
+    --chart-5: 152 64% 36%;
+
+    /* ── Radius scale ── */
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 12px;
+    --radius-xl: 14px;
+    --radius-2xl: 16px;
+    --radius: 12px;           /* default for shadcn tokens */
+
+    /* ── Shadow scale — whisper-soft, layered ── */
+    --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
+    --shadow-sm:
+      0 1px 2px rgba(0, 0, 0, 0.04),
+      0 0 0 1px rgba(0, 0, 0, 0.03);
+    --shadow-md:
+      0 4px 12px -4px rgba(0, 0, 0, 0.08),
+      0 1px 2px rgba(0, 0, 0, 0.04);
+    --shadow-lg:
+      0 12px 32px -8px rgba(0, 0, 0, 0.12),
+      0 2px 8px -2px rgba(0, 0, 0, 0.06);
+    --shadow-xl:
+      0 24px 48px -12px rgba(0, 0, 0, 0.18),
+      0 4px 12px -4px rgba(0, 0, 0, 0.08);
+
+    /* ── Motion tokens ── */
+    --duration-fast: 150ms;
+    --duration-base: 220ms;
+    --duration-slow: 320ms;
+    --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+    --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
   }
 }
 
+/* ──────────────────────────────────────────────────────────────
+ * Base typography
+ * ────────────────────────────────────────────────────────────── */
 @layer base {
   * {
-    @apply border-border;
+    border-color: hsl(var(--border));
   }
 
   html {
@@ -53,23 +105,54 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
+    font-family: var(--font-inter), Inter, system-ui, -apple-system, sans-serif;
   }
 
   body {
     @apply bg-background text-foreground;
-    font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1;
+    font-family: var(--font-inter), Inter, system-ui, sans-serif;
+    font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1, "cv11" 1, "cv02" 1;
+    font-variation-settings: "opsz" 14;
+    font-size: 14px;
+    line-height: 22px;
+    letter-spacing: -0.006em;
+    font-weight: 500;
   }
 
   ::selection {
-    background: hsl(214 95% 93%);
+    background: hsl(0 0% 9% / 0.12);
+    color: hsl(var(--foreground));
   }
 
   button, a, [role="button"] {
     -webkit-tap-highlight-color: transparent;
   }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-inter), Inter, system-ui, sans-serif;
+    font-feature-settings: "ss01" 1, "cv11" 1;
+    color: hsl(var(--foreground));
+  }
+
+  /* Strict type scale — DO NOT deviate */
+  h1 { font-size: 28px; line-height: 36px; font-weight: 600; letter-spacing: -0.02em; }
+  h2 { font-size: 22px; line-height: 30px; font-weight: 600; letter-spacing: -0.018em; }
+  h3 { font-size: 18px; line-height: 26px; font-weight: 550; letter-spacing: -0.015em; }
+  h4 { font-size: 15px; line-height: 22px; font-weight: 600; letter-spacing: -0.012em; }
+  h5 { font-size: 13px; line-height: 18px; font-weight: 600; letter-spacing: -0.008em; }
+
+  /* Numbers are always tabular */
+  .tabular-nums,
+  [class*="font-mono"] {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1, "ss01" 1;
+    letter-spacing: -0.02em;
+  }
 }
 
-/* Minimal scrollbar */
+/* ──────────────────────────────────────────────────────────────
+ * Scrollbar — minimal, premium
+ * ────────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -78,38 +161,76 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: hsl(215 14% 82%);
+  background: hsl(0 0% 0% / 0.1);
   border-radius: 100px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: hsl(215 14% 65%);
+  background: hsl(0 0% 0% / 0.22);
 }
 
-/* ── Animations ── */
+/* ──────────────────────────────────────────────────────────────
+ * Keyframes
+ * ────────────────────────────────────────────────────────────── */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translate3d(0, 6px, 0); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-.animate-fade-in {
-  animation: fadeIn 0.3s cubic-bezier(0.25, 1, 0.5, 1) both;
-}
-
-@keyframes staggerIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@keyframes pillSlide {
-  from { opacity: 0; transform: scaleY(0.6); }
-  to { opacity: 1; transform: scaleY(1); }
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 @keyframes shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
 }
 
+/* GPU-friendly: transform only (translateX + scaleX) */
+@keyframes topBarIndeterminate {
+  0%   { transform: translate3d(-100%, 0, 0) scaleX(0.4); }
+  50%  { transform: translate3d(60%,   0, 0) scaleX(0.9); }
+  100% { transform: translate3d(220%,  0, 0) scaleX(0.4); }
+}
+
+/* ──────────────────────────────────────────────────────────────
+ * Utilities
+ * ────────────────────────────────────────────────────────────── */
 @layer utilities {
+  /* Strict typography scale utilities — use these instead of arbitrary text-[XXpx] */
+  .text-h1       { font-size: 28px; line-height: 36px; font-weight: 600; letter-spacing: -0.02em; }
+  .text-h2       { font-size: 22px; line-height: 30px; font-weight: 600; letter-spacing: -0.018em; }
+  .text-h3       { font-size: 18px; line-height: 26px; font-weight: 550; letter-spacing: -0.015em; }
+  .text-h4       { font-size: 15px; line-height: 22px; font-weight: 600; letter-spacing: -0.012em; }
+  .text-body     { font-size: 14px; line-height: 22px; font-weight: 500; letter-spacing: -0.006em; }
+  .text-body-sm  { font-size: 13px; line-height: 20px; font-weight: 500; letter-spacing: -0.006em; }
+  .text-caption  { font-size: 12px; line-height: 18px; font-weight: 500; letter-spacing: 0; }
+  .text-micro    {
+    font-size: 11px;
+    line-height: 14px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: hsl(var(--muted-foreground));
+  }
+  .text-metric   {
+    font-size: 32px;
+    line-height: 36px;
+    font-weight: 600;
+    letter-spacing: -0.025em;
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+  .text-metric-sm {
+    font-size: 22px;
+    line-height: 26px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+
+  /* Scrollbar hide */
   .scrollbar-hide {
     -ms-overflow-style: none;
     scrollbar-width: none;
@@ -118,43 +239,54 @@
     display: none;
   }
 
-  .hover-lift {
-    transition: all 0.3s cubic-bezier(0.25, 1, 0.5, 1);
-    will-change: transform;
+  /* Skeleton shimmer */
+  .skeleton {
+    position: relative;
+    overflow: hidden;
+    background: hsl(0 0% 96%);
   }
-  .hover-lift:hover {
-    transform: translateY(-1px);
-    box-shadow: var(--shadow-card-hover);
-  }
-
-  .font-mono-data {
-    font-family: var(--font-geist-mono), ui-monospace, monospace;
-    font-feature-settings: "tnum" 1;
-    letter-spacing: -0.02em;
-  }
-
-  .label-micro {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: hsl(var(--muted-foreground));
+  .skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+      90deg,
+      transparent,
+      hsl(0 0% 100% / 0.6),
+      transparent
+    );
+    animation: shimmer 1.6s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   }
 
-  .card-glow {
-    border: 1px solid hsl(var(--border) / 0.7);
-    box-shadow: var(--shadow-card);
+  /* Animated entrance utility */
+  .animate-fade-up {
+    animation: fadeInUp 0.32s var(--ease-spring) both;
+  }
+  .animate-fade-in {
+    animation: fadeIn 0.32s var(--ease-spring) both;
   }
 
-  .stagger-item {
-    animation: staggerIn 0.3s cubic-bezier(0.25, 1, 0.5, 1) both;
+  /* Hairline 1px border that doesn't touch 1 device pixel */
+  .ring-hairline {
+    box-shadow: inset 0 0 0 1px hsl(var(--border));
   }
-  .stagger-item:nth-child(1) { animation-delay: 0ms; }
-  .stagger-item:nth-child(2) { animation-delay: 30ms; }
-  .stagger-item:nth-child(3) { animation-delay: 60ms; }
-  .stagger-item:nth-child(4) { animation-delay: 90ms; }
-  .stagger-item:nth-child(5) { animation-delay: 120ms; }
-  .stagger-item:nth-child(6) { animation-delay: 150ms; }
-  .stagger-item:nth-child(7) { animation-delay: 180ms; }
-  .stagger-item:nth-child(8) { animation-delay: 210ms; }
+
+  /* Elevation utilities (monochrome) */
+  .elevation-1 { box-shadow: var(--shadow-sm); }
+  .elevation-2 { box-shadow: var(--shadow-md); }
+  .elevation-3 { box-shadow: var(--shadow-lg); }
+  .elevation-4 { box-shadow: var(--shadow-xl); }
+}
+
+/* ──────────────────────────────────────────────────────────────
+ * Reduced motion
+ * ────────────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

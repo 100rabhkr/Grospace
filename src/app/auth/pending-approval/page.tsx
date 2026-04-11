@@ -22,7 +22,7 @@ export default function PendingApprovalPage() {
         </div>
 
         <div>
-          <h1 className="text-xl font-bold text-foreground">Account Pending Approval</h1>
+          <h1 className="text-xl font-semibold text-foreground">Account Pending Approval</h1>
           <p className="text-sm text-muted-foreground mt-2 leading-relaxed">
             Your account has been created successfully. An administrator needs to
             approve your request before you can access the platform.

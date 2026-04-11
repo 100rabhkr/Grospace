@@ -4,7 +4,7 @@ Payment obligations, mark-paid, bulk-paid endpoints.
 
 import uuid
 from typing import Optional
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from dateutil.relativedelta import relativedelta
 
 from fastapi import APIRouter, HTTPException, Depends, Query
@@ -36,7 +36,7 @@ def list_payments(
 
     count_query = supabase.table("payment_records").select("id", count="exact")
     data_query = supabase.table("payment_records").select(
-        "*, obligations(type, frequency, amount), outlets(name, city)"
+        "*, obligations(type, frequency, amount, custom_label, source), outlets(name, city, brand_name, company_name)"
     )
 
     org_id = get_org_filter(user)
@@ -75,7 +75,7 @@ def update_payment(
 
     update_data: dict = {"status": req.status}
     if req.status == "paid":
-        update_data["paid_at"] = datetime.utcnow().isoformat()
+        update_data["paid_at"] = datetime.now(timezone.utc).isoformat()
     if req.paid_amount is not None:
         update_data["paid_amount"] = req.paid_amount
     if req.notes is not None:
@@ -194,34 +194,38 @@ def bulk_mark_paid(body: BulkMarkPaidRequest):
     """Bulk mark payments as paid -- by IDs or by month/year."""
     updated = 0
 
-    now_iso = datetime.utcnow().isoformat()
+    now_iso = datetime.now(timezone.utc).isoformat()
 
     if body.payment_ids:
-        # Batch fetch all records at once instead of N+1 queries
-        recs = supabase.table("payment_records").select("id, due_amount").in_("id", body.payment_ids).execute()
-        for rec in (recs.data or []):
-            supabase.table("payment_records").update({
-                "status": "paid",
-                "paid_amount": rec.get("due_amount", 0),
-                "paid_at": now_iso,
-            }).eq("id", rec["id"]).execute()
-            updated += 1
+        # Batch update: single UPDATE for all matching IDs
+        result = (
+            supabase.table("payment_records")
+            .update({"status": "paid", "paid_at": now_iso})
+            .in_("id", body.payment_ids)
+            .in_("status", ["pending", "due", "overdue", "upcoming"])
+            .execute()
+        )
+        updated = len(result.data) if result.data else 0
     elif body.month and body.year:
-        query = supabase.table("payment_records").select("id, due_amount").eq(
-            "period_month", body.month
-        ).eq("period_year", body.year).in_(
-            "status", ["pending", "due", "overdue", "upcoming"]
+        # Fetch IDs first (needed for org_id scoping), then batch update
+        query = (
+            supabase.table("payment_records")
+            .select("id")
+            .eq("period_month", body.month)
+            .eq("period_year", body.year)
+            .in_("status", ["pending", "due", "overdue", "upcoming"])
         )
         if body.org_id:
             query = query.eq("org_id", body.org_id)
-        payments = query.execute().data or []
-        for p in payments:
-            supabase.table("payment_records").update({
-                "status": "paid",
-                "paid_amount": p.get("due_amount", 0),
-                "paid_at": now_iso,
-            }).eq("id", p["id"]).execute()
-            updated += 1
+        ids = [r["id"] for r in (query.execute().data or [])]
+        if ids:
+            result = (
+                supabase.table("payment_records")
+                .update({"status": "paid", "paid_at": now_iso})
+                .in_("id", ids)
+                .execute()
+            )
+            updated = len(result.data) if result.data else 0
 
     return {"status": "ok", "updated_count": updated}
 
@@ -252,15 +256,17 @@ async def mark_all_paid(request: Request):
         query = query.eq("org_id", org_id)
     result = query.execute()
 
-    now_iso = datetime.utcnow().isoformat()
+    now_iso = datetime.now(timezone.utc).isoformat()
+    ids = [r["id"] for r in (result.data or [])]
     marked = 0
-    for rec in (result.data or []):
-        supabase.table("payment_records").update({
-            "status": "paid",
-            "paid_amount": rec.get("due_amount", 0),
-            "paid_at": now_iso,
-        }).eq("id", rec["id"]).execute()
-        marked += 1
+    if ids:
+        update_result = (
+            supabase.table("payment_records")
+            .update({"status": "paid", "paid_at": now_iso})
+            .in_("id", ids)
+            .execute()
+        )
+        marked = len(update_result.data) if update_result.data else 0
 
     return {"status": "ok", "marked_paid": marked, "month": month_str}
 

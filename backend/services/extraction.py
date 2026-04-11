@@ -424,7 +424,7 @@ async def focused_retry_extraction(text: str, extraction: dict, confidence: dict
                     extraction[section_key] = {}
                 for field_key, field_val in section_data.items():
                     dot_key = f"{section_key}.{field_key}"
-                    if dot_key in missing_fields:
+                    if dot_key in missing_fields or field_key in missing_fields:
                         # Check if the retry actually found something
                         val = field_val
                         if isinstance(field_val, dict) and "value" in field_val:
@@ -912,6 +912,23 @@ def _normalize_indian_amount(value) -> Optional[float]:
         return None
 
 
+def _is_value_wrapper(value) -> bool:
+    return isinstance(value, dict) and "value" in value
+
+
+def _get_cleanable_value(container: dict, field: str):
+    value = container.get(field)
+    return value.get("value") if _is_value_wrapper(value) else value
+
+
+def _set_cleanable_value(container: dict, field: str, value):
+    existing = container.get(field)
+    if _is_value_wrapper(existing):
+        existing["value"] = value
+    else:
+        container[field] = value
+
+
 def _validate_and_clean_fields(result: dict, text: str) -> dict:
     """Validate and fix common extraction mistakes in-place.
 
@@ -927,7 +944,16 @@ def _validate_and_clean_fields(result: dict, text: str) -> dict:
 
     # --- Recursively process nested dicts ---
     for key, val in result.items():
-        if isinstance(val, dict):
+        if _is_value_wrapper(val):
+            inner_value = val.get("value")
+            if isinstance(inner_value, dict):
+                val["value"] = _validate_and_clean_fields(inner_value, text)
+            elif isinstance(inner_value, list):
+                val["value"] = [
+                    _validate_and_clean_fields(item, text) if isinstance(item, dict) else item
+                    for item in inner_value
+                ]
+        elif isinstance(val, dict):
             result[key] = _validate_and_clean_fields(val, text)
 
     # --- Strip currency symbols and normalize monetary fields ---
@@ -941,12 +967,13 @@ def _validate_and_clean_fields(result: dict, text: str) -> dict:
         "mglr_monthly", "rent_per_sqft", "mglr_per_sqft",
     ]
     for field in monetary_fields:
-        if field in result and result[field] is not None:
-            normalized = _normalize_indian_amount(result[field])
+        if field in result and _get_cleanable_value(result, field) is not None:
+            raw_value = _get_cleanable_value(result, field)
+            normalized = _normalize_indian_amount(raw_value)
             if normalized is not None:
-                result[field] = normalized
+                _set_cleanable_value(result, field, normalized)
             else:
-                result[field] = _strip_currency(result[field])
+                _set_cleanable_value(result, field, _strip_currency(raw_value))
 
     # --- Normalize date fields to ISO YYYY-MM-DD ---
     date_fields = [
@@ -957,10 +984,11 @@ def _validate_and_clean_fields(result: dict, text: str) -> dict:
         "revised_lease_expiry",
     ]
     for field in date_fields:
-        if field in result and isinstance(result[field], str):
-            normalized = _normalize_date(result[field])
+        raw_value = _get_cleanable_value(result, field)
+        if field in result and isinstance(raw_value, str):
+            normalized = _normalize_date(raw_value)
             if normalized:
-                result[field] = normalized
+                _set_cleanable_value(result, field, normalized)
 
     # --- Validate percentage fields (0-100 range) ---
     percentage_fields = [
@@ -968,38 +996,38 @@ def _validate_and_clean_fields(result: dict, text: str) -> dict:
         "revised_escalation_pct",
     ]
     for field in percentage_fields:
-        val = result.get(field)
+        val = _get_cleanable_value(result, field)
         if isinstance(val, (int, float)):
             if val > 100:
-                result[field] = None
+                _set_cleanable_value(result, field, None)
             elif val < 0:
-                result[field] = abs(val) if abs(val) <= 100 else None
+                _set_cleanable_value(result, field, abs(val) if abs(val) <= 100 else None)
 
     # --- Monthly rent: detect likely annual values ---
-    rent = result.get("monthly_rent")
+    rent = _get_cleanable_value(result, "monthly_rent")
     if isinstance(rent, (int, float)) and rent > 1000000:
         text_lower = text.lower()
         if "per month" not in text_lower and "p.m." not in text_lower and "/month" not in text_lower:
-            result["monthly_rent"] = round(rent / 12, 2)
+            _set_cleanable_value(result, "monthly_rent", round(rent / 12, 2))
 
     # --- Lease dates: swap if expiry < commencement ---
-    commencement = result.get("lease_commencement_date")
-    expiry = result.get("lease_expiry_date")
+    commencement = _get_cleanable_value(result, "lease_commencement_date")
+    expiry = _get_cleanable_value(result, "lease_expiry_date")
     if commencement and expiry and isinstance(commencement, str) and isinstance(expiry, str):
         try:
             dt_start = datetime.strptime(commencement, "%Y-%m-%d")
             dt_end = datetime.strptime(expiry, "%Y-%m-%d")
             if dt_end < dt_start:
-                result["lease_commencement_date"] = expiry
-                result["lease_expiry_date"] = commencement
+                _set_cleanable_value(result, "lease_commencement_date", expiry)
+                _set_cleanable_value(result, "lease_expiry_date", commencement)
         except (ValueError, TypeError):
             pass
 
     # --- Security deposit months: extract number from strings like "6 months" ---
-    sd_months = result.get("security_deposit_months")
+    sd_months = _get_cleanable_value(result, "security_deposit_months")
     if isinstance(sd_months, str):
         match = re.search(r"(\d+)", sd_months)
-        result["security_deposit_months"] = int(match.group(1)) if match else None
+        _set_cleanable_value(result, "security_deposit_months", int(match.group(1)) if match else None)
 
     # --- Cross-validation: derive monthly_rent from rent_schedule if missing ---
     rent_section = result.get("rent", result)  # Handle both flat and nested structures
@@ -1294,11 +1322,14 @@ async def extract_structured_data(text: str, doc_type: str) -> dict:
             else:
                 print(f"[EXTRACTION] Attempt {attempt + 1}: Parsed but empty/invalid: {type(parsed)}")
         except (json.JSONDecodeError, Exception) as e:
-            print(f"[EXTRACTION] Attempt {attempt + 1} failed: {type(e).__name__}: {e}")
+            import traceback
+            print(f"[EXTRACTION] Attempt {attempt + 1} FAILED: {type(e).__name__}: {e}", flush=True)
+            print(f"[EXTRACTION] Model: {getattr(model_pro, 'model_name', 'unknown')}", flush=True)
+            print(f"[EXTRACTION] Traceback:\n{traceback.format_exc()}", flush=True)
             if hasattr(e, 'response'):
-                print(f"[EXTRACTION] Response details: {getattr(e, 'response', 'N/A')}")
+                print(f"[EXTRACTION] Response details: {getattr(e, 'response', 'N/A')}", flush=True)
             if attempt == 1:
-                result = {}  # Give up after retry
+                result = {}  # Give up after retry — last error already logged above
 
     # Field-level validation and cleanup
     if result and doc_type in ("lease_loi", "franchise_agreement", "supplementary_agreement"):
@@ -1382,7 +1413,7 @@ async def extract_structured_data_vision(images: list, doc_type: str) -> dict:
         "3. For dates: Use YYYY-MM-DD format. Handle Indian formats: DD/MM/YYYY, DD-MM-YYYY.\n"
         "4. For rent: Always return MONTHLY values.\n"
         "5. Distinguish lessor (owner/licensor) from lessee (tenant/licensee) carefully.\n"
-        "6. For each field, return an object with: {\"value\": ..., \"confidence\": \"high\"|\"medium\"|\"low\"|\"not_found\", \"source_page\": N} where source_page is the page number (1-indexed) where you found this data.\n"
+        "6. For each field, return an object with: {\"value\": ..., \"confidence\": \"high\"|\"medium\"|\"low\"|\"not_found\", \"source_page\": N, \"source_quote\": \"exact quote\"} where source_page is the page number (1-indexed) where you found this data.\n"
         "7. If handwritten, do your best to read accurately.\n"
         "8. If a value is a formula (e.g., '60 days from handover'), return as string.\n"
         "9. EXTRACT ALL FIELDS even if confidence is low — mark as 'low' confidence rather than skipping.\n"
@@ -1404,7 +1435,7 @@ async def extract_structured_data_vision(images: list, doc_type: str) -> dict:
     )
 
     try:
-        page_images = images[:8]
+        page_images = images[:20]
         print(f"[VISION EXTRACT] Starting extraction with {len(page_images)} page images for doc_type={doc_type}")
 
         # --- Attempt 1: JSON mode ---
@@ -1538,6 +1569,10 @@ def calculate_confidence(extraction: dict) -> dict:
                 else:
                     return "low"  # Formula or text description
 
+        # Booleans
+        if isinstance(field_val, bool):
+            return "high"
+
         # Numeric fields
         if isinstance(field_val, (int, float)):
             if field_val == 0:
@@ -1551,6 +1586,8 @@ def calculate_confidence(extraction: dict) -> dict:
                 return "low"
             if stripped.lower() in ("na", "n/a", "nil", "none", "-", "unknown", "not specified", "not mentioned"):
                 return "not_found"
+            if len(stripped) <= 4 and stripped.isalpha() and stripped.upper() == stripped:
+                return "high"
             if len(stripped) < 5 and not any(c.isdigit() for c in stripped):
                 return "medium"
             return "high"
@@ -1558,10 +1595,6 @@ def calculate_confidence(extraction: dict) -> dict:
         # Lists
         if isinstance(field_val, list):
             return "high" if len(field_val) > 0 else "not_found"
-
-        # Booleans
-        if isinstance(field_val, bool):
-            return "high"
 
         return "medium"
 
@@ -1656,6 +1689,9 @@ async def detect_risk_flags_vision(images: list, extraction: dict) -> list:
 
 def _detect_india_specific_risk_flags(extraction: dict) -> list:
     """Detect India-specific commercial lease risk flags from extracted structured data."""
+    if not extraction:
+        return []
+
     flags = []
     flag_id_start = 100  # Use 100+ range to avoid collision with AI-generated flag IDs (1-8)
 
@@ -2159,7 +2195,6 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
                         )
                         all_ocr_text += (ocr_response.text or "") + "\n"
                     text = all_ocr_text.strip()
-                    text = ocr_response.text or ""
                     print(f"[PROCESS] Gemini OCR pass: {len(text)} chars extracted for OCR view")
                 except Exception as ocr_err:
                     print(f"[PROCESS] Gemini OCR pass failed: {ocr_err}")
@@ -2219,9 +2254,13 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
             # Merge: only downgrade confidence, never upgrade
             for key, validated_conf in source_validated_confidence.items():
                 existing = confidence.get(key)
+                target_key = key
+                if existing is None and "." in key:
+                    target_key = key.split(".", 1)[1]
+                    existing = confidence.get(target_key)
                 conf_order = {"not_found": 0, "low": 1, "medium": 2, "high": 3}
                 if existing and conf_order.get(validated_conf, 2) < conf_order.get(existing, 2):
-                    confidence[key] = validated_conf
+                    confidence[target_key] = validated_conf
 
         # --- Step 4.65: Two-pass focused retry (Improvement #4) ---
         # Skip if extraction already took >90s (avoid timeout during demo)
@@ -2256,7 +2295,7 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
         # --- Step 5: Detect risk flags ---
         if doc_type == "lease_loi":
             try:
-                if extraction_method in ("text", "cloud_vision", "cloud_vision_fallback", "text+cloud_vision"):
+                if extraction_method in ("text", "cloud_vision", "cloud_vision_fallback", "text+cloud_vision", "document_ai"):
                     risk_flags = await detect_risk_flags(text, extraction)
                 elif extraction_method == "vision":
                     risk_flags = await detect_risk_flags_vision(images, extraction)
@@ -2275,6 +2314,8 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
 
         if extraction_method == "failed":
             error_message = "Could not extract content from this file. The file may be empty, corrupt, or in an unsupported format."
+        elif not extraction and not error_message:
+            error_message = "No structured fields could be extracted from this document. Please retry with a clearer scan or check AI/OCR service configuration."
 
     except Exception as e:
         error_message = f"Processing error: {str(e)}"
@@ -2286,7 +2327,7 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
     })
 
     return {
-        "status": "success" if extraction_method != "failed" else "partial",
+        "status": "success" if extraction_method != "failed" and extraction else "partial",
         "document_type": doc_type,
         "extraction": extraction,
         "confidence": confidence,
@@ -2326,8 +2367,11 @@ def get_num(field_data):
     v = get_val(field_data)
     if v is None:
         return None
+    normalized = _normalize_indian_amount(v)
+    if normalized is not None:
+        return float(normalized)
     try:
-        return float(v)
+        return float(str(v).replace(",", ""))
     except (ValueError, TypeError):
         return None
 
@@ -2456,6 +2500,8 @@ def build_agreement_data(extraction: dict, doc_type: str, risk_flags: list, conf
         if isinstance(first_year, dict):
             monthly_rent = get_num(first_year.get("mglr_monthly")) or get_num(first_year.get("monthly_rent")) or get_num(first_year.get("rent"))
             rent_per_sqft = get_num(first_year.get("mglr_per_sqft")) or get_num(first_year.get("rent_per_sqft"))
+    monthly_rent = monthly_rent or get_num(rent.get("monthly_rent")) or get_num(rent.get("mglr_monthly"))
+    rent_per_sqft = rent_per_sqft or get_num(rent.get("rent_per_sqft")) or get_num(rent.get("mglr_per_sqft"))
 
     cam_monthly = get_num(charges.get("cam_monthly"))
     security_deposit = get_num(deposits.get("security_deposit_amount"))
@@ -2546,6 +2592,7 @@ def build_obligations_data(extraction: dict, org_id: str) -> list:
         first = rent_schedule[0]
         if isinstance(first, dict):
             monthly_rent = get_num(first.get("mglr_monthly")) or get_num(first.get("monthly_rent")) or get_num(first.get("rent"))
+    monthly_rent = monthly_rent or get_num(rent.get("monthly_rent")) or get_num(rent.get("mglr_monthly"))
 
     if monthly_rent:
         obligations.append({
@@ -2780,6 +2827,8 @@ def create_agreement_record(extraction: dict, doc_type: str, risk_flags: list, c
         if isinstance(first_year, dict):
             monthly_rent = get_num(first_year.get("mglr_monthly")) or get_num(first_year.get("monthly_rent")) or get_num(first_year.get("rent"))
             rent_per_sqft = get_num(first_year.get("mglr_per_sqft")) or get_num(first_year.get("rent_per_sqft"))
+    monthly_rent = monthly_rent or get_num(rent.get("monthly_rent")) or get_num(rent.get("mglr_monthly"))
+    rent_per_sqft = rent_per_sqft or get_num(rent.get("rent_per_sqft")) or get_num(rent.get("mglr_per_sqft"))
 
     cam_monthly = get_num(charges.get("cam_monthly"))
     security_deposit = get_num(deposits.get("security_deposit_amount"))
@@ -2871,6 +2920,7 @@ def generate_obligations(extraction: dict, agreement_id: str, outlet_id: str, or
         first = rent_schedule[0]
         if isinstance(first, dict):
             monthly_rent = get_num(first.get("mglr_monthly")) or get_num(first.get("monthly_rent")) or get_num(first.get("rent"))
+    monthly_rent = monthly_rent or get_num(rent.get("monthly_rent")) or get_num(rent.get("mglr_monthly"))
 
     if monthly_rent:
         obligations.append({

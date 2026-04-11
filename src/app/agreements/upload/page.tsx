@@ -29,13 +29,14 @@ import {
   FileCheck,
   MapPin,
   Plus,
+  Download,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
-import { confirmAndActivate, createDraft, getProcessingEstimate, getExtractionJob, uploadAndExtractAsync, listOutlets } from "@/lib/api";
+import { cancelExtractionJob, confirmAndActivate, createDraft, getProcessingEstimate, getExtractionJob, uploadAndExtractAsync, listOutlets } from "@/lib/api";
 import { EditableField } from "@/components/editable-field";
 
 import { PageHeader } from "@/components/page-header";
@@ -76,6 +77,7 @@ function formatFieldLabel(key: string): string {
 }
 
 const sectionConfig: Record<string, { title: string; icon: React.ElementType }> = {
+  document: { title: "Document Details", icon: FileText },
   parties: { title: "Parties & Entities", icon: Users },
   premises: { title: "Premises & Location", icon: Building2 },
   lease_term: { title: "Lease Term & Dates", icon: Calendar },
@@ -119,6 +121,26 @@ function unwrapFieldValue(fieldVal: unknown): unknown {
     return tryParseStructuredString((fieldVal as Record<string, unknown>).value);
   }
   return tryParseStructuredString(fieldVal);
+}
+
+function isFieldValueObject(value: unknown): boolean {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    "value" in (value as Record<string, unknown>)
+  );
+}
+
+function isExtractionSection(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value) && !isFieldValueObject(value);
+}
+
+function getFlatExtractionFields(extraction?: Record<string, unknown> | null): Record<string, unknown> {
+  if (!extraction) return {};
+  return Object.fromEntries(
+    Object.entries(extraction).filter(([, value]) => !isExtractionSection(value))
+  );
 }
 
 function parseField(fieldVal: unknown): ParsedField {
@@ -203,7 +225,7 @@ function parseField(fieldVal: unknown): ParsedField {
 type ExtractionResult = {
   status: string;
   document_type: string;
-  extraction: Record<string, Record<string, unknown>>;
+  extraction: Record<string, unknown>;
   confidence: Record<string, string>;
   risk_flags: Array<{
     flag_id?: number;
@@ -236,6 +258,17 @@ const processingSteps = [
   { label: "Extracting key terms & dates", duration: 5000 },
   { label: "Analyzing financial data", duration: 4000 },
   { label: "Detecting risk flags", duration: 3000 },
+];
+
+const EXTRACTION_TIPS = [
+  "Tip: Escalation clauses averaging 5-10% are standard in Indian retail leases.",
+  "Did you know? Security deposits typically range from 3 to 12 months of rent.",
+  "Tip: Always check for a force majeure clause — it protects against unforeseen events.",
+  "Fun fact: India has over 100+ malls with 500,000+ sqft of leasable area.",
+  "Tip: Lock-in periods of 3-5 years are common for commercial leases in India.",
+  "Did you know? CAM charges usually escalate at 5-8% annually.",
+  "Tip: Notice periods of 3-6 months give you enough time to negotiate renewals.",
+  "Pro tip: Keep track of lease expiry dates at least 180 days in advance.",
 ];
 
 function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileName?: string }) {
@@ -330,6 +363,12 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
   const currentStageIdx = activeStep < 2 ? 0 : activeStep < 4 ? 1 : activeStep < 6 ? 2 : activeStep < 7 ? 3 : 4;
   const currentStageLabel = stageLabels[currentStageIdx];
 
+  const [tipIndex, setTipIndex] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setTipIndex(i => (i + 1) % EXTRACTION_TIPS.length), 6000);
+    return () => clearInterval(timer);
+  }, []);
+
   return (
     <Card className="max-w-lg mx-auto">
       <CardContent className="pt-8 pb-10 flex flex-col items-center text-center">
@@ -372,6 +411,11 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
               ? `~${Math.ceil(remainingSec / 5) * 5}s remaining`
               : "Almost done..."}
         </p>
+
+        {/* Rotating tip */}
+        <div className="w-full max-w-sm mb-4 px-4 py-2 rounded-lg bg-blue-50 border border-blue-100 text-blue-700 text-xs text-center transition-all duration-500">
+          {EXTRACTION_TIPS[tipIndex]}
+        </div>
 
         {/* Progress bar with percentage */}
         <div className="w-full max-w-xs mb-5">
@@ -466,25 +510,61 @@ export default function UploadAgreementPage() {
   const [verifiedSections, setVerifiedSections] = useState<Set<string>>(new Set());
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
 
+  // Persist wizard state to sessionStorage to survive browser refresh
+  const WIZARD_KEY = "grospace_upload_wizard";
+  useEffect(() => {
+    if (step > 1 && result) {
+      try {
+        sessionStorage.setItem(WIZARD_KEY, JSON.stringify({
+          step, result, selectedDocType, customFields, customNotes,
+          verifiedSections: Array.from(verifiedSections),
+        }));
+      } catch { /* quota */ }
+    }
+  }, [step, result, selectedDocType, customFields, customNotes, verifiedSections]);
+
+  // Rehydrate from sessionStorage on mount
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem(WIZARD_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.result && parsed.step > 1) {
+          setStep(parsed.step);
+          setResult(parsed.result);
+          setSelectedDocType(parsed.selectedDocType || "");
+          setCustomFields(parsed.customFields || []);
+          setCustomNotes(parsed.customNotes || "");
+          setVerifiedSections(new Set(parsed.verifiedSections || []));
+        }
+      }
+    } catch { /* ignore */ }
+  }, []);
+
   // Get ordered section keys from extraction result
   const sectionKeys = useMemo(() => {
     if (!result?.extraction) return [];
-    const preferred = ["parties", "premises", "lease_term", "rent", "charges", "deposits", "legal"];
+    const preferred = ["document", "parties", "premises", "lease_term", "rent", "charges", "deposits", "legal"];
+    const flatFields = getFlatExtractionFields(result.extraction);
     const keys = Object.keys(result.extraction).filter((k) => {
       const section = result.extraction[k];
-      if (typeof section !== "object" || section === null) return false;
+      if (!isExtractionSection(section)) return false;
       // Only include sections that have at least one field with actual data
-      return Object.values(section as Record<string, unknown>).some(
+      return Object.values(section).some(
         (val) => parseField(val).displayVal !== "Not found"
       );
     });
+    if (Object.values(flatFields).some((val) => parseField(val).displayVal !== "Not found")) {
+      keys.unshift("document");
+    }
     return preferred.filter((k) => keys.includes(k)).concat(keys.filter((k) => !preferred.includes(k)));
   }, [result?.extraction]);
 
   const allSectionsVerified = sectionKeys.length > 0 && sectionKeys.every((k) => {
     // Auto-verify sections with no visible fields (all "Not found")
-    if (result?.extraction?.[k] && typeof result.extraction[k] === "object") {
-      const hasVisibleFields = Object.values(result.extraction[k] as Record<string, unknown>).some(
+    const sectionData = getDisplaySectionData(k);
+    if (sectionData) {
+      const hasVisibleFields = Object.values(sectionData).some(
         (val) => parseField(val).displayVal !== "Not found"
       );
       if (!hasVisibleFields) return true;
@@ -509,8 +589,8 @@ export default function UploadAgreementPage() {
   // Upload help section expanded state
   const [showUploadHelp, setShowUploadHelp] = useState(false);
 
-  // Draft review mode state
-  const [isDraftMode, setIsDraftMode] = useState(false);
+  // Draft review mode state (toggle removed per review — always full upload)
+  const [isDraftMode] = useState(false);
 
   // Address matching — suggest linking to existing outlet (#89)
   const [matchedOutlet, setMatchedOutlet] = useState<{ id: string; name: string; city: string } | null>(null);
@@ -520,13 +600,17 @@ export default function UploadAgreementPage() {
   useEffect(() => {
     if (!result?.extraction) return;
     const extracted = result.extraction;
-    const premises = extracted?.premises || {};
-    const extractedCity = String(premises?.city || "").toLowerCase().trim();
-    const extractedAddress = String(premises?.full_address || premises?.property_name || "").toLowerCase().trim();
+    const premises = isExtractionSection(extracted?.premises) ? extracted.premises : {};
+    const extractedCity = String(unwrapFieldValue(premises?.city) || "").toLowerCase().trim();
+    const extractedAddress = String(unwrapFieldValue(premises?.full_address) || unwrapFieldValue(premises?.property_name) || "").toLowerCase().trim();
+    setMatchedOutlet(null);
+    setOutletLinked(false);
     if (!extractedCity && !extractedAddress) return;
 
     listOutlets({ page: 1, page_size: 200 }).then((res) => {
-      const outlets = (res as { outlets?: { id: string; name: string; city?: string; address?: string }[] })?.outlets || [];
+      const outlets = (res as { items?: { id: string; name: string; city?: string; address?: string }[]; outlets?: { id: string; name: string; city?: string; address?: string }[] })?.items
+        || (res as { outlets?: { id: string; name: string; city?: string; address?: string }[] })?.outlets
+        || [];
       for (const outlet of outlets) {
         const outletCity = (outlet.city || "").toLowerCase().trim();
         const outletAddr = (outlet.address || outlet.name || "").toLowerCase().trim();
@@ -568,7 +652,7 @@ export default function UploadAgreementPage() {
     // For bulk upload results, use the document_url from the extraction result
     if (result?.document_url) return result.document_url;
     return null;
-  }, [selectedFile, result]);
+  }, [selectedFile, result?.document_url]);
 
   // Cleanup object URL on unmount or file change
   useEffect(() => {
@@ -622,6 +706,7 @@ export default function UploadAgreementPage() {
   }[]>([]);
   const [currentBulkJobId, setCurrentBulkJobId] = useState<string | null>(null);
   const [bulkNotification, setBulkNotification] = useState<string | null>(null);
+  const [currentSingleJobId, setCurrentSingleJobId] = useState<string | null>(null);
   const singleJobPollerRef = useRef<number | null>(null);
 
   // Poll bulk jobs — use ref to avoid recreating interval on every state change
@@ -673,7 +758,43 @@ export default function UploadAgreementPage() {
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [hasProcessing]);
+  }, [hasProcessing, step]);
+
+  function getDisplaySectionData(sectionKey: string): Record<string, unknown> | null {
+    if (!result?.extraction) return null;
+    if (sectionKey === "document") {
+      const flatFields = getFlatExtractionFields(result.extraction);
+      return Object.keys(flatFields).length > 0 ? flatFields : null;
+    }
+    const section = result.extraction[sectionKey];
+    return isExtractionSection(section) ? section : null;
+  }
+
+  function getDisplayFieldValue(sectionKey: string, fieldKey: string): unknown {
+    return getDisplaySectionData(sectionKey)?.[fieldKey];
+  }
+
+  function updateExtractionFieldValue(sectionKey: string, fieldKey: string, nextValue: unknown) {
+    setResult((prev) => {
+      if (!prev) return prev;
+      const updated = { ...prev, extraction: { ...prev.extraction } };
+      if (sectionKey === "document") {
+        const existing = updated.extraction[fieldKey];
+        updated.extraction[fieldKey] = isFieldValueObject(existing)
+          ? { ...(existing as Record<string, unknown>), value: nextValue }
+          : nextValue;
+        return updated;
+      }
+
+      const section = { ...(updated.extraction[sectionKey] as Record<string, unknown>) };
+      const existing = section[fieldKey];
+      section[fieldKey] = isFieldValueObject(existing)
+        ? { ...(existing as Record<string, unknown>), value: nextValue }
+        : nextValue;
+      updated.extraction[sectionKey] = section;
+      return updated;
+    });
+  }
 
   async function handleBulkUpload(files: FileList) {
     const totalFiles = Array.from(files);
@@ -718,7 +839,20 @@ export default function UploadAgreementPage() {
 
       try {
         const data = await uploadAndExtractAsync(file);
+        if (data.status === "duplicate") {
+          setBulkJobs((prev) =>
+            prev.map((j) =>
+              j.id === tempId
+                ? { ...j, status: "completed", result: data as ExtractionResult }
+                : j
+            )
+          );
+          continue;
+        }
         // Mark as processing (server accepted, AI working)
+        if (!data.job_id) {
+          throw new Error(data.message || "Failed to start processing job");
+        }
         setBulkJobs((prev) =>
           prev.map((j) =>
             j.id === tempId
@@ -822,6 +956,7 @@ export default function UploadAgreementPage() {
         }
         throw new Error("Failed to start processing job");
       }
+      setCurrentSingleJobId(job.job_id);
 
       // Poll for completion every 3 seconds
       if (singleJobPollerRef.current != null) {
@@ -837,6 +972,7 @@ export default function UploadAgreementPage() {
               window.clearInterval(singleJobPollerRef.current);
               singleJobPollerRef.current = null;
             }
+            setCurrentSingleJobId(null);
             const data = status.result;
             if (selectedDocType) {
               data.document_type = selectedDocType;
@@ -860,6 +996,7 @@ export default function UploadAgreementPage() {
               window.clearInterval(singleJobPollerRef.current);
               singleJobPollerRef.current = null;
             }
+            setCurrentSingleJobId(null);
             setError(status.error || "Extraction failed. Please try again.");
             setStep(1);
           }
@@ -889,9 +1026,10 @@ export default function UploadAgreementPage() {
         let highConf = 0;
         let medConf = 0;
         let lowConf = 0;
-        Object.values(result.extraction).forEach((section) => {
-          if (typeof section !== "object" || section === null) return;
-          Object.entries(section as Record<string, unknown>).forEach(([, val]) => {
+        sectionKeys.forEach((sectionKey) => {
+          const section = getDisplaySectionData(sectionKey);
+          if (!section) return;
+          Object.entries(section).forEach(([, val]) => {
             const { displayVal, confidence } = parseField(val);
             // Only count fields that have actual data (not "Not found")
             if (displayVal === "Not found" || confidence === "not_found") return;
@@ -972,22 +1110,13 @@ export default function UploadAgreementPage() {
         </div>
       )}
 
-      {/* Upload Mode Toggle: Draft Review vs Full Upload */}
+      {/* Upload type (Full Upload only — Draft/LOI toggle removed per review feedback) */}
       {step === 1 && (
         <div className="flex flex-col gap-3">
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => setIsDraftMode(false)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${!isDraftMode ? "bg-foreground text-white" : "bg-muted text-[#4a5568] hover:bg-muted"}`}
-            >
-              Full Upload
-            </button>
-            <button
-              onClick={() => { setIsDraftMode(true); setSelectedDocType("lease_loi"); }}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${isDraftMode ? "bg-foreground text-white" : "bg-muted text-[#4a5568] hover:bg-muted"}`}
-            >
-              Draft Review
-            </button>
+            <span className="px-3 py-1.5 text-xs font-medium rounded-md bg-foreground text-white">
+              Upload Document
+            </span>
           </div>
           {isDraftMode && (
             <div className="flex items-center gap-2 p-3 rounded-lg border border-amber-200 bg-amber-50/50 text-amber-800 text-xs">
@@ -1357,10 +1486,24 @@ export default function UploadAgreementPage() {
         <div className="space-y-4">
           <ProcessingStep fileSizeMB={selectedFile ? selectedFile.size / (1024 * 1024) : undefined} fileName={selectedFile?.name} />
           <div className="text-center">
-            <Button variant="outline" size="sm" className="text-xs text-muted-foreground" onClick={() => {
-              // Cancel — go back to step 1
+            <Button variant="outline" size="sm" className="text-xs text-muted-foreground" onClick={async () => {
+              if (singleJobPollerRef.current != null) {
+                window.clearInterval(singleJobPollerRef.current);
+                singleJobPollerRef.current = null;
+              }
+              const jobId = currentSingleJobId;
+              setCurrentSingleJobId(null);
               setStep(1);
-              setError(null);
+              if (jobId) {
+                try {
+                  await cancelExtractionJob(jobId);
+                  setError("Extraction cancelled.");
+                } catch {
+                  setError("Stopped polling this upload. The server may still finish the job in the background.");
+                }
+              } else {
+                setError(null);
+              }
             }}>
               Cancel Extraction
             </Button>
@@ -1441,22 +1584,22 @@ export default function UploadAgreementPage() {
           {stats && (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="text-center p-3 rounded-lg border bg-card">
-                <p className="text-2xl font-semibold font-mono tracking-tighter">{stats.total}</p>
+                <p className="text-2xl font-semibold font-mono tracking-tight">{stats.total}</p>
                 <p className="text-[11px] font-medium text-muted-foreground">Fields Extracted</p>
                 <p className="text-[9px] text-muted-foreground/60">Data points found in document</p>
               </div>
               <div className="text-center p-3 rounded-lg border bg-card">
-                <p className="text-2xl font-semibold font-mono tracking-tighter text-emerald-600">{stats.highConf}</p>
+                <p className="text-2xl font-semibold font-mono tracking-tight text-emerald-600">{stats.highConf}</p>
                 <p className="text-[11px] font-medium text-muted-foreground">High Confidence</p>
                 <p className="text-[9px] text-muted-foreground/60">Gro AI is confident these are correct</p>
               </div>
               <div className="text-center p-3 rounded-lg border bg-card">
-                <p className="text-2xl font-semibold font-mono tracking-tighter text-amber-600">{stats.medConf + stats.lowConf}</p>
+                <p className="text-2xl font-semibold font-mono tracking-tight text-amber-600">{stats.medConf + stats.lowConf}</p>
                 <p className="text-[11px] font-medium text-muted-foreground">Needs Review</p>
                 <p className="text-[9px] text-muted-foreground/60">Please verify these values manually</p>
               </div>
               <div className="text-center p-3 rounded-lg border bg-card">
-                <p className="text-2xl font-semibold font-mono tracking-tighter text-rose-600">{result.risk_flags.length}</p>
+                <p className="text-2xl font-semibold font-mono tracking-tight text-rose-600">{result.risk_flags.length}</p>
                 <p className="text-[11px] font-medium text-muted-foreground">Risk Flags</p>
                 <p className="text-[9px] text-muted-foreground/60">Potential issues found in the lease</p>
               </div>
@@ -1486,9 +1629,9 @@ export default function UploadAgreementPage() {
                 const dataSectionOffset = result.risk_flags.length > 0 ? 1 : 0;
                 const stepIdx = idx + dataSectionOffset;
                 const isActive = stepIdx === activeSectionIndex;
-                const sectionData = result.extraction[key];
-                const hasVisibleFields = sectionData && typeof sectionData === "object"
-                  ? Object.values(sectionData as Record<string, unknown>).some(v => parseField(v).displayVal !== "Not found")
+                const sectionData = getDisplaySectionData(key);
+                const hasVisibleFields = sectionData
+                  ? Object.values(sectionData).some(v => parseField(v).displayVal !== "Not found")
                   : false;
                 const isVerified = verifiedSections.has(key) || !hasVisibleFields;
                 const conf = sectionConfig[key] || { title: formatFieldLabel(key), icon: FileText };
@@ -1674,9 +1817,9 @@ export default function UploadAgreementPage() {
                     {/* Current Data Section */}
                     {isOnDataSection && currentSectionKey && (() => {
                       const sectionKey = currentSectionKey;
-                      const sectionData = result.extraction[sectionKey];
-                      if (typeof sectionData !== "object" || sectionData === null) return null;
-                      const allFields = Object.entries(sectionData as Record<string, unknown>);
+                      const sectionData = getDisplaySectionData(sectionKey);
+                      if (!sectionData) return null;
+                      const allFields = Object.entries(sectionData);
                       const fields = allFields.filter(([, val]) => {
                         const { displayVal } = parseField(val);
                         return displayVal !== "Not found";
@@ -1793,33 +1936,13 @@ export default function UploadAgreementPage() {
                                     </div>
                                     {isNotFound ? (
                                       <EditableField value="" displayValue="Not found in document" isNotFound={true} onChange={(newVal) => {
-                                        setResult((prev) => {
-                                          if (!prev) return prev;
-                                          const updated = { ...prev, extraction: { ...prev.extraction } };
-                                          const section = { ...(updated.extraction[sectionKey] as Record<string, unknown>) };
-                                          const existing = section[fieldKey];
-                                          if (typeof existing === "object" && existing !== null && "value" in (existing as Record<string, unknown>)) {
-                                            section[fieldKey] = { ...(existing as Record<string, unknown>), value: newVal };
-                                          } else { section[fieldKey] = newVal; }
-                                          updated.extraction[sectionKey] = section;
-                                          return updated;
-                                        });
+                                        updateExtractionFieldValue(sectionKey, fieldKey, newVal);
                                       }} />
                                     ) : isBool ? (
                                       <div className="pl-4">
                                         <button type="button" onClick={() => {
                                           const newVal = displayVal === "Yes" ? "No" : "Yes";
-                                          setResult((prev) => {
-                                            if (!prev) return prev;
-                                            const updated = { ...prev, extraction: { ...prev.extraction } };
-                                            const section = { ...(updated.extraction[sectionKey] as Record<string, unknown>) };
-                                            const existing = section[fieldKey];
-                                            if (typeof existing === "object" && existing !== null && "value" in (existing as Record<string, unknown>)) {
-                                              section[fieldKey] = { ...(existing as Record<string, unknown>), value: newVal === "Yes" };
-                                            } else { section[fieldKey] = newVal === "Yes"; }
-                                            updated.extraction[sectionKey] = section;
-                                            return updated;
-                                          });
+                                          updateExtractionFieldValue(sectionKey, fieldKey, newVal === "Yes");
                                         }} className="cursor-pointer hover:opacity-80 transition-opacity" title="Click to toggle">
                                           <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${displayVal === "Yes" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
                                             {displayVal === "Yes" ? "✓" : "✗"} {displayVal}
@@ -1876,17 +1999,11 @@ export default function UploadAgreementPage() {
                                         })()}
                                       </div>
                                     ) : isMultiLine && Array.isArray((() => {
-                                      const sec = result.extraction[sectionKey] as Record<string, unknown>;
-                                      const raw = sec[fieldKey];
-                                      if (typeof raw === "object" && raw !== null && "value" in (raw as Record<string, unknown>)) return (raw as Record<string, unknown>).value;
-                                      return raw;
+                                      return unwrapFieldValue(getDisplayFieldValue(sectionKey, fieldKey));
                                     })()) ? (
                                       <div className="pl-4 mt-1">
                                         {(() => {
-                                          const sec = result.extraction[sectionKey] as Record<string, unknown>;
-                                          const raw = sec[fieldKey];
-                                          const arrVal = (typeof raw === "object" && raw !== null && "value" in (raw as Record<string, unknown>))
-                                            ? (raw as Record<string, unknown>).value as unknown[] : raw as unknown[];
+                                          const arrVal = unwrapFieldValue(getDisplayFieldValue(sectionKey, fieldKey)) as unknown[];
                                           if (fieldKey === "rent_schedule" && arrVal.length > 0 && typeof arrVal[0] === "object") {
                                             const items = arrVal as Record<string, unknown>[];
                                             const allKeys = Array.from(new Set(items.flatMap(o => Object.keys(o)))).filter(k => k !== "confidence" && k !== "source_page" && k !== "source_quote");
@@ -1905,19 +2022,9 @@ export default function UploadAgreementPage() {
                                               <div key={idx} className="flex items-start gap-2">
                                                 <span className="w-1.5 h-1.5 rounded-full bg-foreground mt-1.5 flex-shrink-0" />
                                                 <EditableField value={itemDisplay} isNotFound={false} onChange={(newVal) => {
-                                                  setResult((prev) => {
-                                                    if (!prev) return prev;
-                                                    const updated = { ...prev, extraction: { ...prev.extraction } };
-                                                    const section = { ...(updated.extraction[sectionKey] as Record<string, unknown>) };
-                                                    const existing = section[fieldKey];
-                                                    let arr: unknown[];
-                                                    if (typeof existing === "object" && existing !== null && "value" in (existing as Record<string, unknown>)) {
-                                                      arr = [...((existing as Record<string, unknown>).value as unknown[])]; arr[idx] = newVal;
-                                                      section[fieldKey] = { ...(existing as Record<string, unknown>), value: arr };
-                                                    } else { arr = [...(existing as unknown[])]; arr[idx] = newVal; section[fieldKey] = arr; }
-                                                    updated.extraction[sectionKey] = section;
-                                                    return updated;
-                                                  });
+                                                  const nextArr = [...arrVal];
+                                                  nextArr[idx] = newVal;
+                                                  updateExtractionFieldValue(sectionKey, fieldKey, nextArr);
                                                 }} />
                                               </div>
                                             );
@@ -1926,31 +2033,11 @@ export default function UploadAgreementPage() {
                                       </div>
                                     ) : isMultiLine ? (
                                       <EditableField value={displayVal} isNotFound={false} multiline onChange={(newVal) => {
-                                        setResult((prev) => {
-                                          if (!prev) return prev;
-                                          const updated = { ...prev, extraction: { ...prev.extraction } };
-                                          const section = { ...(updated.extraction[sectionKey] as Record<string, unknown>) };
-                                          const existing = section[fieldKey];
-                                          if (typeof existing === "object" && existing !== null && "value" in (existing as Record<string, unknown>)) {
-                                            section[fieldKey] = { ...(existing as Record<string, unknown>), value: newVal };
-                                          } else { section[fieldKey] = newVal; }
-                                          updated.extraction[sectionKey] = section;
-                                          return updated;
-                                        });
+                                        updateExtractionFieldValue(sectionKey, fieldKey, newVal);
                                       }} />
                                     ) : (
                                       <EditableField value={displayVal} displayValue={formattedVal !== displayVal ? formattedVal : undefined} isNotFound={false} onChange={(newVal) => {
-                                        setResult((prev) => {
-                                          if (!prev) return prev;
-                                          const updated = { ...prev, extraction: { ...prev.extraction } };
-                                          const section = { ...(updated.extraction[sectionKey] as Record<string, unknown>) };
-                                          const existing = section[fieldKey];
-                                          if (typeof existing === "object" && existing !== null && "value" in (existing as Record<string, unknown>)) {
-                                            section[fieldKey] = { ...(existing as Record<string, unknown>), value: newVal };
-                                          } else { section[fieldKey] = newVal; }
-                                          updated.extraction[sectionKey] = section;
-                                          return updated;
-                                        });
+                                        updateExtractionFieldValue(sectionKey, fieldKey, newVal);
                                       }} />
                                     )}
                                   </div>
@@ -2091,6 +2178,35 @@ export default function UploadAgreementPage() {
               {bulkJobs.length > 0 ? `Back to Queue (${bulkJobs.filter(j => j.status === "completed" && j.result).length} ready)` : "Upload Another"}
             </Button>
             <div className="flex items-center gap-3">
+              {/* Download Extracted Data */}
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 text-xs"
+                onClick={() => {
+                  if (!result) return;
+                  const rows: string[] = ["Section,Field,Value,Confidence,Source Page"];
+                  for (const [sectionKey, sectionData] of Object.entries(result.extraction)) {
+                    if (typeof sectionData !== "object" || sectionData === null) continue;
+                    for (const [fieldKey, fieldVal] of Object.entries(sectionData as Record<string, unknown>)) {
+                      const { displayVal, confidence, sourcePage } = parseField(fieldVal);
+                      const escapedVal = `"${String(displayVal).replace(/"/g, '""')}"`;
+                      rows.push(`${sectionKey},${fieldKey},${escapedVal},${confidence},${sourcePage || ""}`);
+                    }
+                  }
+                  const csv = rows.join("\n");
+                  const blob = new Blob([csv], { type: "text/csv" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = `${result.filename?.replace(/\.[^.]+$/, "") || "extraction"}_data.csv`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+              >
+                <Download className="h-3.5 w-3.5" />
+                Download CSV
+              </Button>
               <Button
                 disabled={isConfirming || !allSectionsVerified}
                 onClick={async () => {
@@ -2179,6 +2295,8 @@ export default function UploadAgreementPage() {
                           : undefined,
                       });
                       setActivationResult(res);
+                      // Clear saved wizard state on successful activation
+                      try { sessionStorage.removeItem(WIZARD_KEY); } catch {}
                       // Remove activated job from bulk queue
                       if (currentBulkJobId) {
                         setBulkJobs(prev => prev.filter(j => j.id !== currentBulkJobId));
@@ -2227,7 +2345,7 @@ export default function UploadAgreementPage() {
               </div>
             </div>
 
-            <h2 className="text-2xl font-bold mb-2">{isDraftMode ? "Draft Saved!" : "Agreement Activated!"}</h2>
+            <h2 className="text-2xl font-semibold mb-2">{isDraftMode ? "Draft Saved!" : "Agreement Activated!"}</h2>
             <p className="text-sm text-muted-foreground mb-8">
               {isDraftMode
                 ? "Your draft has been saved. You can find it in Agreements with 'Draft' status."

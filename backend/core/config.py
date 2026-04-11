@@ -5,10 +5,11 @@ Core configuration: environment variables, constants, shared clients, and helper
 from __future__ import annotations
 
 import os
+import time
 from functools import lru_cache
 
 from dotenv import load_dotenv
-from httpx import Timeout
+from httpx import ConnectError, ConnectTimeout, ReadError, ReadTimeout, RemoteProtocolError, Timeout, WriteError
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from supabase import Client, ClientOptions, create_client
@@ -29,7 +30,7 @@ ALERT_TYPES_LIST = [
     "revenue_reconciliation", "custom",
 ]
 
-DEAL_STAGES = ["lead", "site_visit", "negotiation", "loi", "agreement", "fitout", "operational"]
+DEAL_STAGES = ["lead", "site_visit", "negotiation", "loi", "agreement", "fitout", "operational", "closed"]
 
 CITY_ABBREVIATIONS = {
     "delhi": "Del", "new delhi": "Del", "mumbai": "Mum", "bengaluru": "Blr", "bangalore": "Blr",
@@ -124,20 +125,36 @@ def get_supabase_client() -> Client:
 def _get_genai_module():
     import google.generativeai as genai
 
-    genai.configure(api_key=os.getenv("GEMINI_API_KEY", ""))
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        print("[CONFIG] WARNING: GEMINI_API_KEY is not set — extraction will fail.", flush=True)
+    genai.configure(api_key=api_key)
     return genai
 
 
 @lru_cache(maxsize=1)
 def get_fast_model():
     genai = _get_genai_module()
-    return genai.GenerativeModel("gemini-2.5-flash")
+    # Allow env override so we can switch models without a redeploy
+    model_name = os.getenv("GEMINI_FAST_MODEL", "gemini-2.5-flash").strip()
+    return genai.GenerativeModel(model_name)
+
+
+def _normalize_gemini_model_name(model_name: str) -> str:
+    aliases = {
+        # The Gemini API currently exposes 3.1 Pro as a preview model name.
+        "gemini-3.1-pro": "gemini-3.1-pro-preview",
+    }
+    return aliases.get(model_name, model_name)
 
 
 @lru_cache(maxsize=1)
 def get_pro_model():
     genai = _get_genai_module()
-    return genai.GenerativeModel("gemini-3.1-pro-preview")
+    # Gemini 3.1 Pro. Keep a compatibility alias for envs that omit the preview suffix.
+    # Override with GEMINI_PRO_MODEL env var if you ever need to switch without redeploy.
+    model_name = _normalize_gemini_model_name(os.getenv("GEMINI_PRO_MODEL", "gemini-3.1-pro-preview").strip())
+    return genai.GenerativeModel(model_name)
 
 
 genai = _LazyClientProxy(_get_genai_module)
@@ -146,6 +163,15 @@ model = _LazyClientProxy(get_fast_model)  # Fast model for classification, Q&A, 
 model_pro = _LazyClientProxy(get_pro_model)  # Best model for extraction, risk analysis, vision OCR
 
 limiter = Limiter(key_func=get_remote_address)
+
+TRANSIENT_SUPABASE_ERRORS = (
+    RemoteProtocolError,
+    ReadTimeout,
+    ConnectTimeout,
+    ConnectError,
+    ReadError,
+    WriteError,
+)
 
 # ============================================
 # ACTIVITY LOG HELPER
@@ -166,3 +192,14 @@ def log_activity(org_id: str, user_id: str | None, entity_type: str, entity_id: 
         }).execute()
     except Exception:
         pass  # Activity logging should never break the main flow
+
+
+def execute_supabase_query(factory, retries: int = 1, retry_delay_seconds: float = 0.25):
+    """Execute a Supabase/PostgREST query with a small retry budget for transient transport errors."""
+    for attempt in range(retries + 1):
+        try:
+            return factory().execute()
+        except TRANSIENT_SUPABASE_ERRORS:
+            if attempt >= retries:
+                raise
+            time.sleep(retry_delay_seconds * (attempt + 1))

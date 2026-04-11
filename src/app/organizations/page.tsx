@@ -255,6 +255,11 @@ export default function OrganizationsPage() {
           </Card>
         )}
 
+        {/* Explanation banner */}
+        <div className="rounded-lg border border-blue-100 bg-blue-50/50 p-3 text-xs text-blue-700">
+          <strong>Company & Brand Structure:</strong> Each organization represents a company entity. Within each company, you can manage multiple brands and their outlets. Use the outlet detail page to assign <strong>Brand Name</strong> and <strong>Company Name</strong> to each outlet for proper hierarchy tracking.
+        </div>
+
         {/* ----------------------------------------------------------------- */}
         {/* Organization Grid                                                  */}
         {/* ----------------------------------------------------------------- */}
@@ -272,12 +277,12 @@ export default function OrganizationsPage() {
                     {/* Org Identity */}
                     <div className="flex items-center gap-3 mb-4">
                       <div className="w-11 h-11 rounded-full bg-foreground flex items-center justify-center shrink-0">
-                        <span className="text-white text-lg font-bold">
+                        <span className="text-white text-lg font-semibold">
                           {initial}
                         </span>
                       </div>
                       <div className="min-w-0">
-                        <h3 className="text-lg font-bold text-foreground leading-tight truncate">
+                        <h3 className="text-lg font-semibold text-foreground leading-tight truncate">
                           {org.name}
                         </h3>
                         <div className="flex items-center gap-1.5 mt-1 text-xs text-muted-foreground">

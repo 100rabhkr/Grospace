@@ -17,7 +17,7 @@ from collections import deque
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends, Query
 from starlette.requests import Request
 
-from core.config import supabase, model, limiter, log_activity
+from core.config import execute_supabase_query, supabase, model, limiter, log_activity
 from core.models import (
     CurrentUser, ExtractRequest, ClassifyRequest, QARequest, RiskFlagRequest,
 )
@@ -102,6 +102,14 @@ def _normalize_processing_jobs(jobs: list[dict]) -> list[dict]:
     return normalized
 
 
+def _get_extraction_job_status(job_id: str) -> Optional[str]:
+    try:
+        result = supabase.table("extraction_jobs").select("status").eq("id", job_id).single().execute()
+        return result.data.get("status") if result.data else None
+    except Exception:
+        return None
+
+
 async def _heartbeat_extraction_job(job_id: str):
     while True:
         await asyncio.sleep(_EXTRACTION_JOB_HEARTBEAT_SECONDS)
@@ -145,7 +153,11 @@ def get_processing_estimate():
 
 @router.post("/upload-and-extract", dependencies=[Depends(require_permission("create_agreements"))])
 @limiter.limit("5/minute")
-async def upload_and_extract(request: Request, file: UploadFile = File(...)):
+async def upload_and_extract(
+    request: Request,
+    file: UploadFile = File(...),
+    user: Optional[CurrentUser] = Depends(get_current_user),
+):
     """Upload a document (PDF or image) and extract structured data."""
     MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
     ALLOWED_TYPES = {
@@ -181,11 +193,17 @@ async def upload_and_extract(request: Request, file: UploadFile = File(...)):
             }
 
         # --- Duplicate detection: check if this exact file was already uploaded ---
+        # Multi-tenant: scope the lookup to the caller's org so we never hand back
+        # another tenant's extraction just because the file hash collides.
         file_hash = hashlib.sha256(file_bytes).hexdigest()
+        caller_org = get_org_filter(user)
         try:
-            existing = supabase.table("agreements").select(
-                "id, document_filename, status, document_url, extracted_data, risk_flags, type, extraction_confidence"
-            ).eq("file_hash", file_hash).limit(1).execute()
+            dup_query = supabase.table("agreements").select(
+                "id, document_filename, status, document_url, extracted_data, risk_flags, type, extraction_confidence, org_id"
+            ).eq("file_hash", file_hash)
+            if caller_org:
+                dup_query = dup_query.eq("org_id", caller_org)
+            existing = dup_query.limit(1).execute()
             if existing.data and len(existing.data) > 0:
                 prev = existing.data[0]
                 return {
@@ -616,17 +634,28 @@ async def upload_and_extract_async(
 
     # Duplicate detection for async uploads
     file_hash = hashlib.sha256(file_bytes).hexdigest()
+    caller_org = get_org_filter(user)
     try:
-        existing = supabase.table("agreements").select(
-            "id, document_filename, status"
-        ).eq("file_hash", file_hash).limit(1).execute()
+        dup_query = supabase.table("agreements").select(
+            "id, document_filename, status, document_url, extracted_data, risk_flags, type, extraction_confidence, org_id"
+        ).eq("file_hash", file_hash)
+        if caller_org:
+            dup_query = dup_query.eq("org_id", caller_org)
+        existing = dup_query.limit(1).execute()
         if existing.data and len(existing.data) > 0:
             prev = existing.data[0]
             return {
                 "status": "duplicate",
                 "existing_agreement_id": prev["id"],
+                "existing_status": prev.get("status"),
                 "filename": filename,
-                "message": f"This document was already uploaded as \"{prev.get('document_filename', 'unknown')}\" (status: {prev.get('status', 'unknown')}).",
+                "document_type": prev.get("type", "lease_loi"),
+                "extraction": prev.get("extracted_data") or {},
+                "confidence": prev.get("extraction_confidence") or {},
+                "risk_flags": prev.get("risk_flags") or [],
+                "document_url": prev.get("document_url"),
+                "file_hash": file_hash,
+                "message": f"This document was already uploaded as \"{prev.get('document_filename', 'unknown')}\" (status: {prev.get('status', 'unknown')}). The previous extraction has been returned for review.",
             }
     except Exception:
         pass
@@ -693,9 +722,14 @@ async def upload_and_extract_async(
     # Also check by file hash if available
     try:
         file_hash = hashlib.sha256(file_bytes).hexdigest()
-        recent_completed = supabase.table("extraction_jobs").select("id, status, result").eq(
+        recent_query = supabase.table("extraction_jobs").select("id, status, result").eq(
             "status", "completed"
-        ).order("created_at", desc=True).limit(5).execute()
+        )
+        if user and user.user_id:
+            recent_query = recent_query.eq("user_id", user.user_id)
+        elif org_id:
+            recent_query = recent_query.eq("org_id", org_id)
+        recent_completed = recent_query.order("created_at", desc=True).limit(10).execute()
         for job in (recent_completed.data or []):
             if job.get("result", {}).get("file_hash") == file_hash:
                 print(f"[UPLOAD] Same file already extracted: {filename} (hash match)")
@@ -716,12 +750,12 @@ async def upload_and_extract_async(
     supabase.table("extraction_jobs").insert(clean_job).execute()
 
     # Run extraction in the background but keep heavy work off the main event loop.
-    asyncio.create_task(_process_extraction_job(job_id, file_bytes, filename, file_ext))
+    asyncio.create_task(_process_extraction_job(job_id, file_bytes, filename, file_ext, file_hash))
 
     return {"job_id": job_id, "status": "processing", "filename": filename}
 
 
-async def _process_extraction_job(job_id: str, file_bytes: bytes, filename: str, file_ext: str):
+async def _process_extraction_job(job_id: str, file_bytes: bytes, filename: str, file_ext: str, file_hash: str):
     """Background task to process document extraction and update job status."""
     heartbeat_task = asyncio.create_task(_heartbeat_extraction_job(job_id))
     try:
@@ -745,8 +779,12 @@ async def _process_extraction_job(job_id: str, file_bytes: bytes, filename: str,
         duration = round(time.time() - start_time, 2)
         _processing_times.append(duration)
         result["processing_duration_seconds"] = duration
+        result["file_hash"] = file_hash
         if document_url:
             result["document_url"] = document_url
+
+        if _get_extraction_job_status(job_id) == "cancelled":
+            return
 
         supabase.table("extraction_jobs").update({
             "status": "completed",
@@ -755,6 +793,8 @@ async def _process_extraction_job(job_id: str, file_bytes: bytes, filename: str,
         }).eq("id", job_id).execute()
 
     except Exception as e:
+        if _get_extraction_job_status(job_id) == "cancelled":
+            return
         supabase.table("extraction_jobs").update({
             "status": "failed",
             "error": str(e),
@@ -774,23 +814,25 @@ def list_extraction_jobs(
     user: Optional[CurrentUser] = Depends(get_current_user),
 ):
     """List extraction jobs for the current user."""
-    query = supabase.table("extraction_jobs").select(
-        "id, org_id, user_id, filename, status, error, created_at, updated_at, seen"
-    ).order("created_at", desc=True)
+    def _build_query():
+        query = supabase.table("extraction_jobs").select(
+            "id, org_id, user_id, filename, status, error, created_at, updated_at, seen"
+        ).order("created_at", desc=True)
 
-    if user and user.user_id:
-        query = query.eq("user_id", user.user_id)
-    else:
-        org_id = get_org_filter(user)
-        if org_id:
-            query = query.eq("org_id", org_id)
+        if user and user.user_id:
+            query = query.eq("user_id", user.user_id)
+        else:
+            org_id = get_org_filter(user)
+            if org_id:
+                query = query.eq("org_id", org_id)
 
-    if status:
-        query = query.eq("status", status)
-    if seen is not None:
-        query = query.eq("seen", seen)
-    query = query.limit(limit)
-    result = query.execute()
+        if status:
+            query = query.eq("status", status)
+        if seen is not None:
+            query = query.eq("seen", seen)
+        return query.limit(limit)
+
+    result = execute_supabase_query(_build_query)
     return {"jobs": _normalize_processing_jobs(result.data or [])}
 
 

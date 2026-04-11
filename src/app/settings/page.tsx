@@ -22,10 +22,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Settings,
-  Users,
-  Bell,
-  User,
   Shield,
   Mail,
   Upload,
@@ -40,12 +36,12 @@ import {
   XCircle,
   Building2,
   Eye,
-  Database,
   AlertTriangle,
   MapPin,
   Store,
   Download,
   FileText,
+  ExternalLink,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { useUser } from "@/lib/hooks/use-user";
@@ -140,6 +136,11 @@ const DEFAULT_ALERT_PREFS: AlertPreference[] = [
   { key: "license_expiry", label: "License Expiry", daysBefore: 180 },
   { key: "lock_in_expiry", label: "Lock-in Expiry", daysBefore: 90 },
   { key: "renewal_window", label: "Renewal Window", daysBefore: 30 },
+  { key: "electricity", label: "Electricity Bill", daysBefore: 7 },
+  { key: "water", label: "Water Bill", daysBefore: 7 },
+  { key: "property_tax", label: "Property Tax", daysBefore: 30 },
+  { key: "insurance_renewal", label: "Insurance Renewal", daysBefore: 30 },
+  { key: "custom", label: "Custom Events", daysBefore: 7 },
 ];
 
 // -------------------------------------------------------------------
@@ -726,40 +727,54 @@ export default function SettingsPage() {
       {/* Page Header */}
       <PageHeader title="Settings" description="Manage your organization, team, reminders, and account preferences" />
 
-      {/* Tabs */}
+      {/* Tabs — flat underline style, no pill bg */}
       <Tabs defaultValue="organization" className="w-full">
-        <TabsList className="grid w-full max-w-4xl grid-cols-4 sm:grid-cols-7">
-          <TabsTrigger value="organization" className="gap-1.5 text-xs sm:text-sm">
-            <Settings className="w-3.5 h-3.5 hidden sm:inline-block" />
+        <TabsList className="h-auto bg-transparent border-b border-border rounded-none p-0 w-full justify-start gap-6 overflow-x-auto scrollbar-hide">
+          <TabsTrigger
+            value="organization"
+            className="relative h-10 rounded-none bg-transparent px-0 text-[13px] font-semibold text-muted-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:bottom-[-1px] data-[state=active]:after:h-[2px] data-[state=active]:after:bg-foreground"
+          >
             Organization
           </TabsTrigger>
-          <TabsTrigger value="team" className="gap-1.5 text-xs sm:text-sm">
-            <Users className="w-3.5 h-3.5 hidden sm:inline-block" />
+          <TabsTrigger
+            value="team"
+            className="relative h-10 rounded-none bg-transparent px-0 text-[13px] font-semibold text-muted-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:bottom-[-1px] data-[state=active]:after:h-[2px] data-[state=active]:after:bg-foreground"
+          >
             Team & Roles
           </TabsTrigger>
-          <TabsTrigger value="approvals" className="gap-1.5 text-xs sm:text-sm relative">
-            <Clock className="w-3.5 h-3.5 hidden sm:inline-block" />
+          <TabsTrigger
+            value="approvals"
+            className="relative h-10 rounded-none bg-transparent px-0 text-[13px] font-semibold text-muted-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:bottom-[-1px] data-[state=active]:after:h-[2px] data-[state=active]:after:bg-foreground"
+          >
             Approvals
             {signupRequests.length > 0 && (
-              <span className="absolute -top-1 -right-1 bg-rose-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+              <span className="ml-2 inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full bg-foreground text-background text-[10px] font-semibold">
                 {signupRequests.length}
               </span>
             )}
           </TabsTrigger>
-          <TabsTrigger value="templates" className="gap-1.5 text-xs sm:text-sm">
-            <FileText className="w-3.5 h-3.5 hidden sm:inline-block" />
+          <TabsTrigger
+            value="templates"
+            className="relative h-10 rounded-none bg-transparent px-0 text-[13px] font-semibold text-muted-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:bottom-[-1px] data-[state=active]:after:h-[2px] data-[state=active]:after:bg-foreground"
+          >
             Templates
           </TabsTrigger>
-          <TabsTrigger value="alerts" className="gap-1.5 text-xs sm:text-sm">
-            <Bell className="w-3.5 h-3.5 hidden sm:inline-block" />
+          <TabsTrigger
+            value="alerts"
+            className="relative h-10 rounded-none bg-transparent px-0 text-[13px] font-semibold text-muted-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:bottom-[-1px] data-[state=active]:after:h-[2px] data-[state=active]:after:bg-foreground"
+          >
             Reminder Preferences
           </TabsTrigger>
-          <TabsTrigger value="account" className="gap-1.5 text-xs sm:text-sm">
-            <User className="w-3.5 h-3.5 hidden sm:inline-block" />
+          <TabsTrigger
+            value="account"
+            className="relative h-10 rounded-none bg-transparent px-0 text-[13px] font-semibold text-muted-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:bottom-[-1px] data-[state=active]:after:h-[2px] data-[state=active]:after:bg-foreground"
+          >
             Account
           </TabsTrigger>
-          <TabsTrigger value="data" className="gap-1.5 text-xs sm:text-sm">
-            <Database className="w-3.5 h-3.5 hidden sm:inline-block" />
+          <TabsTrigger
+            value="data"
+            className="relative h-10 rounded-none bg-transparent px-0 text-[13px] font-semibold text-muted-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:bottom-[-1px] data-[state=active]:after:h-[2px] data-[state=active]:after:bg-foreground"
+          >
             Data
           </TabsTrigger>
         </TabsList>
@@ -903,6 +918,11 @@ export default function SettingsPage() {
               <Mail className="w-3.5 h-3.5" />
               Invite Member
             </Button>
+          </div>
+
+          {/* Role hierarchy explanation */}
+          <div className="rounded-lg border border-blue-100 bg-blue-50/50 p-3 text-xs text-blue-700">
+            <strong>Role Hierarchy (Top → Bottom):</strong> Platform Admin has full system access across all organizations. Org Admin manages their organization, team, and settings. Org Member has view-only access with limited actions. Higher roles inherit all permissions of lower roles.
           </div>
 
           {/* Role Tier Overview Card (Task 42) */}
@@ -1100,6 +1120,9 @@ export default function SettingsPage() {
         {/* Pending Approvals Tab                                          */}
         {/* ============================================================= */}
         <TabsContent value="approvals" className="mt-6 space-y-4">
+          <div className="rounded-lg border border-blue-100 bg-blue-50/50 p-3 text-xs text-blue-700">
+            <strong>How Approvals Work:</strong> When new users sign up for GroSpace, their request appears here. You can assign them to an organization, set their role (Org Member, Org Admin, or Platform Admin), and approve or reject their access. Approved users get immediate access to their assigned organization.
+          </div>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-base flex items-center gap-2">
@@ -1292,6 +1315,9 @@ export default function SettingsPage() {
         {/* Templates Tab                                                  */}
         {/* ============================================================= */}
         <TabsContent value="templates" className="mt-6 space-y-4">
+          <div className="rounded-lg border border-blue-100 bg-blue-50/50 p-3 text-xs text-blue-700">
+            <strong>Agreement Templates:</strong> Upload your standard lease agreement templates here. These serve as your baseline terms — when new agreements are extracted, you can compare them against these standards to quickly identify deviations in rent structure, lock-in periods, escalation clauses, and other key terms.
+          </div>
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -1354,9 +1380,16 @@ export default function SettingsPage() {
                           <p className="text-xs text-muted-foreground">{t.description || "No description"} &middot; {formatFileSize(t.size)} &middot; {new Date(t.uploaded_at).toLocaleDateString()}</p>
                         </div>
                       </div>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => handleTemplateDelete(t)}>
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        {t.file_url && (
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={() => window.open(t.file_url, "_blank")}>
+                            <ExternalLink className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => handleTemplateDelete(t)}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -1467,8 +1500,8 @@ export default function SettingsPage() {
 
           <Separator className="my-4" />
 
-          {/* Notification Routing - Hidden for AHAAR demo */}
-          {false && (<Card>
+          {/* Notification Routing */}
+          {true && (<Card>
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
                 <MessageCircle className="w-4 h-4" />
@@ -1728,6 +1761,9 @@ export default function SettingsPage() {
         {/* ============================================================= */}
         <TabsContent value="data" className="mt-6 space-y-4">
           {/* Support & Ops (#110) */}
+          <div className="rounded-lg border border-blue-100 bg-blue-50/50 p-3 text-xs text-blue-700">
+            <strong>About This Page:</strong> This section shows your platform support contacts, status update schedule, and scope documentation. Use the support email for any technical issues. Status updates are sent weekly with sprint progress notes.
+          </div>
           <Card>
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">

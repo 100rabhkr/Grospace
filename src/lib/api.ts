@@ -228,11 +228,7 @@ export async function listExtractionJobs(params?: { status?: string; seen?: bool
 }
 
 /** Update an outlet (revenue, status, site_code) */
-export async function updateOutlet(outletId: string, data: {
-  monthly_net_revenue?: number;
-  status?: string;
-  site_code?: string;
-}) {
+export async function updateOutlet(outletId: string, data: Record<string, unknown>) {
   return apiFetch(`/api/outlets/${outletId}`, {
     method: "PATCH",
     body: JSON.stringify(data),
@@ -587,10 +583,20 @@ export async function updatePipelineDeal(outletId: string, data: { deal_priority
 // ============================================
 
 /** Ask the AI assistant a question about your portfolio */
-export async function smartChat(question: string, orgId?: string) {
+export async function smartChat(
+  question: string,
+  orgId?: string,
+  outletId?: string,
+  sessionHistory?: { role: string; message: string }[]
+) {
   return apiFetch("/api/smart-chat", {
     method: "POST",
-    body: JSON.stringify({ question, org_id: orgId }),
+    body: JSON.stringify({
+      question,
+      org_id: orgId,
+      outlet_id: outletId,
+      session_history: sessionHistory,
+    }),
   });
 }
 
@@ -1241,7 +1247,7 @@ export async function cancelExtractionJob(jobId: string) {
   return apiFetch(`/api/extraction-jobs/${jobId}/cancel`, { method: "PATCH" });
 }
 
-/** Create a critical date / event for an outlet */
+/** Create an event for an outlet — auto-creates linked reminder + optional payment */
 export async function createCriticalDate(data: {
   outlet_id: string;
   agreement_id?: string;
@@ -1250,7 +1256,12 @@ export async function createCriticalDate(data: {
   date_value: string;
   priority?: string;
   description?: string;
-}) {
+  amount?: number;
+  is_financial?: boolean;
+  is_recurring?: boolean;
+  recurrence_frequency?: string;
+  assigned_to?: string;
+}): Promise<{ event: Record<string, unknown>; reminder_created: boolean; payment_created: boolean }> {
   return apiFetch("/api/critical-dates", {
     method: "POST",
     body: JSON.stringify(data),

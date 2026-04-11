@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import Image from "next/image";
+import { Logo } from "@/components/logo";
 import {
   Shield,
   AlertTriangle,
@@ -101,7 +101,7 @@ function HealthScoreGauge({ score }: { score: number }) {
           />
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className={`text-3xl font-bold ${color}`}>{score}</span>
+          <span className={`text-3xl font-semibold ${color}`}>{score}</span>
           <span className="text-xs text-[#6b7280]">/ 100</span>
         </div>
       </div>
@@ -263,7 +263,9 @@ export default function LeasebotResultsPage() {
       <header className="border-b border-border bg-card">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
           <Link href="/leasebot" className="flex items-center gap-2.5">
-            <Image src="/logo.png" alt="GroSpace" width={28} height={28} className="rounded-md" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+              <Logo className="h-4 w-4" />
+            </div>
             <span className="text-[17px] font-semibold tracking-tight text-foreground">GroSpace</span>
             <Badge variant="outline" className="text-[10px] ml-1">Lease AI</Badge>
           </Link>

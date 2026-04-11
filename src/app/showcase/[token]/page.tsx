@@ -155,7 +155,7 @@ export default function ShowcasePage() {
       <div className="bg-card border-b border-border">
         <div className="max-w-3xl mx-auto px-4 py-4 flex items-center gap-3">
           <div className="w-8 h-8 bg-foreground rounded-lg flex items-center justify-center">
-            <span className="text-white text-xs font-bold">G</span>
+            <span className="text-white text-xs font-semibold">G</span>
           </div>
           <span className="text-sm font-semibold tracking-tight text-foreground/70">
             GroSpace — Real Estate Intelligence Platform
@@ -166,7 +166,7 @@ export default function ShowcasePage() {
       <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
         {/* Title */}
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">{data.title}</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-foreground">{data.title}</h1>
           {data.description && (
             <p className="text-sm text-foreground/50 mt-1">{data.description}</p>
           )}

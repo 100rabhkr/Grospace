@@ -52,3 +52,9 @@ GroSpace-logo.pdf
 growspace-489614-*.json
 .cortex/
 .claude/
+.codex
+tmp/
+closes.txt
+opens.txt
+# stray test PDFs at repo root
+/*.pdf

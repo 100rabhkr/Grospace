@@ -90,6 +90,7 @@ def list_upcoming_events(
     days: int = Query(90, description="Look-ahead window in days"),
     event_type: Optional[str] = None,
     priority: Optional[str] = None,
+    financial_only: Optional[bool] = None,
 ):
     """List all upcoming events across the portfolio within N days."""
     today = date.today()
@@ -106,6 +107,10 @@ def list_upcoming_events(
         query = query.eq("event_type", event_type)
     if priority:
         query = query.eq("priority", priority)
+    if financial_only is True:
+        query = query.eq("is_financial", True)
+    elif financial_only is False:
+        query = query.eq("is_financial", False)
 
     result = query.execute()
     entries = result.data or []
@@ -151,6 +156,20 @@ class QuickEventCreate(BaseModel):
     date_value: str
     priority: str = "medium"
     description: Optional[str] = None
+    amount: Optional[float] = None
+    is_financial: bool = False
+    is_recurring: bool = False
+    recurrence_frequency: Optional[str] = None  # monthly, quarterly, yearly
+    assigned_to: Optional[str] = None
+
+
+# Event types that are always treated as financial
+FINANCIAL_EVENT_TYPES = frozenset({
+    "tds_filing", "gst_rcm", "security_deposit_topup",
+    "rent_escalation", "cam_reconciliation", "electricity",
+    "water", "cam", "insurance_renewal", "license_renewal",
+    "property_tax",
+})
 
 
 @router.post(
@@ -158,17 +177,47 @@ class QuickEventCreate(BaseModel):
     dependencies=[Depends(require_permission("edit_agreements"))],
 )
 def create_critical_date(body: QuickEventCreate):
-    """Create a new event/critical date from the outlet page."""
+    """Create event → auto-create linked reminder → optionally create payment."""
+    # Validate amount
+    # Validate date format
+    try:
+        date.fromisoformat(body.date_value)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="date_value must be a valid ISO date (YYYY-MM-DD)")
+
+    if body.amount is not None and body.amount < 0:
+        raise HTTPException(status_code=400, detail="Amount must be non-negative")
+
+    # Validate recurrence_frequency
+    if body.is_recurring and body.recurrence_frequency not in (
+        "monthly", "quarterly", "yearly", None
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="recurrence_frequency must be monthly, quarterly, or yearly",
+        )
+
     # Get org_id from outlet
-    outlet = supabase.table("outlets").select("org_id").eq("id", body.outlet_id).single().execute()
+    outlet = (
+        supabase.table("outlets")
+        .select("org_id")
+        .eq("id", body.outlet_id)
+        .single()
+        .execute()
+    )
     if not outlet.data:
         raise HTTPException(status_code=404, detail="Outlet not found")
 
+    org_id = outlet.data["org_id"]
+    is_financial = body.is_financial or body.event_type in FINANCIAL_EVENT_TYPES
+
+    # ── Step 1: Create the event in critical_dates ──
+    event_id = str(uuid.uuid4())
     entry = {
-        "id": str(uuid.uuid4()),
+        "id": event_id,
         "outlet_id": body.outlet_id,
         "agreement_id": body.agreement_id,
-        "org_id": outlet.data["org_id"],
+        "org_id": org_id,
         "date_value": body.date_value,
         "date_type": "custom",
         "event_type": body.event_type,
@@ -178,10 +227,89 @@ def create_critical_date(body: QuickEventCreate):
         "task_status": "pending",
         "notes": body.description,
         "alert_days": [90, 30, 7],
+        "is_financial": is_financial,
+        "amount": body.amount,
+        "is_recurring": body.is_recurring,
+        "recurrence_frequency": body.recurrence_frequency,
+        "assigned_to": body.assigned_to,
     }
-    clean = {k: v for k, v in entry.items() if v is not None}
-    result = supabase.table("critical_dates").insert(clean).execute()
-    return {"event": result.data[0] if result.data else clean}
+    clean_event = {k: v for k, v in entry.items() if v is not None}
+    result = supabase.table("critical_dates").insert(clean_event).execute()
+    created_event = result.data[0] if result.data else clean_event
+
+    # ── Step 2: Auto-create linked reminder in alerts ──
+    reminder_created = False
+    severity_map = {"critical": "high", "high": "high", "medium": "medium", "low": "low"}
+    alert_data = {
+        "id": str(uuid.uuid4()),
+        "org_id": org_id,
+        "outlet_id": body.outlet_id,
+        "agreement_id": body.agreement_id,
+        "type": body.event_type if body.event_type != "custom" else "custom",
+        "title": body.title,
+        "message": body.description or f"Event: {body.title} on {body.date_value}",
+        "trigger_date": body.date_value,
+        "severity": severity_map.get(body.priority, "medium"),
+        "status": "pending",
+        "source_event_id": event_id,
+    }
+    clean_alert = {k: v for k, v in alert_data.items() if v is not None}
+    try:
+        supabase.table("alerts").insert(clean_alert).execute()
+        reminder_created = True
+    except Exception as e:
+        logger.warning("Failed to create linked alert for event %s: %s", event_id, e)
+
+    # ── Step 3: If financial with amount, create obligation + payment ──
+    payment_created = False
+    if is_financial and body.amount and body.amount > 0:
+        frequency = body.recurrence_frequency or "one_time"
+        obligation_id = str(uuid.uuid4())
+        obl_type = body.event_type if body.event_type in (
+            "electricity", "water", "cam", "insurance_renewal",
+            "property_tax", "tds_filing", "gst_rcm",
+        ) else "custom"
+        obl = {
+            "id": obligation_id,
+            "org_id": org_id,
+            "outlet_id": body.outlet_id,
+            "agreement_id": body.agreement_id,
+            "type": obl_type,
+            "custom_label": body.title,
+            "amount": body.amount,
+            "frequency": frequency,
+            "start_date": body.date_value,
+            "source": "event",
+            "source_event_id": event_id,
+            "is_active": True,
+        }
+        clean_obl = {k: v for k, v in obl.items() if v is not None}
+        try:
+            supabase.table("obligations").insert(clean_obl).execute()
+            # Generate initial payment record
+            due = date.fromisoformat(body.date_value)
+            payment_data = {
+                "id": str(uuid.uuid4()),
+                "org_id": org_id,
+                "obligation_id": obligation_id,
+                "outlet_id": body.outlet_id,
+                "source_event_id": event_id,
+                "period_month": due.month,
+                "period_year": due.year,
+                "due_date": body.date_value,
+                "due_amount": body.amount,
+                "status": "upcoming" if due > date.today() else "due",
+            }
+            supabase.table("payment_records").insert(payment_data).execute()
+            payment_created = True
+        except Exception as e:
+            logger.warning("Failed to create obligation/payment for event %s: %s", event_id, e)
+
+    return {
+        "event": created_event,
+        "reminder_created": reminder_created,
+        "payment_created": payment_created,
+    }
 
 
 @router.post(
@@ -189,7 +317,7 @@ def create_critical_date(body: QuickEventCreate):
     dependencies=[Depends(require_permission("edit_agreements"))],
 )
 def create_event(body: EventCreate):
-    """Create a new lease event manually."""
+    """Create a new lease event manually (agreement-level) with auto-linked reminder."""
     # Get org_id and outlet_id from agreement
     agreement = (
         supabase.table("agreements")
@@ -201,11 +329,16 @@ def create_event(body: EventCreate):
     if not agreement.data:
         raise HTTPException(status_code=404, detail="Agreement not found")
 
+    org_id = agreement.data["org_id"]
+    outlet_id = agreement.data.get("outlet_id")
+    is_financial = body.event_type in FINANCIAL_EVENT_TYPES
+
+    event_id = str(uuid.uuid4())
     entry = {
-        "id": str(uuid.uuid4()),
+        "id": event_id,
         "agreement_id": body.agreement_id,
-        "org_id": agreement.data["org_id"],
-        "outlet_id": agreement.data.get("outlet_id"),
+        "org_id": org_id,
+        "outlet_id": outlet_id,
         "date_value": body.date_value,
         "date_type": body.date_type,
         "event_type": body.event_type,
@@ -219,11 +352,33 @@ def create_event(body: EventCreate):
         "is_recurring": body.is_recurring,
         "recurrence_frequency": body.recurrence_frequency,
         "alert_days": body.alert_days or [180, 90, 60, 30, 14, 7],
+        "is_financial": is_financial,
     }
 
     clean = {k: v for k, v in entry.items() if v is not None}
     result = supabase.table("critical_dates").insert(clean).execute()
-    return {"event": result.data[0] if result.data else clean}
+    created_event = result.data[0] if result.data else clean
+
+    # Auto-create linked reminder
+    severity_map = {"critical": "high", "high": "high", "medium": "medium", "low": "low"}
+    try:
+        supabase.table("alerts").insert({
+            "id": str(uuid.uuid4()),
+            "org_id": org_id,
+            "outlet_id": outlet_id,
+            "agreement_id": body.agreement_id,
+            "type": body.event_type if body.event_type != "custom" else "custom",
+            "title": body.label,
+            "message": body.notes or f"Event: {body.label} on {body.date_value}",
+            "trigger_date": body.date_value,
+            "severity": severity_map.get(body.priority, "medium"),
+            "status": "pending",
+            "source_event_id": event_id,
+        }).execute()
+    except Exception as e:
+        logger.warning("Failed to create linked alert for event %s: %s", event_id, e)
+
+    return {"event": created_event, "reminder_created": True}
 
 
 @router.patch(
@@ -327,15 +482,23 @@ def check_escalations():
         days_overdue = (today - event_date).days
         esc_days = event.get("escalation_after_days") or 7
 
-        if event["task_status"] == "pending":
-            # Mark as overdue
-            supabase.table("critical_dates").update(
-                {"task_status": "overdue", "updated_at": "now()"}
-            ).eq("id", event["id"]).execute()
-            marked_overdue += 1
+        current_status = event["task_status"]
 
-        if days_overdue >= esc_days and event["task_status"] != "escalated":
-            # Escalate
+        if current_status == "pending":
+            if days_overdue >= esc_days:
+                # Skip overdue, go straight to escalated
+                supabase.table("critical_dates").update(
+                    {"task_status": "escalated", "priority": "critical", "updated_at": "now()"}
+                ).eq("id", event["id"]).execute()
+                escalated += 1
+            else:
+                # Mark as overdue
+                supabase.table("critical_dates").update(
+                    {"task_status": "overdue", "updated_at": "now()"}
+                ).eq("id", event["id"]).execute()
+                marked_overdue += 1
+        elif current_status == "overdue" and days_overdue >= esc_days:
+            # Escalate from overdue
             supabase.table("critical_dates").update(
                 {"task_status": "escalated", "priority": "critical", "updated_at": "now()"}
             ).eq("id", event["id"]).execute()
@@ -709,6 +872,7 @@ def populate_critical_dates_from_extraction(
             "status": "upcoming" if d["date_value"] >= today.isoformat() else "expired",
             "task_status": "pending",
             "alert_days": [180, 90, 60, 30, 14, 7],
+            "is_financial": d.get("event_type") in FINANCIAL_EVENT_TYPES,
             **d,
         }
         entries.append(entry)
@@ -720,3 +884,93 @@ def populate_critical_dates_from_extraction(
         logger.error(f"Failed to create events: {e}")
 
     return entries
+
+
+def back_link_alerts_and_obligations_to_events(agreement_id: str):
+    """
+    After `populate_critical_dates_from_extraction` runs, the extraction RPC path
+    has already inserted alerts and obligations WITHOUT `source_event_id`. This
+    function retroactively links each alert / obligation to the matching
+    `critical_dates` row (same agreement, same event_type, nearest date) so the
+    Event → Reminder + Payment model is fully honored.
+
+    Safe to call multiple times — only updates rows where source_event_id is NULL.
+    """
+    try:
+        events = supabase.table("critical_dates").select(
+            "id, event_type, date_value"
+        ).eq("agreement_id", agreement_id).execute()
+        event_rows = events.data or []
+        if not event_rows:
+            return
+
+        # Map event_type → list of (id, date_value) for cheap lookup
+        type_to_events: dict[str, list[tuple[str, str]]] = {}
+        for ev in event_rows:
+            et = ev.get("event_type")
+            if not et:
+                continue
+            type_to_events.setdefault(et, []).append((ev["id"], ev.get("date_value") or ""))
+
+        # Alerts — only update rows that are still orphaned
+        alerts = supabase.table("alerts").select("id, type, trigger_date, source_event_id") \
+            .eq("agreement_id", agreement_id).is_("source_event_id", "null").execute()
+        for alert in (alerts.data or []):
+            alert_type = alert.get("type")
+            # Map alert type → event_type equivalents
+            type_aliases = {
+                "lease_expiry": "lease_expiry",
+                "lock_in_expiry": "lock_in_end",
+                "renewal_window": "renewal_option",
+                "escalation": "rent_escalation",
+                "rent_due": "rent_due",
+                "cam_due": "cam_due",
+                "license_expiry": "license_renewal",
+                "fit_out_deadline": "fit_out_end",
+            }
+            target_type = type_aliases.get(alert_type, alert_type)
+            candidates = type_to_events.get(target_type, [])
+            if not candidates:
+                continue
+            # Pick the event whose date_value is closest to the alert's trigger_date
+            trigger = alert.get("trigger_date") or ""
+            candidates.sort(key=lambda c: abs((c[1] or "").__hash__() - (trigger or "").__hash__()))
+            # Simple strategy: first matching event (covers the common 1:1 case)
+            best_event_id = candidates[0][0]
+            try:
+                supabase.table("alerts").update(
+                    {"source_event_id": best_event_id}
+                ).eq("id", alert["id"]).execute()
+            except Exception:
+                pass
+
+        # Obligations — link by type as well (column was added in migration_025)
+        try:
+            obligations = supabase.table("obligations").select("id, type, source_event_id") \
+                .eq("agreement_id", agreement_id).is_("source_event_id", "null").execute()
+            for ob in (obligations.data or []):
+                ob_type = ob.get("type")
+                # rent → rent_due, cam → cam_due, license_renewal → license_renewal
+                type_aliases_ob = {
+                    "rent": "rent_due",
+                    "cam": "cam_due",
+                    "electricity": "electricity",
+                    "water_gas": "water",
+                    "license_renewal": "license_renewal",
+                }
+                target_type = type_aliases_ob.get(ob_type, ob_type)
+                candidates = type_to_events.get(target_type, [])
+                if not candidates:
+                    continue
+                best_event_id = candidates[0][0]
+                try:
+                    supabase.table("obligations").update(
+                        {"source_event_id": best_event_id}
+                    ).eq("id", ob["id"]).execute()
+                except Exception:
+                    pass
+        except Exception:
+            # Column may not exist on older DB schemas — skip silently.
+            pass
+    except Exception as e:
+        logger.warning(f"back_link_alerts_and_obligations_to_events failed: {e}")

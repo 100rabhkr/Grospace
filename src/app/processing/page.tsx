@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { listExtractionJobs, markExtractionJobSeen, cancelExtractionJob } from "@/lib/api";
 import { useUser } from "@/lib/hooks/use-user";
@@ -16,7 +16,6 @@ import {
   ArrowRight,
   Cpu,
   RefreshCw,
-  Info,
 } from "lucide-react";
 
 interface ExtractionJob {
@@ -70,12 +69,22 @@ export default function ProcessingPage() {
     fetchJobs();
   }, []);
 
-  // Only poll when there are active processing jobs
+  // Poll with exponential backoff when there are active processing jobs
+  const pollCountRef = useRef(0);
   useEffect(() => {
     const hasProcessing = jobs.some((j) => j.status === "processing");
-    if (!hasProcessing) return;
-    const interval = setInterval(fetchJobs, 5000);
-    return () => clearInterval(interval);
+    if (!hasProcessing) {
+      pollCountRef.current = 0;
+      return;
+    }
+    // Start at 5s, increase to 10s, 15s, cap at 30s
+    const delay = Math.min(5000 + pollCountRef.current * 5000, 30000);
+    const timeout = setTimeout(() => {
+      pollCountRef.current += 1;
+      fetchJobs();
+    }, delay);
+    return () => clearTimeout(timeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobs]);
 
   async function handleMarkSeen(jobId: string) {
@@ -126,25 +135,48 @@ export default function ProcessingPage() {
         </Link>
       </PageHeader>
 
-      {/* How it works — info card */}
-      <Card className="border-blue-200/60 bg-blue-50/30">
-        <CardContent className="p-4">
-          <div className="flex items-start gap-3">
-            <Info className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
-            <div className="text-sm text-blue-800 space-y-1">
-              <p className="font-medium">How document processing works</p>
-              <ul className="text-xs text-blue-700 space-y-0.5 list-disc list-inside">
-                <li>Upload your PDF and processing starts automatically in the background</li>
-                <li>You can close this page — extraction continues on the server</li>
-                <li><strong>Text PDFs:</strong> ~1-3 minutes (extracted directly)</li>
-                <li><strong>Scanned PDFs:</strong> ~5-15 minutes (OCR + AI extraction)</li>
-                <li><strong>50+ page complex docs:</strong> ~15-20 minutes</li>
-                <li>You&apos;ll see a notification banner when results are ready</li>
-              </ul>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Step pipeline — visual flow indicator */}
+      <div className="rounded-xl border border-border bg-card p-5">
+        <div className="flex items-center justify-between">
+          {[
+            { label: "Upload", icon: FileText, count: null as number | null, done: true },
+            { label: "Processing", icon: Loader2, count: processingJobs.length, done: false },
+            { label: "Review", icon: CheckCircle2, count: completedJobs.filter((j) => !j.seen).length, done: false },
+            { label: "Completed", icon: CheckCircle2, count: completedJobs.filter((j) => j.seen).length, done: true },
+          ].map((step, idx, arr) => {
+            const StepIcon = step.icon;
+            const isLast = idx === arr.length - 1;
+            const isActive = (step.count ?? 0) > 0;
+            return (
+              <div key={step.label} className="flex items-center flex-1">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div
+                    className={`flex h-9 w-9 items-center justify-center rounded-lg shrink-0 transition-colors ${
+                      isActive
+                        ? "bg-foreground text-background"
+                        : "bg-muted text-muted-foreground"
+                    }`}
+                  >
+                    <StepIcon
+                      className={`h-4 w-4 ${step.label === "Processing" && isActive ? "animate-spin" : ""}`}
+                      strokeWidth={2}
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[12px] font-semibold text-foreground leading-tight">{step.label}</p>
+                    <p className="text-[10.5px] text-muted-foreground tabular-nums leading-tight mt-0.5">
+                      {step.count === null ? "—" : `${step.count} ${step.count === 1 ? "item" : "items"}`}
+                    </p>
+                  </div>
+                </div>
+                {!isLast && (
+                  <div className="flex-1 mx-3 h-px bg-border" />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
 
       {/* Currently Processing */}
       {processingJobs.length > 0 && (
