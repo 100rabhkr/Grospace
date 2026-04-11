@@ -755,8 +755,14 @@ export default function UploadAgreementPage() {
   // Upload help section expanded state
   const [showUploadHelp, setShowUploadHelp] = useState(false);
 
-  // Draft review mode state (toggle removed per review — always full upload)
-  const [isDraftMode] = useState(false);
+  // Draft review mode — enabled via ?draft=true in the URL (the Pipeline
+  // "Upload Draft LOI" button routes here). Per the locked flow:
+  // "Draft Lease / LOI → Upload → OCR + review → Risk analysis → NO outlet creation"
+  const [isDraftMode] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const params = new URLSearchParams(window.location.search);
+    return params.get("draft") === "true";
+  });
 
   // Address matching — suggest linking to existing outlet (#89)
   const [matchedOutlet, setMatchedOutlet] = useState<{ id: string; name: string; city: string } | null>(null);

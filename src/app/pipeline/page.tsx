@@ -330,10 +330,18 @@ export default function PipelinePage() {
             ))}
           </div>
           {canWrite(user?.role as UserRole | undefined) && (
-            <Button size="sm" className="h-8 text-xs gap-1.5" onClick={() => setShowCreateLead(true)}>
-              <Plus className="h-3.5 w-3.5" />
-              Create New Lead
-            </Button>
+            <>
+              <Link href="/agreements/upload?draft=true">
+                <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5">
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  Upload Draft LOI
+                </Button>
+              </Link>
+              <Button size="sm" className="h-8 text-xs gap-1.5" onClick={() => setShowCreateLead(true)}>
+                <Plus className="h-3.5 w-3.5" />
+                Create New Lead
+              </Button>
+            </>
           )}
         </div>
       </PageHeader>

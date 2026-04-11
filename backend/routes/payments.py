@@ -316,43 +316,63 @@ def create_obligation(
     req: CreateObligationRequest,
     user: Optional[CurrentUser] = Depends(get_current_user),
 ):
-    """Create a custom (manual) obligation for an outlet."""
-    outlet = supabase.table("outlets").select("id, org_id").eq("id", outlet_id).single().execute()
-    if not outlet.data:
-        raise HTTPException(status_code=404, detail="Outlet not found")
+    """
+    DEPRECATED: Forwards to the Event creation pipeline.
 
-    org_id = outlet.data.get("org_id")
+    Per the locked data model (Event = master → Reminder + optional Payment),
+    users never create obligations or payments directly. This endpoint now
+    routes every call through create_critical_date() so the full cascade
+    (event → reminder → obligation → 12 months of payment_records) fires
+    correctly. Existing frontend callers don't need to change.
+    """
+    from routes.critical_dates import QuickEventCreate, create_critical_date
 
-    valid_types = {"rent", "cam", "electricity", "water", "hvac", "insurance", "property_tax", "custom"}
-    if req.type not in valid_types:
-        raise HTTPException(status_code=400, detail=f"Invalid type. Must be one of: {', '.join(valid_types)}")
-
-    if req.type == "custom" and not req.custom_label:
-        raise HTTPException(status_code=400, detail="custom_label is required when type is 'custom'")
-
-    valid_frequencies = {"monthly", "quarterly", "yearly", "one_time"}
-    if req.frequency not in valid_frequencies:
-        raise HTTPException(status_code=400, detail=f"Invalid frequency. Must be one of: {', '.join(valid_frequencies)}")
-
-    obl_data = {
-        "id": str(uuid.uuid4()),
-        "outlet_id": outlet_id,
-        "org_id": org_id,
-        "type": req.type,
-        "custom_label": req.custom_label,
-        "amount": req.amount,
-        "frequency": req.frequency,
-        "due_day_of_month": req.due_day,
-        "start_date": req.start_date,
-        "end_date": req.end_date,
-        "notes": req.notes,
-        "source": "manual",
-        "is_active": True,
+    # Map legacy obligation.type → event_type. "rent" and "cam" already
+    # live in FINANCIAL_EVENT_TYPES as rent_due / cam_due.
+    type_map = {
+        "rent": "rent_due",
+        "cam": "cam_due",
+        "electricity": "electricity",
+        "water": "water",
+        "hvac": "cam",  # HVAC rolls under CAM financial bucket
+        "insurance": "insurance_renewal",
+        "property_tax": "property_tax",
+        "custom": "custom",
     }
-    clean = {k: v for k, v in obl_data.items() if v is not None}
+    event_type = type_map.get(req.type, "custom")
 
-    result = supabase.table("obligations").insert(clean).execute()
-    return {"obligation": result.data[0] if result.data else clean}
+    title = req.custom_label or req.type.replace("_", " ").title()
+    # A "due day of month N" without an explicit start_date means "starting
+    # next occurrence of day N". Default to today if nothing was supplied.
+    from datetime import date as _date
+    start_date = req.start_date or _date.today().isoformat()
+
+    body = QuickEventCreate(
+        outlet_id=outlet_id,
+        agreement_id=None,
+        title=title,
+        event_type=event_type,
+        date_value=start_date,
+        priority="medium",
+        description=req.notes,
+        amount=req.amount,
+        is_financial=True,
+        is_recurring=req.frequency in ("monthly", "quarterly", "yearly"),
+        recurrence_frequency=req.frequency if req.frequency != "one_time" else None,
+    )
+
+    result = create_critical_date(body)
+    # Return shape compatible with the legacy caller (ObligationResponse)
+    return {
+        "obligation": {
+            "id": result.get("event", {}).get("id"),
+            "deprecated": True,
+            "routed_through": "events",
+            "reminder_created": result.get("reminder_created", False),
+            "payment_created": result.get("payment_created", False),
+            "payments_generated": result.get("payments_generated", 0),
+        }
+    }
 
 
 @router.patch("/obligations/{obligation_id}", dependencies=[Depends(require_permission("update_payments"))])

@@ -165,6 +165,7 @@ class QuickEventCreate(BaseModel):
 
 # Event types that are always treated as financial
 FINANCIAL_EVENT_TYPES = frozenset({
+    "rent_due", "cam_due",
     "tds_filing", "gst_rcm", "security_deposit_topup",
     "rent_escalation", "cam_reconciliation", "electricity",
     "water", "cam", "insurance_renewal", "license_renewal",
@@ -260,8 +261,13 @@ def create_critical_date(body: QuickEventCreate):
     except Exception as e:
         logger.warning("Failed to create linked alert for event %s: %s", event_id, e)
 
-    # ── Step 3: If financial with amount, create obligation + payment ──
+    # ── Step 3: If financial with amount, create obligation + payment schedule ──
+    # Per the locked model: Event is master → cascade creates the obligation
+    # and ALL future payment records the user will ever need to track. No
+    # manual "generate payments" button, no payment creation from anywhere
+    # else — Events are the only way money enters the system.
     payment_created = False
+    payments_generated = 0
     if is_financial and body.amount and body.amount > 0:
         frequency = body.recurrence_frequency or "one_time"
         obligation_id = str(uuid.uuid4())
@@ -286,22 +292,16 @@ def create_critical_date(body: QuickEventCreate):
         clean_obl = {k: v for k, v in obl.items() if v is not None}
         try:
             supabase.table("obligations").insert(clean_obl).execute()
-            # Generate initial payment record
-            due = date.fromisoformat(body.date_value)
-            payment_data = {
-                "id": str(uuid.uuid4()),
-                "org_id": org_id,
-                "obligation_id": obligation_id,
-                "outlet_id": body.outlet_id,
-                "source_event_id": event_id,
-                "period_month": due.month,
-                "period_year": due.year,
-                "due_date": body.date_value,
-                "due_amount": body.amount,
-                "status": "upcoming" if due > date.today() else "due",
-            }
-            supabase.table("payment_records").insert(payment_data).execute()
-            payment_created = True
+            payments_generated = _generate_payment_schedule_for_event(
+                org_id=org_id,
+                outlet_id=body.outlet_id,
+                obligation_id=obligation_id,
+                event_id=event_id,
+                amount=body.amount,
+                start_date=body.date_value,
+                frequency=frequency,
+            )
+            payment_created = payments_generated > 0
         except Exception as e:
             logger.warning("Failed to create obligation/payment for event %s: %s", event_id, e)
 
@@ -309,7 +309,129 @@ def create_critical_date(body: QuickEventCreate):
         "event": created_event,
         "reminder_created": reminder_created,
         "payment_created": payment_created,
+        "payments_generated": payments_generated,
     }
+
+
+# ============================================
+# PAYMENT SCHEDULE HELPER
+# ============================================
+# Single source of truth for turning a recurring financial event into a full
+# schedule of payment_records. Called from create_critical_date() (custom
+# events), populate_critical_dates_from_extraction() (agreement activation),
+# and anywhere else that needs to materialize money-tracking rows.
+# Per the locked model: payment creation lives here and ONLY here.
+
+_SCHEDULE_HORIZON_MONTHS = 12  # Roll forward one year of dues
+
+
+def _generate_payment_schedule_for_event(
+    *,
+    org_id: str,
+    outlet_id: Optional[str],
+    obligation_id: str,
+    event_id: str,
+    amount: float,
+    start_date: str,
+    frequency: str,
+    end_date: Optional[str] = None,
+    horizon_months: int = _SCHEDULE_HORIZON_MONTHS,
+) -> int:
+    """
+    Create payment_records for a recurring (or one-time) financial event.
+
+    Returns the number of rows actually inserted. Safe to call repeatedly —
+    uses (obligation_id, period_year, period_month) de-duplication so
+    re-running doesn't duplicate entries.
+    """
+    try:
+        from dateutil.relativedelta import relativedelta
+    except ImportError:
+        relativedelta = None  # type: ignore
+
+    try:
+        start = date.fromisoformat(start_date)
+    except (ValueError, TypeError):
+        return 0
+    end = None
+    if end_date:
+        try:
+            end = date.fromisoformat(end_date)
+        except (ValueError, TypeError):
+            end = None
+
+    # Build the schedule based on frequency
+    due_dates: list[date] = []
+    if frequency == "one_time":
+        due_dates = [start]
+    elif frequency == "monthly":
+        for i in range(horizon_months):
+            if relativedelta is None:
+                # Fallback: approximate via 30-day steps (good enough for most months)
+                due_dates.append(start + timedelta(days=30 * i))
+            else:
+                due_dates.append(start + relativedelta(months=i))
+    elif frequency == "quarterly":
+        for i in range(max(1, horizon_months // 3 + 1)):
+            if relativedelta is None:
+                due_dates.append(start + timedelta(days=90 * i))
+            else:
+                due_dates.append(start + relativedelta(months=3 * i))
+    elif frequency == "yearly":
+        for i in range(max(1, horizon_months // 12 + 1)):
+            if relativedelta is None:
+                due_dates.append(start + timedelta(days=365 * i))
+            else:
+                due_dates.append(start + relativedelta(years=i))
+    else:
+        due_dates = [start]
+
+    if end:
+        due_dates = [d for d in due_dates if d <= end]
+
+    if not due_dates:
+        return 0
+
+    today = date.today()
+    created = 0
+    for due in due_dates:
+        try:
+            # De-dup: don't create a second row for the same (obligation, period)
+            existing = supabase.table("payment_records").select("id").eq(
+                "obligation_id", obligation_id
+            ).eq("period_year", due.year).eq("period_month", due.month).execute()
+            if existing.data:
+                continue
+
+            if due < today:
+                status = "overdue"
+            elif due <= today + timedelta(days=7):
+                status = "due"
+            else:
+                status = "upcoming"
+
+            payment_row = {
+                "id": str(uuid.uuid4()),
+                "org_id": org_id,
+                "obligation_id": obligation_id,
+                "outlet_id": outlet_id,
+                "source_event_id": event_id,
+                "period_month": due.month,
+                "period_year": due.year,
+                "due_date": due.isoformat(),
+                "due_amount": amount,
+                "status": status,
+            }
+            clean = {k: v for k, v in payment_row.items() if v is not None}
+            supabase.table("payment_records").insert(clean).execute()
+            created += 1
+        except Exception as e:
+            logger.warning(
+                "payment schedule: failed to create record for obligation %s on %s: %s",
+                obligation_id, due, e,
+            )
+
+    return created
 
 
 @router.post(
@@ -884,6 +1006,56 @@ def populate_critical_dates_from_extraction(
         logger.error(f"Failed to create events: {e}")
 
     return entries
+
+
+def materialize_payment_schedules_for_agreement(agreement_id: str) -> int:
+    """
+    Fetch every recurring obligation attached to an agreement and generate
+    its payment_records schedule. Called on agreement activation so users
+    never need to hit a "Generate Payments" button — per the locked model,
+    Events are the only creation layer and payments flow automatically.
+
+    Returns the total number of payment_records created across all
+    obligations. Safe to call repeatedly (the helper de-dups per
+    obligation/period).
+    """
+    try:
+        obligations = supabase.table("obligations").select(
+            "id, org_id, outlet_id, amount, frequency, start_date, end_date, source_event_id"
+        ).eq("agreement_id", agreement_id).eq("is_active", True).execute()
+    except Exception as e:
+        logger.warning("materialize_payment_schedules_for_agreement: obligations fetch failed: %s", e)
+        return 0
+
+    total = 0
+    for obl in (obligations.data or []):
+        amount = obl.get("amount")
+        start = obl.get("start_date")
+        if not amount or not start:
+            continue
+        try:
+            total += _generate_payment_schedule_for_event(
+                org_id=obl["org_id"],
+                outlet_id=obl.get("outlet_id"),
+                obligation_id=obl["id"],
+                # source_event_id may be None if back-linking failed; that's ok
+                event_id=obl.get("source_event_id") or obl["id"],
+                amount=float(amount),
+                start_date=start,
+                frequency=obl.get("frequency") or "monthly",
+                end_date=obl.get("end_date"),
+            )
+        except Exception as e:
+            logger.warning(
+                "materialize_payment_schedules_for_agreement: obligation %s failed: %s",
+                obl.get("id"), e,
+            )
+    if total:
+        logger.info(
+            "materialize_payment_schedules_for_agreement: agreement=%s created %d payment_records",
+            agreement_id, total,
+        )
+    return total
 
 
 def back_link_alerts_and_obligations_to_events(agreement_id: str):
