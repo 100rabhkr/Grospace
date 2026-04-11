@@ -632,26 +632,31 @@ async def upload_and_extract_async(
     if len(file_bytes) > MAX_FILE_SIZE:
         raise HTTPException(status_code=413, detail="File too large. Maximum is 50MB.")
 
-    # Duplicate detection for async uploads
+    # Duplicate detection — lean query (don't pull extracted_data JSONB here;
+    # if we need it, we fetch it on the follow-up call)
     file_hash = hashlib.sha256(file_bytes).hexdigest()
     caller_org = get_org_filter(user)
     try:
         dup_query = supabase.table("agreements").select(
-            "id, document_filename, status, document_url, extracted_data, risk_flags, type, extraction_confidence, org_id"
+            "id, document_filename, status, document_url, risk_flags, type"
         ).eq("file_hash", file_hash)
         if caller_org:
             dup_query = dup_query.eq("org_id", caller_org)
         existing = dup_query.limit(1).execute()
         if existing.data and len(existing.data) > 0:
             prev = existing.data[0]
+            # Fetch the heavy fields in a second targeted query only for the match
+            full = supabase.table("agreements").select(
+                "extracted_data, extraction_confidence"
+            ).eq("id", prev["id"]).single().execute()
             return {
                 "status": "duplicate",
                 "existing_agreement_id": prev["id"],
                 "existing_status": prev.get("status"),
                 "filename": filename,
                 "document_type": prev.get("type", "lease_loi"),
-                "extraction": prev.get("extracted_data") or {},
-                "confidence": prev.get("extraction_confidence") or {},
+                "extraction": (full.data or {}).get("extracted_data") or {},
+                "confidence": (full.data or {}).get("extraction_confidence") or {},
                 "risk_flags": prev.get("risk_flags") or [],
                 "document_url": prev.get("document_url"),
                 "file_hash": file_hash,
@@ -660,8 +665,18 @@ async def upload_and_extract_async(
     except Exception:
         pass
 
+    # Helper: is this user_id a real UUID (so it matches auth.users.id)?
+    def _is_uuid(s: Optional[str]) -> bool:
+        if not s:
+            return False
+        try:
+            uuid.UUID(s)
+            return True
+        except (ValueError, AttributeError):
+            return False
+
     # Server-side bulk upload limit: check active processing jobs for this user
-    if user:
+    if user and _is_uuid(user.user_id):
         try:
             active_jobs = supabase.table("extraction_jobs").select(
                 "id, status, created_at, updated_at"
@@ -702,7 +717,7 @@ async def upload_and_extract_async(
         existing_query = supabase.table("extraction_jobs").select(
             "id, filename, status, created_at, updated_at"
         ).eq("filename", filename).eq("status", "processing")
-        if user and user.user_id:
+        if user and _is_uuid(user.user_id):
             existing_query = existing_query.eq("user_id", user.user_id)
         elif org_id:
             existing_query = existing_query.eq("org_id", org_id)
@@ -725,7 +740,7 @@ async def upload_and_extract_async(
         recent_query = supabase.table("extraction_jobs").select("id, status, result").eq(
             "status", "completed"
         )
-        if user and user.user_id:
+        if user and _is_uuid(user.user_id):
             recent_query = recent_query.eq("user_id", user.user_id)
         elif org_id:
             recent_query = recent_query.eq("org_id", org_id)
@@ -738,11 +753,22 @@ async def upload_and_extract_async(
         pass
 
     # Create job record
+    # IMPORTANT: extraction_jobs.user_id is a uuid REFERENCES auth.users(id).
+    # Demo sessions carry synthetic non-UUID user_ids ("demo-user", "srabhjot-singh",
+    # etc.) that would fail both the UUID cast AND the FK check. Skip user_id
+    # for non-UUID demo users so the job record still inserts successfully.
     job_id = str(uuid.uuid4())
+    user_id_value: Optional[str] = None
+    if user and user.user_id:
+        try:
+            uuid.UUID(user.user_id)  # Raises ValueError if not a valid UUID
+            user_id_value = user.user_id
+        except (ValueError, AttributeError):
+            user_id_value = None
     job_data = {
         "id": job_id,
         "org_id": org_id,
-        "user_id": user.user_id if user else None,
+        "user_id": user_id_value,
         "filename": filename,
         "status": "processing",
     }

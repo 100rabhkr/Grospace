@@ -79,6 +79,7 @@ export function resetAuthTokenCache(): void {
 
 // Endpoints that involve AI processing need longer timeouts
 const LONG_TIMEOUT_PATTERNS = [
+  "/api/upload-and-extract-async",
   "/api/upload-and-extract",
   "/api/extract",
   "/api/qa",

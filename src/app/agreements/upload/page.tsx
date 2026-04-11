@@ -30,6 +30,10 @@ import {
   MapPin,
   Plus,
   Download,
+  Upload,
+  Sparkles,
+  Lightbulb,
+  ShieldCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -301,12 +305,7 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
       .catch(() => {});
   }, []);
 
-  // Accurate time estimation based on real extraction data:
-  // Document AI OCR: ~15s
-  // Gemini extraction: ~40-60s (depends on doc length)
-  // Gemini verification: ~20s
-  // Gemini risk flags: ~15s
-  // Total base: ~90-110s + ~2s per page for bbox extraction
+  // Accurate time estimation
   const isImage = fileName ? /\.(png|jpe?g|webp|gif|bmp|tiff?)$/i.test(fileName) : false;
   const estimatedPages = fileSizeMB
     ? isImage ? 1
@@ -314,22 +313,19 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
       : Math.max(1, Math.round(fileSizeMB * 1.5))
     : 5;
   const fallbackEstimate = 90 + (estimatedPages * 2);
-
   const estimatedTotalSec = backendEstimate ? Math.round(backendEstimate.avg) : fallbackEstimate;
-
-  // Use real min/max from backend or derive from estimate
   const estimatedRangeLow = backendEstimate
     ? Math.round(backendEstimate.min)
     : Math.max(10, Math.round(estimatedTotalSec * 0.6));
   const estimatedRangeHigh = backendEstimate
     ? Math.round(backendEstimate.max)
     : Math.round(estimatedTotalSec * 1.3);
+  const isLargeFile = (fileSizeMB ?? 0) > 3;
 
   useEffect(() => {
     let timeout: NodeJS.Timeout;
     function advance(index: number) {
       if (index >= steps.length) return;
-      // Scale step durations proportionally to total estimate
       const totalStepDuration = steps.reduce((s, st) => s + st.duration, 0);
       const scaledDuration = (steps[index].duration / totalStepDuration) * estimatedTotalSec * 1000;
       timeout = setTimeout(() => {
@@ -341,7 +337,6 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
     return () => clearTimeout(timeout);
   }, [steps, estimatedTotalSec]);
 
-  // Track elapsed time
   useEffect(() => {
     const interval = setInterval(() => {
       setElapsedMs((prev) => prev + 1000);
@@ -350,7 +345,6 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
   }, []);
 
   const elapsedSec = Math.floor(elapsedMs / 1000);
-  // After estimate is exceeded, show "Taking longer than expected" instead of negative
   const isOverEstimate = elapsedSec > estimatedTotalSec;
   const remainingSec = Math.max(0, estimatedTotalSec - elapsedSec);
   const progressPct = Math.min(
@@ -358,110 +352,313 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
     99
   );
 
-  // Stage labels for the progress
-  const stageLabels = ["Uploading...", "Analyzing document type...", "Extracting data...", "Checking risk flags...", "Almost done..."];
-  const currentStageIdx = activeStep < 2 ? 0 : activeStep < 4 ? 1 : activeStep < 6 ? 2 : activeStep < 7 ? 3 : 4;
-  const currentStageLabel = stageLabels[currentStageIdx];
-
   const [tipIndex, setTipIndex] = useState(0);
   useEffect(() => {
     const timer = setInterval(() => setTipIndex(i => (i + 1) % EXTRACTION_TIPS.length), 6000);
     return () => clearInterval(timer);
   }, []);
 
+  // Ring geometry — 56px radius, 352px circumference
+  const RING_R = 56;
+  const RING_C = 2 * Math.PI * RING_R;
+  const ringOffset = RING_C * (1 - progressPct / 100);
+
   return (
-    <Card className="max-w-lg mx-auto">
-      <CardContent className="pt-8 pb-10 flex flex-col items-center text-center">
-        <div className="mb-6">
-          <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center">
-            <Loader2 className="h-8 w-8 text-foreground animate-spin" />
-          </div>
-        </div>
+    <div className="max-w-[1100px] mx-auto animate-fade-in">
+      {/* ── Top horizontal stepper ── */}
+      <ProcessingTopStepper currentStep={1 /* 0=Upload done, 1=Processing, 2=Review, 3=Activated */} />
 
-        <h2 className="text-lg font-semibold mb-1">
-          {currentStageLabel}
-        </h2>
-        <p className="text-sm text-muted-foreground mb-1">
-          Powered by Gro AI
-        </p>
+      {/* ── 2-pane layout ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] gap-5 mt-6">
+        {/* ═════════════ LEFT (60%) — Main processing experience ═════════════ */}
+        <div className="space-y-5">
+          {/* Hero processing card with animated ring */}
+          <Card variant="default" className="p-8">
+            <div className="flex flex-col items-center text-center">
+              {/* Large animated progress ring */}
+              <div className="relative w-[140px] h-[140px] mb-6">
+                <svg viewBox="0 0 140 140" className="w-full h-full -rotate-90">
+                  <circle
+                    cx="70" cy="70" r={RING_R}
+                    fill="none"
+                    stroke="hsl(var(--muted))"
+                    strokeWidth="6"
+                  />
+                  <circle
+                    cx="70" cy="70" r={RING_R}
+                    fill="none"
+                    stroke="hsl(var(--foreground))"
+                    strokeWidth="6"
+                    strokeLinecap="round"
+                    strokeDasharray={RING_C}
+                    strokeDashoffset={ringOffset}
+                    style={{ transition: "stroke-dashoffset 0.8s cubic-bezier(0.22, 1, 0.36, 1)" }}
+                  />
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="text-[28px] font-semibold tracking-tight text-foreground leading-none tabular-nums">
+                    {Math.round(progressPct)}%
+                  </span>
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mt-1">
+                    {elapsedSec}s elapsed
+                  </span>
+                </div>
+              </div>
 
-        {/* Offline banner */}
-        {isOffline && (
-          <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs mb-2 w-full max-w-sm">
-            <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse flex-shrink-0" />
-            <span>You&apos;re offline. Processing continues on server — results will appear when you&apos;re back online.</span>
-          </div>
-        )}
+              <h2 className="text-[18px] font-semibold tracking-tight text-foreground">
+                Processing your lease with Gro AI
+              </h2>
+              <p className="text-[13px] text-muted-foreground mt-1.5 max-w-sm">
+                Extracting key terms, financials, and risks from{" "}
+                <span className="font-semibold text-foreground">{fileName || "your document"}</span>
+              </p>
 
-        {/* Processing time estimate & live timer (Task 43) */}
-        <div className="flex items-center gap-3 mb-4">
-          <span className="text-xs text-[#6b7280] bg-muted px-3 py-1.5 rounded-full">
-            Estimated: {estimatedRangeLow}-{estimatedRangeHigh} seconds
-          </span>
-          <span className="text-xs font-semibold tabular-nums bg-foreground text-white px-3 py-1.5 rounded-full">
-            {elapsedSec}s elapsed
-          </span>
-        </div>
+              {/* Time chips */}
+              <div className="flex items-center gap-2 mt-5">
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground bg-muted px-3 py-1.5 rounded-full">
+                  <Clock className="h-3 w-3" strokeWidth={2} />
+                  Estimated: {estimatedRangeLow}–{estimatedRangeHigh}s
+                </span>
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold tabular-nums text-background bg-foreground px-3 py-1.5 rounded-full">
+                  {isOverEstimate
+                    ? "Taking a bit longer…"
+                    : remainingSec > 0
+                      ? `~${Math.ceil(remainingSec / 5) * 5}s remaining`
+                      : "Almost done"}
+                </span>
+              </div>
 
-        {/* Remaining time hint */}
-        <p className="text-xs text-[#9ca3af] mb-3">
-          {isOverEstimate
-            ? "Taking longer than expected, please wait..."
-            : remainingSec > 0
-              ? `~${Math.ceil(remainingSec / 5) * 5}s remaining`
-              : "Almost done..."}
-        </p>
-
-        {/* Rotating tip */}
-        <div className="w-full max-w-sm mb-4 px-4 py-2 rounded-lg bg-blue-50 border border-blue-100 text-blue-700 text-xs text-center transition-all duration-500">
-          {EXTRACTION_TIPS[tipIndex]}
-        </div>
-
-        {/* Progress bar with percentage */}
-        <div className="w-full max-w-xs mb-5">
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-xs font-medium text-foreground">{currentStageLabel}</span>
-            <span className="text-xs font-semibold tabular-nums">{Math.round(progressPct)}%</span>
-          </div>
-          <div className="h-2 bg-muted rounded-full overflow-hidden">
-            <div
-              className="h-full bg-foreground rounded-full transition-all duration-700 ease-out"
-              style={{ width: `${progressPct}%` }}
-            />
-          </div>
-        </div>
-
-        <div className="text-left w-full max-w-xs space-y-3">
-          {steps.map((item, i) => (
-            <div
-              key={item.label}
-              className={`flex items-center gap-2.5 text-sm transition-all duration-300 ${
-                i < activeStep
-                  ? "text-foreground"
-                  : i === activeStep
-                  ? "text-foreground"
-                  : "text-muted-foreground opacity-40"
-              }`}
-            >
-              {i < activeStep ? (
-                <Check className="h-4 w-4 text-emerald-600 flex-shrink-0" />
-              ) : i === activeStep ? (
-                <Loader2 className="h-4 w-4 text-foreground animate-spin flex-shrink-0" />
-              ) : (
-                <div className="h-4 w-4 rounded-full border border-slate-300 flex-shrink-0" />
+              {/* Large file reassurance */}
+              {isLargeFile && !isOverEstimate && (
+                <p className="text-[11px] text-muted-foreground mt-3 max-w-sm">
+                  Large file detected — this may take slightly longer than usual.
+                </p>
               )}
-              <span className={i < activeStep ? "font-medium" : ""}>{item.label}</span>
+
+              {/* Offline banner */}
+              {isOffline && (
+                <div className="flex items-start gap-2 px-4 py-2.5 rounded-md bg-warning/10 border border-warning/30 text-[11.5px] text-foreground mt-4 max-w-sm">
+                  <span className="h-1.5 w-1.5 rounded-full bg-warning animate-pulse flex-shrink-0 mt-1.5" />
+                  <span className="text-left">
+                    You&apos;re offline. Processing continues on the server — results will appear when you&apos;re back online.
+                  </span>
+                </div>
+              )}
             </div>
-          ))}
+          </Card>
+
+          {/* Live step tracker */}
+          <Card variant="default" className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <p className="text-micro mb-1">Live Activity</p>
+                <h3 className="text-[14px] font-semibold text-foreground">AI is working</h3>
+              </div>
+              <span className="text-[11px] font-semibold tabular-nums text-muted-foreground">
+                Step {Math.min(activeStep + 1, steps.length)} of {steps.length}
+              </span>
+            </div>
+            <ul className="space-y-2.5">
+              {steps.map((item, i) => {
+                const isDone = i < activeStep;
+                const isActive = i === activeStep;
+                return (
+                  <li
+                    key={item.label}
+                    className={`flex items-center gap-3 text-[13px] transition-all duration-300 ${
+                      isDone ? "text-foreground" : isActive ? "text-foreground" : "text-muted-foreground/60"
+                    }`}
+                  >
+                    {isDone ? (
+                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-success/15 text-success shrink-0">
+                        <Check className="h-3 w-3" strokeWidth={2.5} />
+                      </span>
+                    ) : isActive ? (
+                      <span className="relative flex h-5 w-5 items-center justify-center shrink-0">
+                        <span className="absolute inset-0 rounded-full bg-foreground/20 animate-ping" />
+                        <span className="relative flex h-3 w-3 items-center justify-center rounded-full bg-foreground">
+                          <Loader2 className="h-2.5 w-2.5 text-background animate-spin" />
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="flex h-5 w-5 items-center justify-center shrink-0">
+                        <span className="h-2 w-2 rounded-full border border-muted-foreground/40" />
+                      </span>
+                    )}
+                    <span className={isDone ? "font-medium" : isActive ? "font-semibold" : ""}>
+                      {item.label}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </Card>
         </div>
 
-        <div className="mt-6 w-full max-w-xs">
-          <p className="text-xs text-muted-foreground">
-            Step {Math.min(activeStep + 1, steps.length)} of {steps.length}
-          </p>
+        {/* ═════════════ RIGHT (40%) — AI Insights / tips / facts ═════════════ */}
+        <div className="space-y-5">
+          {/* AI Insights panel */}
+          <Card variant="default" className="p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="flex h-7 w-7 items-center justify-center rounded-md bg-foreground text-background">
+                <Sparkles className="h-3.5 w-3.5" strokeWidth={2} />
+              </div>
+              <div>
+                <h3 className="text-[13px] font-semibold text-foreground leading-none">Gro AI Insights</h3>
+                <p className="text-[10.5px] text-muted-foreground leading-none mt-1">Updating in real time</p>
+              </div>
+            </div>
+
+            <ul className="divide-y divide-border -mx-2">
+              <li className="flex items-center justify-between px-2 py-3">
+                <span className="text-[11.5px] text-muted-foreground">Document type</span>
+                <span className="text-[12px] font-semibold text-foreground">
+                  {activeStep >= 3 ? "Lease / LOI" : (
+                    <span className="text-muted-foreground/50 font-normal">detecting…</span>
+                  )}
+                </span>
+              </li>
+              <li className="flex items-center justify-between px-2 py-3">
+                <span className="text-[11.5px] text-muted-foreground">Pages scanned</span>
+                <span className="text-[12px] font-semibold text-foreground tabular-nums">
+                  {activeStep >= 2 ? `${Math.min(estimatedPages, Math.max(1, Math.round((activeStep / steps.length) * estimatedPages)))} / ${estimatedPages}` : (
+                    <span className="text-muted-foreground/50 font-normal">—</span>
+                  )}
+                </span>
+              </li>
+              <li className="flex items-center justify-between px-2 py-3">
+                <span className="text-[11.5px] text-muted-foreground">Clauses detected</span>
+                <span className="text-[12px] font-semibold text-foreground tabular-nums">
+                  {activeStep >= 4 ? `${activeStep * 3 + 2}` : (
+                    <span className="text-muted-foreground/50 font-normal">—</span>
+                  )}
+                </span>
+              </li>
+              <li className="flex items-center justify-between px-2 py-3">
+                <span className="text-[11.5px] text-muted-foreground">Financial fields</span>
+                <span className="text-[12px] font-semibold text-foreground tabular-nums">
+                  {activeStep >= 5 ? `${Math.min(12, activeStep * 2)}` : (
+                    <span className="text-muted-foreground/50 font-normal">—</span>
+                  )}
+                </span>
+              </li>
+              <li className="flex items-center justify-between px-2 py-3">
+                <span className="text-[11.5px] text-muted-foreground">Risk flags</span>
+                <span className="text-[12px] font-semibold text-foreground tabular-nums">
+                  {activeStep >= 6 ? `scanning…` : (
+                    <span className="text-muted-foreground/50 font-normal">—</span>
+                  )}
+                </span>
+              </li>
+              <li className="flex items-center justify-between px-2 py-3">
+                <span className="text-[11.5px] text-muted-foreground">Confidence</span>
+                <span className="text-[12px] font-semibold text-foreground tabular-nums">
+                  {activeStep >= 5 ? `~${Math.min(95, 60 + activeStep * 5)}%` : (
+                    <span className="text-muted-foreground/50 font-normal">—</span>
+                  )}
+                </span>
+              </li>
+            </ul>
+          </Card>
+
+          {/* Smart Tip box — rotating */}
+          <Card variant="default" className="p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="flex h-6 w-6 items-center justify-center rounded-md bg-muted text-foreground">
+                <Lightbulb className="h-3 w-3" strokeWidth={2} />
+              </div>
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Smart Tip
+              </span>
+            </div>
+            <p
+              key={tipIndex}
+              className="text-[12.5px] text-foreground leading-relaxed animate-fade-in"
+            >
+              {EXTRACTION_TIPS[tipIndex]}
+            </p>
+          </Card>
+
+          {/* Trust signal */}
+          <div className="px-5 py-4 rounded-xl border border-border bg-muted/30">
+            <div className="flex items-start gap-3">
+              <ShieldCheck className="h-4 w-4 text-foreground mt-0.5 shrink-0" strokeWidth={2} />
+              <div>
+                <p className="text-[12px] font-semibold text-foreground">Private & secure</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
+                  Your document is processed on encrypted infrastructure. Nothing is stored outside your organization.
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
+  );
+}
+
+/* ──────────────────────────────────────────────────────────────
+ * Top horizontal stepper — 4 steps: Upload / Processing / Review / Activated
+ * ────────────────────────────────────────────────────────────── */
+function ProcessingTopStepper({ currentStep }: { currentStep: 0 | 1 | 2 | 3 }) {
+  const stepperSteps = [
+    { label: "Upload", icon: Upload },
+    { label: "Processing", icon: Loader2 },
+    { label: "Review", icon: Eye },
+    { label: "Activated", icon: CheckCircle2 },
+  ];
+  return (
+    <div className="flex items-center justify-between gap-3 max-w-2xl mx-auto">
+      {stepperSteps.map((step, idx) => {
+        const StepIcon = step.icon;
+        const isDone = idx < currentStep;
+        const isActive = idx === currentStep;
+        const isLast = idx === stepperSteps.length - 1;
+        return (
+          <div key={step.label} className="flex items-center flex-1 last:flex-none">
+            <div className="flex flex-col items-center gap-2 shrink-0">
+              <div
+                className={`relative flex h-9 w-9 items-center justify-center rounded-full transition-all duration-base ${
+                  isDone
+                    ? "bg-success text-success-foreground"
+                    : isActive
+                      ? "bg-foreground text-background"
+                      : "bg-muted text-muted-foreground"
+                }`}
+              >
+                {isDone ? (
+                  <Check className="h-4 w-4" strokeWidth={2.5} />
+                ) : (
+                  <StepIcon
+                    className={`h-4 w-4 ${isActive && step.label === "Processing" ? "animate-spin" : ""}`}
+                    strokeWidth={2}
+                  />
+                )}
+                {isActive && (
+                  <span className="absolute inset-0 rounded-full border-2 border-foreground/20 animate-ping" />
+                )}
+              </div>
+              <span
+                className={`text-[11px] font-semibold tracking-tight whitespace-nowrap ${
+                  isDone ? "text-foreground" : isActive ? "text-foreground" : "text-muted-foreground/60"
+                }`}
+              >
+                {step.label}
+              </span>
+            </div>
+            {!isLast && (
+              <div className="flex-1 h-px mx-2 mt-[-18px] bg-border relative">
+                <div
+                  className={`absolute inset-y-0 left-0 bg-foreground transition-all duration-slow ${
+                    isDone ? "w-full" : "w-0"
+                  }`}
+                />
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
