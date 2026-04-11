@@ -12,6 +12,7 @@ from datetime import datetime, date, timedelta
 from dateutil.relativedelta import relativedelta
 
 from fastapi import APIRouter, HTTPException, Depends, Header, Query, Form, Response
+from pydantic import BaseModel
 from starlette.requests import Request
 
 import logging
@@ -279,6 +280,331 @@ def self_serve_create_organization(
     }
 
 
+# ============================================
+# SUPER ADMIN: Create organization WITH admin user
+# ============================================
+# New flow per user spec: Super Admin types org name + admin email + admin name,
+# system creates the org + a Supabase auth user for the admin with a random
+# generated password, creates the profile row, creates a per-org Google Sheets
+# activity tab, and sends an invitation email to the admin containing their
+# credentials. The admin is forced to reset their password on first login.
+
+class CreateOrganizationWithAdminRequest(BaseModel):
+    name: str
+    admin_email: str
+    admin_full_name: str
+    admin_phone: Optional[str] = None
+    brand_names: Optional[list[str]] = None  # comma-separated from UI
+
+
+def _generate_temp_password(length: int = 16) -> str:
+    """Cryptographically secure temporary password (16 chars, alphanumeric+symbols)."""
+    import secrets
+    import string
+    alphabet = string.ascii_letters + string.digits + "!@#$%*-_+="
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+def _build_sheet_tab_name(org_name: str, org_id: str) -> str:
+    """'<BrandName> (<last-4-of-uuid>)' — guarantees uniqueness even for duplicate names."""
+    clean = "".join(c if c.isalnum() or c == " " else " " for c in (org_name or "")).strip()
+    if not clean:
+        clean = "Organization"
+    return f"{clean[:50]} ({org_id[-4:]})"
+
+
+@router.post("/admin/create-organization-with-admin", dependencies=[Depends(require_permission("*"))])
+@limiter.limit("10/minute")
+async def create_organization_with_admin(
+    request: Request,
+    body: CreateOrganizationWithAdminRequest,
+    user: Optional[CurrentUser] = Depends(get_current_user),
+):
+    """
+    Super Admin-only endpoint. Creates a new organization + its default
+    admin user + per-org Google Sheets activity tab + sends invitation email.
+
+    Returns the generated credentials ONCE to Super Admin so they can hand
+    them off manually if the email bounces.
+    """
+    # Permission: only platform_admin (require_permission("*") is the
+    # wildcard bucket that only platform_admin has).
+    if not user or user.role != "platform_admin":
+        raise HTTPException(status_code=403, detail="Only Super Admin can create organizations")
+
+    org_name = (body.name or "").strip()
+    admin_email = (body.admin_email or "").strip().lower()
+    admin_full_name = (body.admin_full_name or "").strip()
+
+    if not org_name:
+        raise HTTPException(status_code=400, detail="Organization name is required")
+    if not admin_email or "@" not in admin_email:
+        raise HTTPException(status_code=400, detail="Valid admin email is required")
+    if not admin_full_name:
+        raise HTTPException(status_code=400, detail="Admin full name is required")
+
+    # Refuse duplicate org name (UI safety — DB doesn't enforce)
+    try:
+        dup = supabase.table("organizations").select("id, name").ilike("name", org_name).limit(1).execute()
+        if dup.data:
+            raise HTTPException(status_code=409, detail=f"An organization named '{org_name}' already exists")
+    except HTTPException:
+        raise
+    except Exception:
+        pass  # Non-critical
+
+    # Refuse duplicate admin email — if the email is already attached to
+    # another org, ask Super Admin to pick a different one.
+    try:
+        ex = supabase.table("profiles").select("id, email, org_id").eq("email", admin_email).limit(1).execute()
+        if ex.data:
+            raise HTTPException(
+                status_code=409,
+                detail=f"A user with email '{admin_email}' already exists on this platform",
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+
+    # 1. Create org row
+    org_id = str(uuid.uuid4())
+    sheet_tab = _build_sheet_tab_name(org_name, org_id)
+    try:
+        org_insert = {
+            "id": org_id,
+            "name": org_name,
+            "created_by": get_db_user_id(user),
+        }
+        # Best-effort extra fields — survives migration 032 not being applied yet
+        try:
+            org_insert_with_sheet = {**org_insert, "sheet_tab_name": sheet_tab, "default_admin_email": admin_email}
+            supabase.table("organizations").insert(org_insert_with_sheet).execute()
+        except Exception:
+            supabase.table("organizations").insert(org_insert).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create organization: {str(e)[:200]}")
+
+    # 2. Generate temp password and create Supabase auth user
+    temp_password = _generate_temp_password()
+    new_user_id: Optional[str] = None
+    try:
+        created = supabase.auth.admin.create_user({
+            "email": admin_email,
+            "password": temp_password,
+            "email_confirm": True,
+            "user_metadata": {
+                "full_name": admin_full_name,
+                "org_id": org_id,
+                "role": "org_admin",
+            },
+        })
+        if hasattr(created, "user") and created.user:
+            new_user_id = created.user.id
+        elif isinstance(created, dict):
+            new_user_id = (created.get("user") or {}).get("id")
+    except Exception as e:
+        # Rollback the org row so Super Admin can retry
+        try:
+            supabase.table("organizations").delete().eq("id", org_id).execute()
+        except Exception:
+            pass
+        err_str = str(e)
+        if "Database error" in err_str and "new user" in err_str:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "Supabase rejected the new user insert because of a broken "
+                    "handle_new_user trigger. Apply migration_033 "
+                    "(supabase/migration_033_bulletproof_signup_trigger.sql) in "
+                    "the Supabase SQL editor and retry."
+                ),
+            )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create admin auth user: {err_str[:200]}",
+        )
+
+    if not new_user_id:
+        try:
+            supabase.table("organizations").delete().eq("id", org_id).execute()
+        except Exception:
+            pass
+        raise HTTPException(status_code=500, detail="Auth user creation returned no id")
+
+    # 3. Create profile row pinned to org_admin role + must_reset_password flag
+    profile_row = {
+        "id": new_user_id,
+        "email": admin_email,
+        "full_name": admin_full_name,
+        "role": "org_admin",
+        "org_id": org_id,
+    }
+    try:
+        profile_row_with_reset = {**profile_row, "must_reset_password": True}
+        supabase.table("profiles").insert(profile_row_with_reset).execute()
+    except Exception:
+        # Column may not exist yet — fall back
+        try:
+            supabase.table("profiles").insert(profile_row).execute()
+        except Exception as e:
+            logger.warning("create_organization_with_admin: profile insert failed: %s", e)
+
+    # Pin the default_admin_user_id on the org row
+    try:
+        supabase.table("organizations").update({"default_admin_user_id": new_user_id}).eq("id", org_id).execute()
+    except Exception:
+        pass
+
+    # 4. Create brand rows from comma-separated input
+    brand_names = body.brand_names or []
+    created_brands = []
+    for bn in brand_names:
+        bn_clean = bn.strip()
+        if not bn_clean:
+            continue
+        try:
+            supabase.table("brands").insert({
+                "id": str(uuid.uuid4()),
+                "org_id": org_id,
+                "name": bn_clean,
+                "created_by": get_db_user_id(user),
+            }).execute()
+            created_brands.append(bn_clean)
+        except Exception as e:
+            logger.warning("create_organization_with_admin: brand insert '%s' failed: %s", bn_clean, e)
+
+    # 5. Create per-org Google Sheets activity tab (non-blocking)
+    try:
+        from services.sheets_service import get_or_create_org_activity_tab, write_org_activity
+        get_or_create_org_activity_tab(org_id, sheet_tab)
+        write_org_activity(
+            org_id=org_id,
+            sheet_tab_name=sheet_tab,
+            action="org_created",
+            actor=user.email if user else "Super Admin",
+            details={
+                "org_name": org_name,
+                "admin_email": admin_email,
+                "admin_full_name": admin_full_name,
+                "brands_created": created_brands,
+            },
+        )
+    except Exception as e:
+        logger.warning("create_organization_with_admin: sheet tab creation failed: %s", e)
+
+    # 6. Send invitation email via Resend (non-blocking — creds are also
+    #    returned in the response so Super Admin can relay manually).
+    email_sent = False
+    email_error: Optional[str] = None
+    try:
+        from services.email_service import send_email_via_resend
+        login_url = os.getenv("PUBLIC_APP_URL", "https://grospace-sandy.vercel.app") + "/auth/login"
+        subject = f"You're invited to GroSpace — {org_name}"
+        body_html = f"""
+        <div style="font-family:-apple-system,Segoe UI,Inter,Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px">
+          <h1 style="font-size:20px;font-weight:600;color:#111;margin-bottom:8px">Welcome to GroSpace</h1>
+          <p style="color:#444;line-height:1.5">
+            Hi {admin_full_name.split(' ')[0] or admin_full_name},
+          </p>
+          <p style="color:#444;line-height:1.5">
+            You've been set up as the admin for <strong>{org_name}</strong> on the GroSpace
+            lease intelligence platform. Use the credentials below to log in — you'll be
+            asked to change your password immediately.
+          </p>
+          <div style="background:#f6f6f6;border:1px solid #e2e2e2;border-radius:8px;padding:16px;margin:24px 0">
+            <p style="margin:0 0 6px;color:#666;font-size:12px;text-transform:uppercase;letter-spacing:0.5px">Login email</p>
+            <p style="margin:0 0 16px;font-family:monospace;font-size:14px;color:#111">{admin_email}</p>
+            <p style="margin:0 0 6px;color:#666;font-size:12px;text-transform:uppercase;letter-spacing:0.5px">Temporary password</p>
+            <p style="margin:0;font-family:monospace;font-size:14px;color:#111">{temp_password}</p>
+          </div>
+          <p style="margin:24px 0">
+            <a href="{login_url}" style="display:inline-block;background:#111;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:600">Log in to GroSpace</a>
+          </p>
+          <p style="color:#666;font-size:12px;line-height:1.5;margin-top:24px;border-top:1px solid #eee;padding-top:16px">
+            You are being set up as <strong>{org_name}'s admin</strong>. You'll be able
+            to invite your team, add brands, create outlets, and manage leases after
+            logging in. If you didn't expect this email, reply to let us know.
+          </p>
+        </div>
+        """.strip()
+        send_email_via_resend(admin_email, subject, body_html)
+        email_sent = True
+    except Exception as e:
+        email_error = str(e)[:200]
+        logger.warning("create_organization_with_admin: invitation email failed: %s", e)
+
+    # 7. Audit log
+    log_activity(org_id, get_db_user_id(user), "organization", org_id, "org_created_by_super_admin", {
+        "name": org_name,
+        "admin_email": admin_email,
+        "brands_created": created_brands,
+        "email_sent": email_sent,
+    })
+
+    return {
+        "organization": {
+            "id": org_id,
+            "name": org_name,
+            "sheet_tab_name": sheet_tab,
+        },
+        "admin": {
+            "user_id": new_user_id,
+            "email": admin_email,
+            "full_name": admin_full_name,
+            "temp_password": temp_password,  # Shown ONCE to Super Admin as backup
+            "role": "org_admin",
+            "must_reset_password": True,
+        },
+        "brands_created": created_brands,
+        "email_sent": email_sent,
+        "email_error": email_error,
+        "message": (
+            f"Organization '{org_name}' created. Invitation email "
+            f"{'sent to' if email_sent else 'could NOT be sent to'} {admin_email}. "
+            "Save the temporary password — it will not be shown again."
+        ),
+    }
+
+
+@router.post("/admin/reset-super-admin-password", dependencies=[Depends(require_permission("*"))])
+async def reset_super_admin_password(
+    user: Optional[CurrentUser] = Depends(get_current_user),
+):
+    """
+    Rotate the Super Admin password back to the hardcoded default
+    (or the SUPER_ADMIN_PASSWORD env var). Only the currently-logged-in
+    Super Admin can call this. Use it if you lose the password mid-demo.
+    """
+    if not user or user.role != "platform_admin":
+        raise HTTPException(status_code=403, detail="Only Super Admin can reset the Super Admin password")
+
+    super_email = os.getenv("SUPER_ADMIN_EMAIL", "admin@grospace.com")
+    super_password = os.getenv("SUPER_ADMIN_PASSWORD", "admin@grospace2026")
+
+    # Look up the super admin user id
+    try:
+        r = supabase.table("profiles").select("id, email").eq("email", super_email).limit(1).execute()
+        if not r.data:
+            raise HTTPException(status_code=404, detail="Super admin profile not found")
+        super_user_id = r.data[0]["id"]
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lookup failed: {str(e)[:200]}")
+
+    try:
+        supabase.auth.admin.update_user_by_id(super_user_id, {"password": super_password})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Password reset failed: {str(e)[:200]}")
+
+    return {
+        "status": "ok",
+        "email": super_email,
+        "message": f"Super Admin password reset to the hardcoded default for {super_email}",
+    }
+
+
 @router.get("/organizations/{org_id}", dependencies=[Depends(require_permission("manage_org_settings"))])
 def get_organization(org_id: str):
     """Get a single organization with its outlets and agreements."""
@@ -332,66 +658,161 @@ def list_org_members(
 
 
 @router.post("/organizations/{org_id}/invite", dependencies=[Depends(require_permission("manage_org_members"))])
-def invite_org_member(org_id: str, req: InviteMemberRequest):
-    """Invite a member -- uses Supabase Auth admin invite, then updates profile with org/role."""
+def invite_org_member(
+    org_id: str,
+    req: InviteMemberRequest,
+    user: Optional[CurrentUser] = Depends(get_current_user),
+):
+    """
+    Invite a member into an organization. Per the Super Admin flow:
+      1. Generate a secure random temp password.
+      2. Create the Supabase auth user (or update if the email exists).
+      3. Create/update the profile row with org_id, role, must_reset_password=True.
+      4. Send an invitation email containing the email + temp password + login link.
+      5. Mirror the invite to the org's activity sheet tab.
+    """
+    clean_email = (req.email or "").strip().lower()
+    if not clean_email or "@" not in clean_email:
+        raise HTTPException(status_code=400, detail="A valid email address is required")
+
+    # Caller must belong to the org they're inviting into (or be platform_admin)
+    if user and user.role != "platform_admin" and user.org_id != org_id:
+        raise HTTPException(status_code=403, detail="You can only invite members to your own organization")
+
+    # Generate the temp password upfront — reused for new + existing user paths.
+    temp_password = _generate_temp_password()
+    member: dict = {}
+    was_new_user = False
+
     try:
-        existing = supabase.table("profiles").select("id, org_id").eq("email", req.email).execute()
-        if existing.data and len(existing.data) > 0:
-            user_id = existing.data[0]["id"]
-            supabase.table("profiles").update({
+        existing = supabase.table("profiles").select("id, org_id, role, email").eq("email", clean_email).limit(1).execute()
+        if existing.data:
+            # User already exists — refuse if they belong to a different org
+            row = existing.data[0]
+            if row.get("org_id") and row.get("org_id") != org_id:
+                raise HTTPException(
+                    status_code=409,
+                    detail="This email is already attached to a different organization",
+                )
+            user_id = row["id"]
+            # Reset their password to the new temp and mark must_reset_password
+            try:
+                supabase.auth.admin.update_user_by_id(user_id, {"password": temp_password})
+            except Exception as e:
+                logger.warning("invite_org_member: password reset for existing user failed: %s", e)
+            profile_update = {"org_id": org_id, "role": req.role}
+            try:
+                supabase.table("profiles").update({**profile_update, "must_reset_password": True}).eq("id", user_id).execute()
+            except Exception:
+                supabase.table("profiles").update(profile_update).eq("id", user_id).execute()
+            member = {"id": user_id, "email": clean_email, "role": req.role, "org_id": org_id}
+        else:
+            # Fresh user — create with the generated password
+            try:
+                created = supabase.auth.admin.create_user({
+                    "email": clean_email,
+                    "password": temp_password,
+                    "email_confirm": True,
+                    "user_metadata": {
+                        "full_name": clean_email.split("@")[0].replace(".", " ").title(),
+                        "org_id": org_id,
+                        "role": req.role,
+                    },
+                })
+                new_user_id = None
+                if hasattr(created, "user") and created.user:
+                    new_user_id = created.user.id
+                elif isinstance(created, dict):
+                    new_user_id = (created.get("user") or {}).get("id")
+                if not new_user_id:
+                    raise HTTPException(status_code=500, detail="Auth user creation returned no id")
+                user_id = new_user_id
+                was_new_user = True
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Failed to create auth user: {str(e)[:200]}")
+
+            profile_row = {
+                "id": user_id,
+                "email": clean_email,
+                "full_name": clean_email.split("@")[0].replace(".", " ").title(),
                 "org_id": org_id,
                 "role": req.role,
-            }).eq("id", user_id).execute()
-            member = {**existing.data[0], "org_id": org_id, "role": req.role, "email": req.email}
-        else:
+            }
             try:
-                invite_result = supabase.auth.admin.invite_user_by_email(req.email)
-                user_id = invite_result.user.id if invite_result and invite_result.user else None
+                supabase.table("profiles").insert({**profile_row, "must_reset_password": True}).execute()
             except Exception:
-                user_id = None
-
-            if user_id:
-                supabase.table("profiles").update({
-                    "org_id": org_id,
-                    "role": req.role,
-                    "full_name": req.email.split("@")[0].title(),
-                }).eq("id", user_id).execute()
-                member = {"id": user_id, "email": req.email, "role": req.role, "org_id": org_id}
-            else:
-                raise HTTPException(status_code=500, detail="Failed to invite user via auth system")
+                try:
+                    supabase.table("profiles").insert(profile_row).execute()
+                except Exception as e:
+                    logger.warning("invite_org_member: profile insert failed: %s", e)
+            member = {"id": user_id, "email": clean_email, "role": req.role, "org_id": org_id}
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)[:200])
 
+    # Send invitation email with credentials
     email_sent = False
+    email_error: Optional[str] = None
     try:
         org_result = supabase.table("organizations").select("name").eq("id", org_id).single().execute()
         org_name = org_result.data.get("name", "GroSpace") if org_result.data else "GroSpace"
+        login_url = os.getenv("PUBLIC_APP_URL", os.getenv("NEXT_PUBLIC_APP_URL", "https://grospace-sandy.vercel.app")) + "/auth/login"
+        role_label = req.role.replace("_", " ").title()
+        inviter_email = (user.email if user else "") or "your admin"
+        first_name = clean_email.split("@")[0].replace(".", " ").title().split(" ")[0]
 
         invite_html = f"""
-        <html><body style="font-family:sans-serif;max-width:600px;margin:auto;padding:20px">
-        <div style="border-bottom:2px solid #000;padding-bottom:10px;margin-bottom:20px">
-            <h2 style="margin:0">GroSpace</h2>
+        <div style="font-family:-apple-system,Segoe UI,Inter,Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px">
+          <h1 style="font-size:20px;font-weight:600;color:#111;margin-bottom:8px">You're invited to GroSpace</h1>
+          <p style="color:#444;line-height:1.5">
+            Hi {first_name},
+          </p>
+          <p style="color:#444;line-height:1.5">
+            {inviter_email} has invited you to join <strong>{org_name}</strong> on GroSpace
+            as a <strong>{role_label}</strong>. Use the credentials below to log in — you'll
+            be asked to change your password immediately.
+          </p>
+          <div style="background:#f6f6f6;border:1px solid #e2e2e2;border-radius:8px;padding:16px;margin:24px 0">
+            <p style="margin:0 0 6px;color:#666;font-size:12px;text-transform:uppercase;letter-spacing:0.5px">Login email</p>
+            <p style="margin:0 0 16px;font-family:monospace;font-size:14px;color:#111">{clean_email}</p>
+            <p style="margin:0 0 6px;color:#666;font-size:12px;text-transform:uppercase;letter-spacing:0.5px">Temporary password</p>
+            <p style="margin:0;font-family:monospace;font-size:14px;color:#111">{temp_password}</p>
+          </div>
+          <p style="margin:24px 0">
+            <a href="{login_url}" style="display:inline-block;background:#111;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:600">Log in to GroSpace</a>
+          </p>
+          <p style="color:#666;font-size:12px;line-height:1.5;margin-top:24px;border-top:1px solid #eee;padding-top:16px">
+            If you didn't expect this invitation, you can safely ignore this email.
+          </p>
         </div>
-        <h3>You've been invited to {org_name}</h3>
-        <p>You've been invited to join <strong>{org_name}</strong> on GroSpace as a <strong>{req.role.replace('_', ' ').title()}</strong>.</p>
-        <p>GroSpace is a smart lease management platform for managing outlets, agreements, payments, and alerts across your property portfolio.</p>
-        <div style="margin:24px 0">
-            <a href="{os.getenv('NEXT_PUBLIC_APP_URL', 'https://grospace.app')}/auth/login" style="background:#000;color:#fff;padding:10px 24px;text-decoration:none;border-radius:6px;font-weight:600">Accept Invitation</a>
-        </div>
-        <p style="color:#999;font-size:12px">If you didn't expect this invitation, you can safely ignore this email.</p>
-        </body></html>
-        """
-        email_sent = send_email_via_resend(
-            req.email,
+        """.strip()
+        email_sent = bool(send_email_via_resend(
+            clean_email,
             f"You've been invited to {org_name} on GroSpace",
             invite_html,
-        )
-    except Exception:
-        pass
+        ))
+    except Exception as e:
+        email_error = str(e)[:200]
+        logger.warning("invite_org_member: email send failed: %s", e)
 
-    return {"member": member, "email_sent": email_sent}
+    # Org activity audit (mirrors to Google Sheets per-org tab)
+    log_activity(org_id, get_db_user_id(user), "member", member.get("id") or clean_email, "member_invited", {
+        "email": clean_email,
+        "role": req.role,
+        "was_new_user": was_new_user,
+        "email_sent": email_sent,
+    })
+
+    return {
+        "member": member,
+        "email_sent": email_sent,
+        "email_error": email_error,
+        "temp_password": temp_password,  # Shown once to inviter as backup
+        "must_reset_password": True,
+    }
 
 
 @router.delete("/organizations/{org_id}/members/{user_id}", dependencies=[Depends(require_permission("manage_org_members"))])

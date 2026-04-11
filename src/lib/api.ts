@@ -347,6 +347,41 @@ export async function createOrganization(name: string) {
 }
 
 /**
+ * Super Admin: create a brand-new organization with its default admin user.
+ * Returns the generated temporary password ONCE in the response so the
+ * Super Admin can hand it off manually if the invitation email bounces.
+ */
+export async function createOrganizationWithAdmin(data: {
+  name: string;
+  admin_email: string;
+  admin_full_name: string;
+  admin_phone?: string;
+  brand_names?: string[];
+}) {
+  return apiFetch("/api/admin/create-organization-with-admin", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+/** Super Admin: rotate Super Admin password back to the hardcoded default. */
+export async function resetSuperAdminPassword() {
+  return apiFetch("/api/admin/reset-super-admin-password", { method: "POST" });
+}
+
+/**
+ * Change the current user's own password. Used by:
+ *   - The force-reset flow when must_reset_password=true on first login
+ *   - The Settings → Account → Change Password button (any user)
+ */
+export async function changeOwnPassword(newPassword: string) {
+  return apiFetch("/api/auth/reset-password", {
+    method: "POST",
+    body: JSON.stringify({ new_password: newPassword }),
+  });
+}
+
+/**
  * Self-serve org creation for a brand-new user who isn't yet a member of
  * any organization. Auto-promotes the caller to org_admin of the new org.
  * Used by the pending-approval page "Create Your Own Organization" flow.

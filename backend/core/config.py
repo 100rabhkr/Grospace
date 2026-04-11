@@ -191,7 +191,12 @@ def log_activity(org_id: str, user_id: str | None, entity_type: str, entity_id: 
 
     If user_id is non-None but not a real UUID (demo sessions), store it as
     NULL so the `uuid REFERENCES auth.users(id)` FK on activity_log.user_id
-    doesn't reject the insert."""
+    doesn't reject the insert.
+
+    Also mirrors the entry to the per-org Google Sheets activity tab (via
+    sheets_service) so Super Admin can audit customer activity per-org.
+    The sheet write is best-effort and never blocks the DB insert.
+    """
     import uuid
     # Guard against demo/synthetic user_ids that would fail the UUID column
     db_user_id: str | None = None
@@ -212,7 +217,30 @@ def log_activity(org_id: str, user_id: str | None, entity_type: str, entity_id: 
             "details": details or {},
         }).execute()
     except Exception:
-        pass  # Activity logging should never break the main flow
+        pass  # DB write should never break the main flow
+
+    # Mirror to per-org Google Sheets activity tab (non-blocking)
+    try:
+        from services.sheets_service import write_org_activity
+        actor = db_user_id or "system"
+        # Lazy lookup of actor email to make the audit trail readable
+        try:
+            if db_user_id:
+                prof = supabase.table("profiles").select("email, full_name").eq("id", db_user_id).single().execute()
+                if prof.data:
+                    actor = prof.data.get("full_name") or prof.data.get("email") or actor
+        except Exception:
+            pass
+        write_org_activity(
+            org_id=org_id,
+            action=action,
+            actor=actor,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            details=details or {},
+        )
+    except Exception:
+        pass  # Sheet mirroring is best-effort
 
 
 def execute_supabase_query(factory, retries: int = 1, retry_delay_seconds: float = 0.25):

@@ -7,7 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, ArrowRight, User, Shield, Settings, Users, Bot, Building2, FileText, TrendingUp, Sparkles } from "lucide-react";
+import { Loader2, ArrowRight, Bot, Building2, FileText, TrendingUp } from "lucide-react";
 
 export default function LoginPage() {
   return (
@@ -50,20 +50,6 @@ function LoginContent() {
     setLoading(true);
     setError("");
 
-    try {
-      const demoRes = await fetch("/api/auth/demo", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
-      if (demoRes.ok) {
-        goToApp();
-        return;
-      }
-    } catch {
-      // Demo endpoint failed — fall through to Supabase
-    }
-
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     if (!supabaseUrl || supabaseUrl === "your-supabase-project-url" || !supabaseKey) {
@@ -78,6 +64,22 @@ function LoginContent() {
       if (mode === "login") {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) { setError(error.message); setLoading(false); return; }
+
+        // If the profile row has must_reset_password=true (freshly-invited
+        // user), route to the forced reset screen before hitting the app.
+        try {
+          const profileRes = await supabase
+            .from("profiles")
+            .select("must_reset_password")
+            .eq("email", email)
+            .single();
+          if (profileRes.data?.must_reset_password) {
+            window.location.href = "/auth/reset-password?force=1";
+            return;
+          }
+        } catch {
+          // Profile lookup non-critical — if it fails we just fall through
+        }
       } else {
         const { error } = await supabase.auth.signUp({
           email,
@@ -106,37 +108,6 @@ function LoginContent() {
       setLoading(false);
     }
   }
-
-  async function handleDemoLogin(demoEmail: string, demoPassword: string) {
-    setEmail(demoEmail);
-    setPassword(demoPassword);
-    setLoading(true);
-    setError("");
-
-    try {
-      const demoRes = await fetch("/api/auth/demo", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: demoEmail, password: demoPassword }),
-      });
-      if (demoRes.ok) {
-        goToApp();
-        return;
-      }
-    } catch {
-      // Demo endpoint failed
-    }
-
-    setError("Demo login failed");
-    setLoading(false);
-  }
-
-  const demoAccounts = [
-    { label: "CEO", email: "ceo@grospace.in", password: "ceo2025", icon: User, desc: "Full access" },
-    { label: "CFO", email: "cfo@grospace.in", password: "cfo2025", icon: Shield, desc: "Finance view" },
-    { label: "Admin", email: "admin@grospace.in", password: "admin2025", icon: Settings, desc: "Admin panel" },
-    { label: "Manager", email: "manager@grospace.in", password: "manager2025", icon: Users, desc: "Operations" },
-  ];
 
   const features = [
     { icon: Bot, label: "AI Intelligence", desc: "AI-powered lease analysis" },
@@ -247,42 +218,6 @@ function LoginContent() {
             <span className="text-lg font-semibold tracking-tight text-foreground">GroSpace</span>
           </div>
 
-          {/* Try Demo -- always visible, shown first in login mode */}
-          {mode === "login" && !signupSuccess && (
-            <div className="mb-8">
-              <div className="rounded-xl border border-foreground/10 bg-foreground/[0.02] p-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="w-6 h-6 rounded-md bg-foreground flex items-center justify-center">
-                    <Sparkles className="w-3 h-3 text-background" />
-                  </div>
-                  <p className="text-xs font-semibold text-foreground">Try Demo</p>
-                  <span className="text-[10px] text-muted-foreground ml-auto">No signup needed</span>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  {demoAccounts.map((acc) => {
-                    const Icon = acc.icon;
-                    return (
-                      <button
-                        key={acc.label}
-                        type="button"
-                        disabled={loading}
-                        onClick={() => handleDemoLogin(acc.email, acc.password)}
-                        className="group flex items-center gap-2.5 px-3 py-2.5 rounded-lg border border-border bg-card hover:border-foreground/15 hover:shadow-xs text-left transition-all duration-200 disabled:opacity-50"
-                      >
-                        <div className="w-7 h-7 rounded-md bg-muted flex items-center justify-center shrink-0 group-hover:bg-foreground group-hover:text-background transition-all duration-200">
-                          <Icon className="w-3.5 h-3.5" />
-                        </div>
-                        <div>
-                          <p className="text-[12px] font-medium text-foreground">{acc.label}</p>
-                          <p className="text-[10px] text-muted-foreground">{acc.desc}</p>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          )}
 
           {signupSuccess ? (
             <div className="rounded-xl border border-neutral-300 bg-neutral-50 p-8 text-center">
@@ -441,34 +376,6 @@ function LoginContent() {
             </>
           )}
 
-          {/* Demo accounts after signup success */}
-          {signupSuccess && (
-            <div className="mt-6">
-              <p className="text-xs font-medium text-muted-foreground text-center mb-3">Explore with a demo account</p>
-              <div className="grid grid-cols-2 gap-2">
-                {demoAccounts.map((acc) => {
-                  const Icon = acc.icon;
-                  return (
-                    <button
-                      key={acc.label}
-                      type="button"
-                      disabled={loading}
-                      onClick={() => handleDemoLogin(acc.email, acc.password)}
-                      className="group flex items-center gap-2.5 px-3 py-2.5 rounded-lg border border-border bg-card hover:border-foreground/15 hover:shadow-xs text-left transition-all duration-200 disabled:opacity-50"
-                    >
-                      <div className="w-7 h-7 rounded-md bg-muted flex items-center justify-center shrink-0 group-hover:bg-foreground group-hover:text-background transition-all duration-200">
-                        <Icon className="w-3.5 h-3.5" />
-                      </div>
-                      <div>
-                        <p className="text-[12px] font-medium text-foreground">{acc.label}</p>
-                        <p className="text-[10px] text-muted-foreground">{acc.desc}</p>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
 
           <p className="text-[10px] text-muted-foreground/40 text-center mt-8">
             Built by 360Labs
