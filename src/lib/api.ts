@@ -674,10 +674,17 @@ export async function listOutletDocuments(outletId: string) {
 }
 
 /** Upload a document to an outlet */
-export async function uploadOutletDocument(outletId: string, file: File, category: string = "other") {
+export async function uploadOutletDocument(
+  outletId: string,
+  file: File,
+  category: string = "other",
+  options?: { expiryDate?: string; licenseNumber?: string },
+) {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("category", category);
+  if (options?.expiryDate) formData.append("expiry_date", options.expiryDate);
+  if (options?.licenseNumber) formData.append("license_number", options.licenseNumber);
 
   return apiFetch(`/api/outlets/${outletId}/documents`, {
     method: "POST",

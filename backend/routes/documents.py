@@ -21,7 +21,7 @@ from core.config import execute_supabase_query, supabase, model, limiter, log_ac
 from core.models import (
     CurrentUser, ExtractRequest, ClassifyRequest, QARequest, RiskFlagRequest,
 )
-from core.dependencies import get_current_user, get_org_filter, require_permission
+from core.dependencies import get_current_user, get_db_user_id, get_org_filter, require_permission
 
 router = APIRouter(prefix="/api", tags=["documents"])
 
@@ -535,9 +535,17 @@ async def upload_outlet_document(
     outlet_id: str,
     file: UploadFile = File(...),
     category: str = Form("other"),
+    expiry_date: Optional[str] = Form(None),
+    license_number: Optional[str] = Form(None),
     user: Optional[CurrentUser] = Depends(get_current_user),
 ):
-    """Upload a document to an outlet (Drive-like multi-doc support)."""
+    """Upload a document to an outlet (Drive-like multi-doc support).
+
+    If category='license' AND expiry_date is supplied, this also creates a
+    critical_date event which cascades to an alert (reminder) via the
+    Event → Reminder + Payment pipeline. Matches the required flow:
+        Licenses → Upload license → Add expiry → System creates reminder
+    """
     outlet = supabase.table("outlets").select("id, org_id").eq("id", outlet_id).single().execute()
     if not outlet.data:
         raise HTTPException(status_code=404, detail="Outlet not found")
@@ -565,6 +573,16 @@ async def upload_outlet_document(
     except Exception:
         file_url = f"storage://{storage_path}"
 
+    # Validate expiry_date if supplied (ISO YYYY-MM-DD)
+    expiry_iso: Optional[str] = None
+    if expiry_date:
+        from datetime import date as _date
+        try:
+            _date.fromisoformat(expiry_date)
+            expiry_iso = expiry_date
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="expiry_date must be YYYY-MM-DD")
+
     doc_data = {
         "id": str(uuid.uuid4()),
         "org_id": org_id,
@@ -574,16 +592,76 @@ async def upload_outlet_document(
         "file_type": file_type,
         "category": category or "other",
         "file_size_bytes": file_size,
-        "uploaded_by": user.user_id if user else None,
+        "uploaded_by": get_db_user_id(user),
     }
+    if expiry_iso:
+        doc_data["expiry_date"] = expiry_iso
+    if license_number:
+        doc_data["license_number"] = license_number
 
-    result = supabase.table("documents").insert(doc_data).execute()
+    # Drop columns the table may not have yet (expiry_date/license_number
+    # live behind a migration — keep the upload resilient either way).
+    try:
+        result = supabase.table("documents").insert(doc_data).execute()
+    except Exception:
+        stripped = {k: v for k, v in doc_data.items() if k not in ("expiry_date", "license_number")}
+        result = supabase.table("documents").insert(stripped).execute()
+
+    # License + expiry → auto-create a critical_date event so the Event →
+    # Reminder + Payment pipeline in critical_dates.py fires and schedules
+    # an alert at the expiry date.
+    if category == "license" and expiry_iso and org_id:
+        try:
+            import logging as _logging
+            _logger = _logging.getLogger(__name__)
+            event_id = str(uuid.uuid4())
+            event_entry = {
+                "id": event_id,
+                "org_id": org_id,
+                "outlet_id": outlet_id,
+                "date_value": expiry_iso,
+                "date_type": "custom",
+                "event_type": "license_renewal",
+                "label": f"License expiry: {filename}",
+                "priority": "high",
+                "status": "upcoming",
+                "task_status": "pending",
+                "alert_days": [90, 30, 7],
+                "is_financial": False,
+                "notes": f"Auto-created from license upload ({filename})"
+                         + (f" — #{license_number}" if license_number else ""),
+            }
+            supabase.table("critical_dates").insert(event_entry).execute()
+
+            # Linked alert at the expiry date — mirrors create_critical_date()
+            alert_entry = {
+                "id": str(uuid.uuid4()),
+                "org_id": org_id,
+                "outlet_id": outlet_id,
+                "type": "license_expiry",
+                "title": f"License expiring: {filename}",
+                "message": f"License ({filename}) expires on {expiry_iso}. Renew before this date.",
+                "trigger_date": expiry_iso,
+                "severity": "high",
+                "status": "pending",
+                "source_event_id": event_id,
+            }
+            try:
+                supabase.table("alerts").insert(alert_entry).execute()
+            except Exception as _e:
+                _logger.warning("License upload: failed to create linked alert: %s", _e)
+        except Exception as _e:
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "License upload: failed to auto-create reminder event: %s", _e
+            )
 
     if org_id:
-        log_activity(org_id, user.user_id if user else None, "document", doc_data["id"], "uploaded", {
+        log_activity(org_id, get_db_user_id(user), "document", doc_data["id"], "uploaded", {
             "filename": filename,
             "outlet_id": outlet_id,
             "category": category,
+            "expiry_date": expiry_iso,
         })
 
     return {"document": result.data[0] if result.data else doc_data}

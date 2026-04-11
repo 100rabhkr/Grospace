@@ -211,7 +211,7 @@ function EmptyState() {
       <div className="flex flex-col gap-1">
         <h1 className="text-[17px] font-semibold tracking-tight text-foreground">Dashboard</h1>
         <p className="text-[12.5px] text-muted-foreground font-normal">
-          Welcome back to your GroSpace portfolio overview.
+          Welcome to GroSpace. Let&apos;s get your first outlet set up.
         </p>
       </div>
 
@@ -220,24 +220,31 @@ function EmptyState() {
           <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-4">
             <Rocket className="h-6 w-6 text-muted-foreground" />
           </div>
-          <h2 className="text-lg font-semibold mb-1">Get Started with GroSpace</h2>
+          <h2 className="text-lg font-semibold mb-1">Create your first outlet</h2>
           <p className="text-sm text-muted-foreground max-w-md mb-6">
-            Upload your first document to start tracking outlets,
-            events, and reminders across your portfolio.
+            The flow is simple: add an outlet, upload its signed lease,
+            review the extracted details, and GroSpace will auto-create
+            events, reminders and payments for you.
           </p>
           <div className="flex gap-3">
-            <Link href="/agreements/upload">
+            <Link href="/outlets?action=create">
               <Button size="sm">
-                <Upload className="h-4 w-4" />
-                Upload Documents
+                <Plus className="h-4 w-4" />
+                Add Outlet
               </Button>
             </Link>
-            <Link href="/outlets">
+            <Link href="/pipeline">
               <Button variant="outline" size="sm">
-                <Store className="h-4 w-4" />
-                View Outlets
+                <BarChart3 className="h-4 w-4" />
+                Or track a lead
               </Button>
             </Link>
+          </div>
+          <div className="mt-6 pt-6 border-t border-border w-full max-w-md">
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              Step 1 · Add outlet &nbsp;→&nbsp; Step 2 · Upload lease &nbsp;→&nbsp;
+              Step 3 · Review extraction &nbsp;→&nbsp; Step 4 · Activate
+            </p>
           </div>
         </CardContent>
       </Card>

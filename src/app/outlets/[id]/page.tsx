@@ -2054,9 +2054,35 @@ export default function OutletDetailPage() {
                       e.target.value = "";
                       return;
                     }
+                    // Licenses: prompt for expiry date so the system can
+                    // auto-schedule a renewal reminder (matches required flow:
+                    // "Upload license → Add expiry → System creates reminder")
+                    let expiryDate: string | undefined;
+                    let licenseNumber: string | undefined;
+                    if (docCategory === "license") {
+                      const expiryInput = window.prompt(
+                        "Enter license expiry date (YYYY-MM-DD).\n\nA renewal reminder will be auto-scheduled.",
+                        ""
+                      );
+                      if (expiryInput === null) {
+                        e.target.value = "";
+                        return;
+                      }
+                      if (expiryInput && !/^\d{4}-\d{2}-\d{2}$/.test(expiryInput.trim())) {
+                        alert("Invalid date format. Use YYYY-MM-DD.");
+                        e.target.value = "";
+                        return;
+                      }
+                      expiryDate = expiryInput.trim() || undefined;
+                      const numInput = window.prompt("License number (optional):", "");
+                      licenseNumber = numInput?.trim() || undefined;
+                    }
                     setDocUploading(true);
                     try {
-                      const res = await uploadOutletDocument(outlet.id, file, docCategory);
+                      const res = await uploadOutletDocument(outlet.id, file, docCategory, {
+                        expiryDate,
+                        licenseNumber,
+                      });
                       setData((prev) =>
                         prev
                           ? {
@@ -2065,6 +2091,16 @@ export default function OutletDetailPage() {
                             }
                           : prev
                       );
+                      if (docCategory === "license" && expiryDate) {
+                        // Refresh alerts/events so the new reminder shows up
+                        // immediately without a manual page reload.
+                        try {
+                          const refreshed = await (
+                            await import("@/lib/api")
+                          ).getOutlet(outlet.id);
+                          setData(refreshed);
+                        } catch { /* non-critical */ }
+                      }
                     } catch {
                       // handle silently
                     } finally {
