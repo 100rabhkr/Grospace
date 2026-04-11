@@ -39,12 +39,48 @@ def _prune_auth_cache(now: float) -> None:
         _auth_cache.pop(oldest_key, None)
 
 
+_VALID_DEMO_ROLES = {"platform_admin", "org_admin", "org_member"}
+
+
+def _resolve_demo_user_from_token(token: str) -> Optional[CurrentUser]:
+    """
+    Parse a demo bearer token of the form:
+        demo:<role>:<user_id>     full form
+        demo:<role>               user_id defaults to 'demo-user'
+    Returns a synthetic CurrentUser so demo sessions (cookie-based,
+    no real Supabase JWT) can still authenticate against the backend.
+
+    Platform admin demo users have org_id=None so get_org_filter()
+    returns None and they see all orgs (matches the old demo behavior).
+    """
+    if not token.startswith("demo:"):
+        return None
+    parts = token.split(":", 2)
+    if len(parts) < 2:
+        return None
+    role = parts[1] if parts[1] in _VALID_DEMO_ROLES else "platform_admin"
+    user_id = parts[2] if len(parts) > 2 and parts[2] else "demo-user"
+    return CurrentUser(
+        user_id=user_id,
+        email="demo@grospace.com",
+        role=role,
+        org_id=None,
+    )
+
+
 def _resolve_current_user_from_token(token: str) -> Optional[CurrentUser]:
     now = time.monotonic()
     cache_key = _get_cache_key(token)
     cached = _auth_cache.get(cache_key)
     if cached and cached[0] > now:
         return cached[1]
+
+    # Demo-session shortcut — no network call, instant resolve
+    demo_user = _resolve_demo_user_from_token(token)
+    if demo_user is not None:
+        _prune_auth_cache(now)
+        _auth_cache[cache_key] = (now + _AUTH_CACHE_TTL_SECONDS, demo_user)
+        return demo_user
 
     try:
         user_response = supabase.auth.get_user(token)
