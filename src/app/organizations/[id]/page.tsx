@@ -217,6 +217,10 @@ export default function OrganizationDetailPage() {
         password: res.temp_password,
         email_sent: res.email_sent,
       });
+      // Refetch so the admin's must_reset_password badge + any profile
+      // state the backend just updated reflects in the UI without a
+      // page reload. Otherwise the sidebar/members list shows stale data.
+      fetchDetail();
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to resend invitation");
     } finally {

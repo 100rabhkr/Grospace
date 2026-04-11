@@ -367,8 +367,10 @@ function SettingsPageInner() {
       setAccountRole(user.role || "org_member");
       setLoadingProfile(false);
     }
-    // Only fetch from API if real user (not demo)
-    if (user && user.id !== "demo-user") {
+    // Fetch the authoritative profile from the backend. The old guard
+    // that skipped this for user.id === "demo-user" is a leftover from
+    // the removed demo auth path and is no longer reachable.
+    if (user) {
       getProfile()
         .then((data) => {
           const profile = data.profile;

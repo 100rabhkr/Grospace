@@ -12,6 +12,8 @@ import {
   FileText,
   AlertTriangle,
 } from "lucide-react";
+import { useUser } from "@/lib/hooks/use-user";
+import { canWrite, type UserRole } from "@/components/navigation-config";
 
 type DeletedOutlet = {
   id: string;
@@ -35,11 +37,17 @@ type DeletedAgreement = {
 };
 
 export default function RecycleBinPage() {
+  const { user, loading: userLoading } = useUser();
   const [outlets, setOutlets] = useState<DeletedOutlet[]>([]);
   const [agreements, setAgreements] = useState<DeletedAgreement[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+
+  // Role guards: only org_admin and platform_admin can restore / delete
+  // forever. org_member / finance_viewer see the items but no actions.
+  const userCanWrite = canWrite(user?.role as UserRole | undefined);
+  const isReadOnly = !userLoading && !userCanWrite;
 
   async function fetchAll() {
     try {
@@ -214,30 +222,39 @@ export default function RecycleBinPage() {
                       </p>
                     </div>
                     <div className="flex items-center gap-1.5">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="gap-1.5 text-xs"
-                        disabled={busyId === outlet.id}
-                        onClick={() => handleRestoreOutlet(outlet.id)}
-                      >
-                        {busyId === outlet.id ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <RotateCcw className="h-3.5 w-3.5" />
-                        )}
-                        Restore
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="gap-1.5 text-xs text-rose-600 border-rose-200 hover:bg-rose-50"
-                        disabled={busyId === outlet.id}
-                        onClick={() => handleDeleteOutletForever(outlet.id, outlet.name)}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                        Delete Forever
-                      </Button>
+                      {userCanWrite && (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="gap-1.5 text-xs"
+                            disabled={busyId === outlet.id}
+                            onClick={() => handleRestoreOutlet(outlet.id)}
+                          >
+                            {busyId === outlet.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <RotateCcw className="h-3.5 w-3.5" />
+                            )}
+                            Restore
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="gap-1.5 text-xs text-rose-600 border-rose-200 hover:bg-rose-50"
+                            disabled={busyId === outlet.id}
+                            onClick={() => handleDeleteOutletForever(outlet.id, outlet.name)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Delete Forever
+                          </Button>
+                        </>
+                      )}
+                      {isReadOnly && (
+                        <span className="text-[11px] text-muted-foreground italic px-2">
+                          Read-only — ask an admin to restore
+                        </span>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -287,30 +304,39 @@ export default function RecycleBinPage() {
                         </p>
                       </div>
                       <div className="flex items-center gap-1.5">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="gap-1.5 text-xs"
-                          disabled={busyId === agr.id}
-                          onClick={() => handleRestoreAgreement(agr.id)}
-                        >
-                          {busyId === agr.id ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <RotateCcw className="h-3.5 w-3.5" />
-                          )}
-                          Restore
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="gap-1.5 text-xs text-rose-600 border-rose-200 hover:bg-rose-50"
-                          disabled={busyId === agr.id}
-                          onClick={() => handleDeleteAgreementForever(agr.id, title)}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                          Delete Forever
-                        </Button>
+                        {userCanWrite && (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="gap-1.5 text-xs"
+                              disabled={busyId === agr.id}
+                              onClick={() => handleRestoreAgreement(agr.id)}
+                            >
+                              {busyId === agr.id ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <RotateCcw className="h-3.5 w-3.5" />
+                              )}
+                              Restore
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="gap-1.5 text-xs text-rose-600 border-rose-200 hover:bg-rose-50"
+                              disabled={busyId === agr.id}
+                              onClick={() => handleDeleteAgreementForever(agr.id, title)}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                              Delete Forever
+                            </Button>
+                          </>
+                        )}
+                        {isReadOnly && (
+                          <span className="text-[11px] text-muted-foreground italic px-2">
+                            Read-only
+                          </span>
+                        )}
                       </div>
                     </CardContent>
                   </Card>

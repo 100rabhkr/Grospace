@@ -1099,10 +1099,18 @@ export default function OutletDetailPage() {
             defaultValue={outlet.notes || ""}
             onBlur={async (e) => {
               const val = e.target.value;
-              if (val !== (outlet.notes || "")) {
-                try {
-                  await updateOutlet(outletId, { notes: val });
-                } catch { /* silent */ }
+              if (val === (outlet.notes || "")) return;
+              // Optimistic update so the UI reflects the new note
+              // immediately. If the API call fails, restore the old
+              // value and alert the user — otherwise silent failures
+              // made notes "disappear" on next page load.
+              const prev = outlet.notes || "";
+              setData((d) => (d ? { ...d, outlet: { ...d.outlet, notes: val } } : d));
+              try {
+                await updateOutlet(outletId, { notes: val });
+              } catch (err) {
+                setData((d) => (d ? { ...d, outlet: { ...d.outlet, notes: prev } } : d));
+                alert(err instanceof Error ? err.message : "Failed to save note");
               }
             }}
           />

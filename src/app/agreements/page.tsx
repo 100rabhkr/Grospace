@@ -477,24 +477,29 @@ export default function AgreementsPage() {
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={async (e) => {
-                                e.stopPropagation();
-                                e.preventDefault();
-                                if (!confirm(`Move "${agr.document_filename}" to the recycle bin? You can restore it later from Settings → Recycle Bin.`)) return;
-                                try {
-                                  await deleteAgreement(agr.id);
-                                  setAgreements((prev) => prev.filter((a) => a.id !== agr.id));
-                                } catch (err) {
-                                  alert(err instanceof Error ? err.message : "Failed to delete");
-                                }
-                              }}
-                              className="p-1 rounded text-rose-600 hover:bg-rose-50 opacity-0 group-hover:opacity-100 transition-opacity"
-                              title="Delete (move to recycle bin)"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
+                            {/* Delete button is org_admin+ only. org_member and
+                                finance_viewer see no trash icon. Backend is
+                                also gated — this is UX defence in depth. */}
+                            {canWrite(user?.role as UserRole | undefined) && (
+                              <button
+                                type="button"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                  if (!confirm(`Move "${agr.document_filename}" to the recycle bin? You can restore it later from Settings → Recycle Bin.`)) return;
+                                  try {
+                                    await deleteAgreement(agr.id);
+                                    setAgreements((prev) => prev.filter((a) => a.id !== agr.id));
+                                  } catch (err) {
+                                    alert(err instanceof Error ? err.message : "Failed to delete");
+                                  }
+                                }}
+                                className="p-1 rounded text-rose-600 hover:bg-rose-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                                title="Delete (move to recycle bin)"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
                             <Link href={`/agreements/${agr.id}`}>
                               <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
                             </Link>
