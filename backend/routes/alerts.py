@@ -193,7 +193,7 @@ def create_reminder(
         reminder = result.data[0]
         entity_type = "outlet" if req.outlet_id else "agreement" if req.agreement_id else "organization"
         entity_id = req.outlet_id or req.agreement_id or org_id
-        log_activity(org_id, user.user_id if user else None, entity_type, entity_id, "reminder_created", {
+        log_activity(org_id, get_db_user_id(user), entity_type, entity_id, "reminder_created", {
             "reminder_id": reminder.get("id"),
             "title": req.title,
             "trigger_date": req.trigger_date,

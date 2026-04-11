@@ -13,7 +13,7 @@ from difflib import SequenceMatcher
 
 from core.config import supabase, log_activity
 from core.models import CurrentUser, UpsertRevenueRequest
-from core.dependencies import get_current_user, get_org_filter, require_permission
+from core.dependencies import get_current_user, get_db_user_id, get_org_filter, require_permission
 
 router = APIRouter(prefix="/api", tags=["revenue"])
 
@@ -66,7 +66,7 @@ def upsert_revenue(
         result = supabase.table("outlet_revenue").insert(clean).execute()
 
     if org_id:
-        log_activity(org_id, user.user_id if user else None, "outlet", outlet_id, "revenue_recorded", {
+        log_activity(org_id, get_db_user_id(user), "outlet", outlet_id, "revenue_recorded", {
             "month": req.month,
             "year": req.year,
             "total_revenue": total,

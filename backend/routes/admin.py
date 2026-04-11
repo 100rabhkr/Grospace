@@ -121,10 +121,21 @@ def approve_signup_request(
     if signup["status"] != "pending":
         raise HTTPException(status_code=400, detail="Request already processed")
 
-    # Update user profile with org_id and role
+    # Multi-tenant guard: an org_admin can only approve signups into their
+    # OWN org, not any other org. Platform admin can approve anywhere.
+    if user and user.role != "platform_admin" and user.org_id and user.org_id != org_id:
+        raise HTTPException(
+            status_code=403,
+            detail="You can only approve signups into your own organization",
+        )
+
+    # Update user profile with org_id and role. Force a password reset on
+    # first login since the user was created via Supabase auth.signUp and
+    # the operator approving them may want to replace their self-set password.
     profile_update = {
         "org_id": org_id,
         "role": role,
+        "must_reset_password": True,
     }
     if full_access:
         profile_update["full_access"] = True
@@ -132,7 +143,12 @@ def approve_signup_request(
     if signup.get("name"):
         profile_update["full_name"] = signup["name"]
 
-    supabase.table("profiles").update(profile_update).eq("id", signup["user_id"]).execute()
+    try:
+        supabase.table("profiles").update(profile_update).eq("id", signup["user_id"]).execute()
+    except Exception:
+        # Column must_reset_password may not exist on older schemas — retry slim
+        slim = {k: v for k, v in profile_update.items() if k != "must_reset_password"}
+        supabase.table("profiles").update(slim).eq("id", signup["user_id"]).execute()
 
     # Mark signup request as approved (reviewed_by is uuid type — demo
     # sessions with synthetic ids would fail the cast, so guard via helper)
@@ -556,12 +572,14 @@ async def create_organization_with_admin(
     except Exception as e:
         logger.warning("create_organization_with_admin: sheet tab creation failed: %s", e)
 
-    # 6. Send invitation email via Resend (non-blocking — creds are also
-    #    returned in the response so Super Admin can relay manually).
+    # 6. Send invitation email via Resend. Uses the rich helper so we
+    # can surface a specific failure reason (e.g. test-mode recipient
+    # blocked) back to Super Admin instead of a silent False.
     email_sent = False
     email_error: Optional[str] = None
+    email_reason: Optional[str] = None
     try:
-        from services.email_service import send_email_via_resend
+        from services.email_service import send_email_via_resend_with_reason
         login_url = os.getenv("PUBLIC_APP_URL", "https://grospace-sandy.vercel.app") + "/auth/login"
         subject = f"You're invited to GroSpace — {org_name}"
         body_html = f"""
@@ -591,10 +609,14 @@ async def create_organization_with_admin(
           </p>
         </div>
         """.strip()
-        send_email_via_resend(admin_email, subject, body_html)
-        email_sent = True
+        email_result = send_email_via_resend_with_reason(admin_email, subject, body_html)
+        email_sent = email_result["ok"]
+        email_reason = email_result.get("reason")
+        if not email_sent:
+            email_error = email_result.get("detail")
     except Exception as e:
         email_error = str(e)[:200]
+        email_reason = "exception"
         logger.warning("create_organization_with_admin: invitation email failed: %s", e)
 
     # 7. Audit log
@@ -622,6 +644,7 @@ async def create_organization_with_admin(
         "brands_created": created_brands,
         "email_sent": email_sent,
         "email_error": email_error,
+        "email_reason": email_reason,
         "message": (
             f"Organization '{org_name}' created. Invitation email "
             f"{'sent to' if email_sent else 'could NOT be sent to'} {admin_email}. "
@@ -850,11 +873,12 @@ async def assign_org_admin(
     except Exception as e:
         logger.warning("assign_org_admin: org update failed: %s", e)
 
-    # Send invitation email
+    # Send invitation email (with rich failure reason)
     email_sent = False
     email_error: Optional[str] = None
+    email_reason: Optional[str] = None
     try:
-        from services.email_service import send_email_via_resend
+        from services.email_service import send_email_via_resend_with_reason
         login_url = os.getenv("PUBLIC_APP_URL", "https://grospace-sandy.vercel.app") + "/auth/login"
         first_name = (clean_name.split(" ")[0] or clean_name)
         subject = f"You're invited as admin of {org_name} on GroSpace"
@@ -878,9 +902,14 @@ async def assign_org_admin(
           </p>
         </div>
         """.strip()
-        email_sent = bool(send_email_via_resend(clean_email, subject, body_html))
+        email_result = send_email_via_resend_with_reason(clean_email, subject, body_html)
+        email_sent = email_result["ok"]
+        email_reason = email_result.get("reason")
+        if not email_sent:
+            email_error = email_result.get("detail")
     except Exception as e:
         email_error = str(e)[:200]
+        email_reason = "exception"
         logger.warning("assign_org_admin: email failed: %s", e)
 
     log_activity(org_id, get_db_user_id(user), "organization", org_id, "org_admin_assigned", {
@@ -900,6 +929,7 @@ async def assign_org_admin(
         },
         "email_sent": email_sent,
         "email_error": email_error,
+        "email_reason": email_reason,
         "message": f"Admin assigned to {org_name}. Email {'sent' if email_sent else 'FAILED — copy the password manually'} to {clean_email}.",
     }
 
@@ -958,11 +988,12 @@ async def resend_org_invitation(
     except Exception:
         pass
 
-    # Send the email
+    # Send the email (with rich failure reason)
     email_sent = False
     email_error: Optional[str] = None
+    email_reason: Optional[str] = None
     try:
-        from services.email_service import send_email_via_resend
+        from services.email_service import send_email_via_resend_with_reason
         login_url = os.getenv("PUBLIC_APP_URL", "https://grospace-sandy.vercel.app") + "/auth/login"
         first_name = (admin_full_name or "").split(" ")[0] or admin_full_name or "there"
         org_name = org.data.get("name", "your organization")
@@ -987,9 +1018,14 @@ async def resend_org_invitation(
           </p>
         </div>
         """.strip()
-        email_sent = bool(send_email_via_resend(admin_email, subject, body_html))
+        email_result = send_email_via_resend_with_reason(admin_email, subject, body_html)
+        email_sent = email_result["ok"]
+        email_reason = email_result.get("reason")
+        if not email_sent:
+            email_error = email_result.get("detail")
     except Exception as e:
         email_error = str(e)[:200]
+        email_reason = "exception"
         logger.warning("resend_org_invitation: email failed: %s", e)
 
     log_activity(org_id, get_db_user_id(user), "organization", org_id, "org_invitation_resent", {
@@ -1003,6 +1039,7 @@ async def resend_org_invitation(
         "temp_password": temp_password,
         "email_sent": email_sent,
         "email_error": email_error,
+        "email_reason": email_reason,
         "message": (
             f"Password rotated for {admin_email}. Invitation email "
             f"{'sent' if email_sent else 'FAILED — hand the credentials over manually'}."
@@ -1240,10 +1277,12 @@ def invite_org_member(
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e)[:200])
 
-    # Send invitation email with credentials
+    # Send invitation email with credentials (rich failure reason)
     email_sent = False
     email_error: Optional[str] = None
+    email_reason: Optional[str] = None
     try:
+        from services.email_service import send_email_via_resend_with_reason
         org_result = supabase.table("organizations").select("name").eq("id", org_id).single().execute()
         org_name = org_result.data.get("name", "GroSpace") if org_result.data else "GroSpace"
         login_url = os.getenv("PUBLIC_APP_URL", os.getenv("NEXT_PUBLIC_APP_URL", "https://grospace-sandy.vercel.app")) + "/auth/login"
@@ -1276,13 +1315,18 @@ def invite_org_member(
           </p>
         </div>
         """.strip()
-        email_sent = bool(send_email_via_resend(
+        email_result = send_email_via_resend_with_reason(
             clean_email,
             f"You've been invited to {org_name} on GroSpace",
             invite_html,
-        ))
+        )
+        email_sent = email_result["ok"]
+        email_reason = email_result.get("reason")
+        if not email_sent:
+            email_error = email_result.get("detail")
     except Exception as e:
         email_error = str(e)[:200]
+        email_reason = "exception"
         logger.warning("invite_org_member: email send failed: %s", e)
 
     # Org activity audit (mirrors to Google Sheets per-org tab)
@@ -1297,6 +1341,7 @@ def invite_org_member(
         "member": member,
         "email_sent": email_sent,
         "email_error": email_error,
+        "email_reason": email_reason,
         "temp_password": temp_password,  # Shown once to inviter as backup
         "must_reset_password": True,
     }

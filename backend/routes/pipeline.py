@@ -69,7 +69,7 @@ def move_pipeline_card(req: MovePipelineRequest, user: Optional[CurrentUser] = D
 
     org_id = current.data.get("org_id")
     if org_id:
-        log_activity(org_id, user.user_id if user else None, "outlet", req.outlet_id, "deal_stage_changed", {
+        log_activity(org_id, get_db_user_id(user), "outlet", req.outlet_id, "deal_stage_changed", {
             "old_stage": old_stage,
             "new_stage": req.new_stage,
         })

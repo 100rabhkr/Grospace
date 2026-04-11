@@ -35,7 +35,13 @@ class UpdateBrandRequest(BaseModel):
 
 @router.get("/brands", dependencies=[Depends(require_permission("view_outlets"))])
 def list_brands(user: Optional[CurrentUser] = Depends(get_current_user)):
-    """List brands visible to the caller. Platform admin sees all."""
+    """
+    List brands visible to the caller. Platform admin sees all.
+
+    If the brands table hasn't been provisioned yet (migration_030 not run),
+    transparently fall back to deriving distinct brand names from
+    outlets.brand_name so the UI has something to show. No scary warning.
+    """
     try:
         query = supabase.table("brands").select("*").order("name")
         org_id = get_org_filter(user)
@@ -44,9 +50,33 @@ def list_brands(user: Optional[CurrentUser] = Depends(get_current_user)):
         result = query.execute()
         return {"brands": result.data or []}
     except Exception as e:
-        # Migration 030 may not be applied yet — fall back to empty list
-        logger.warning("list_brands: %s", e)
-        return {"brands": [], "warning": "brands table unavailable; apply migration_030"}
+        logger.info("list_brands: brands table unavailable, falling back to outlets.brand_name: %s", str(e)[:120])
+        # Derive brands from outlets — inline fallback so the Settings UI
+        # doesn't look broken. Read-only (no CRUD) until migration applied.
+        try:
+            outlets_query = supabase.table("outlets").select("brand_name, org_id")
+            org_id = get_org_filter(user)
+            if org_id:
+                outlets_query = outlets_query.eq("org_id", org_id)
+            outlets_result = outlets_query.execute()
+            seen: dict[str, dict] = {}
+            for row in (outlets_result.data or []):
+                bn = (row.get("brand_name") or "").strip()
+                if not bn:
+                    continue
+                key = bn.lower()
+                if key not in seen:
+                    seen[key] = {
+                        "id": f"derived:{key}",
+                        "org_id": row.get("org_id"),
+                        "name": bn,
+                        "notes": "Derived from existing outlets (brands table pending)",
+                        "logo_url": None,
+                        "derived": True,
+                    }
+            return {"brands": sorted(seen.values(), key=lambda b: b["name"].lower())}
+        except Exception:
+            return {"brands": []}
 
 
 @router.post("/brands", dependencies=[Depends(require_permission("manage_org_settings"))])

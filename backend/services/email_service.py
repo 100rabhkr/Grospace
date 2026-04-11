@@ -2,16 +2,47 @@
 Email sending via Resend API.
 """
 
+import logging
 import os
 
 from core.config import supabase, log_activity
 
+logger = logging.getLogger(__name__)
+
 
 def send_email_via_resend(to_email: str, subject: str, html_body: str) -> bool:
-    """Send an email using the Resend API. Returns True on success."""
+    """
+    Send an email using the Resend API. Returns True on success.
+
+    Legacy signature — kept for existing callers. For new code that needs
+    the failure reason, use send_email_via_resend_with_reason().
+    """
+    result = send_email_via_resend_with_reason(to_email, subject, html_body)
+    return result["ok"]
+
+
+def send_email_via_resend_with_reason(to_email: str, subject: str, html_body: str) -> dict:
+    """
+    Send an email via Resend. Returns a dict with:
+      - ok: bool (True on success)
+      - reason: str | None ("test_mode_recipient_blocked" | "no_api_key"
+                            | "http_error" | "exception" | None)
+      - detail: str (human-readable detail for the UI)
+      - status_code: int | None
+
+    Resend test mode (sender = onboarding@resend.dev) refuses to deliver
+    to anyone except the account owner's verified email. Callers should
+    check `reason == "test_mode_recipient_blocked"` and surface a
+    "Copy credentials and hand them off manually" UI in that case.
+    """
     resend_api_key = os.getenv("RESEND_API_KEY")
     if not resend_api_key:
-        return False
+        return {
+            "ok": False,
+            "reason": "no_api_key",
+            "detail": "RESEND_API_KEY is not configured on the backend.",
+            "status_code": None,
+        }
     try:
         import requests
         resp = requests.post(
@@ -28,9 +59,40 @@ def send_email_via_resend(to_email: str, subject: str, html_body: str) -> bool:
             },
             timeout=10,
         )
-        return resp.status_code in (200, 201)
-    except Exception:
-        return False
+        if resp.status_code in (200, 201):
+            return {"ok": True, "reason": None, "detail": "Delivered.", "status_code": resp.status_code}
+
+        # Classify the failure. Resend test mode returns 403 with a
+        # distinctive message — surface that as a specific reason so the
+        # UI can show the "copy and hand off" workflow.
+        body_text = resp.text or ""
+        if resp.status_code == 403 and "testing emails" in body_text.lower():
+            return {
+                "ok": False,
+                "reason": "test_mode_recipient_blocked",
+                "detail": (
+                    "Resend is in test mode and can only deliver to the account "
+                    "owner's verified email. Verify a custom domain at "
+                    "resend.com/domains to unlock other recipients, or hand the "
+                    "generated credentials off manually using the Copy button."
+                ),
+                "status_code": resp.status_code,
+            }
+        logger.warning("Resend send failed: HTTP %s %s", resp.status_code, body_text[:200])
+        return {
+            "ok": False,
+            "reason": "http_error",
+            "detail": f"Resend returned HTTP {resp.status_code}: {body_text[:200]}",
+            "status_code": resp.status_code,
+        }
+    except Exception as e:
+        logger.warning("Resend send exception: %s", e)
+        return {
+            "ok": False,
+            "reason": "exception",
+            "detail": f"Email provider error: {str(e)[:200]}",
+            "status_code": None,
+        }
 
 
 def build_alert_email_html(alert: dict, org_name: str = "GroSpace") -> str:

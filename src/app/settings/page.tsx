@@ -233,9 +233,10 @@ export default function SettingsPage() {
   const [accountName, setAccountName] = useState("");
   const [accountEmail, setAccountEmail] = useState("");
   const [accountRole, setAccountRole] = useState("");
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
+  // Legacy state retained for handleAccountSave reset path only
+  const [, setCurrentPassword] = useState("");
+  const [, setNewPassword] = useState("");
+  const [, setConfirmPassword] = useState("");
   const [accountSaved, setAccountSaved] = useState(false);
   const [accountSaving, setAccountSaving] = useState(false);
 
@@ -779,30 +780,24 @@ export default function SettingsPage() {
               )}
             </TabsTrigger>
           )}
-          <TabsTrigger
-            value="templates"
-            className="relative h-10 rounded-none bg-transparent px-0 text-[13px] font-semibold text-muted-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:bottom-[-1px] data-[state=active]:after:h-[2px] data-[state=active]:after:bg-foreground"
-          >
-            Templates
-          </TabsTrigger>
-          <TabsTrigger
-            value="alerts"
-            className="relative h-10 rounded-none bg-transparent px-0 text-[13px] font-semibold text-muted-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:bottom-[-1px] data-[state=active]:after:h-[2px] data-[state=active]:after:bg-foreground"
-          >
-            Reminder Preferences
-          </TabsTrigger>
+          {/* Templates + Reminder Preferences: dropped for both roles —
+              legacy features that added clutter. Reminder config moved into
+              the Organization tab (TODO) and templates aren't a real feature. */}
           <TabsTrigger
             value="account"
             className="relative h-10 rounded-none bg-transparent px-0 text-[13px] font-semibold text-muted-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:bottom-[-1px] data-[state=active]:after:h-[2px] data-[state=active]:after:bg-foreground"
           >
             Account
           </TabsTrigger>
-          <TabsTrigger
-            value="data"
-            className="relative h-10 rounded-none bg-transparent px-0 text-[13px] font-semibold text-muted-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:bottom-[-1px] data-[state=active]:after:h-[2px] data-[state=active]:after:bg-foreground"
-          >
-            Data
-          </TabsTrigger>
+          {/* Data tab: Super Admin only (platform-wide export/flush operations) */}
+          {user?.role === "platform_admin" && (
+            <TabsTrigger
+              value="data"
+              className="relative h-10 rounded-none bg-transparent px-0 text-[13px] font-semibold text-muted-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:bottom-[-1px] data-[state=active]:after:h-[2px] data-[state=active]:after:bg-foreground"
+            >
+              Data
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {/* ============================================================= */}
@@ -1358,6 +1353,11 @@ export default function SettingsPage() {
         {/* ============================================================= */}
         {/* Templates Tab                                                  */}
         {/* ============================================================= */}
+        {/* Templates tab — retained for fallback URL access but no tab
+            trigger exists so this is effectively dead code. Wrapped in a
+            permanent `false` guard to kill-switch it without deleting the
+            markup (in case we restore templates later). */}
+        {false && (
         <TabsContent value="templates" className="mt-6 space-y-4">
           <div className="rounded-lg border border-blue-100 bg-blue-50/50 p-3 text-xs text-blue-700">
             <strong>Agreement Templates:</strong> Upload your standard lease agreement templates here. These serve as your baseline terms — when new agreements are extracted, you can compare them against these standards to quickly identify deviations in rent structure, lock-in periods, escalation clauses, and other key terms.
@@ -1441,10 +1441,12 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
         </TabsContent>
+        )}
 
         {/* ============================================================= */}
-        {/* Alert Preferences Tab                                          */}
+        {/* Alert Preferences Tab — killswitched (same pattern as Templates) */}
         {/* ============================================================= */}
+        {false && (
         <TabsContent value="alerts" className="mt-6 space-y-4">
           {/* Alert Lead Times */}
           <Card>
@@ -1661,6 +1663,7 @@ export default function SettingsPage() {
           </Card>
           )}
         </TabsContent>
+        )}
 
         {/* ============================================================= */}
         {/* Account Tab                                                    */}
@@ -1732,56 +1735,8 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
 
-          {/* Change Password */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <Shield className="w-4 h-4" />
-                Change Password
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-2 max-w-md">
-                <Label htmlFor="current-password">Current Password</Label>
-                <Input
-                  id="current-password"
-                  type="password"
-                  value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
-                  placeholder="Enter current password"
-                />
-              </div>
-
-              <div className="grid gap-2 max-w-md">
-                <Label htmlFor="new-password">New Password</Label>
-                <Input
-                  id="new-password"
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="Enter new password"
-                />
-              </div>
-
-              <div className="grid gap-2 max-w-md">
-                <Label htmlFor="confirm-password">Confirm New Password</Label>
-                <Input
-                  id="confirm-password"
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="Confirm new password"
-                />
-                {newPassword &&
-                  confirmPassword &&
-                  newPassword !== confirmPassword && (
-                    <p className="text-xs text-rose-600">
-                      Passwords do not match
-                    </p>
-                  )}
-              </div>
-            </CardContent>
-          </Card>
+          {/* Change Password lives at the top of this tab as
+              <ChangePasswordSection/> — do not duplicate it here. */}
 
           {/* Save */}
           <div className="flex items-center gap-3">
@@ -1804,8 +1759,9 @@ export default function SettingsPage() {
         </TabsContent>
 
         {/* ============================================================= */}
-        {/* Data Management Tab                                            */}
+        {/* Data Management Tab (Super Admin only)                         */}
         {/* ============================================================= */}
+        {user?.role === "platform_admin" && (
         <TabsContent value="data" className="mt-6 space-y-4">
           {/* Support & Ops (#110) */}
           <div className="rounded-lg border border-blue-100 bg-blue-50/50 p-3 text-xs text-blue-700">
@@ -1842,6 +1798,7 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
         </TabsContent>
+        )}
       </Tabs>
     </div>
   );

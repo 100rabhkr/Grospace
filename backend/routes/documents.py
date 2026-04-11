@@ -8,6 +8,7 @@ import json
 import time
 import hashlib
 import asyncio
+import logging
 from contextlib import suppress
 from functools import lru_cache
 from typing import Optional
@@ -22,6 +23,8 @@ from core.models import (
     CurrentUser, ExtractRequest, ClassifyRequest, QARequest, RiskFlagRequest,
 )
 from core.dependencies import get_current_user, get_db_user_id, get_org_filter, require_permission
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["documents"])
 
@@ -692,9 +695,15 @@ async def upload_outlet_document(
 
 @router.delete("/documents/{document_id}", dependencies=[Depends(require_permission("delete_outlets"))])
 def delete_document(document_id: str, user: Optional[CurrentUser] = Depends(get_current_user)):
-    """Delete a document."""
+    """Delete a document. Org-scoped — prevents cross-tenant deletions."""
     doc = supabase.table("documents").select("id, org_id, file_url, filename, outlet_id").eq("id", document_id).single().execute()
     if not doc.data:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # Multi-tenant guard — without this an attacker with any valid document_id
+    # from another org could delete that doc. Gate on org match.
+    caller_org = get_org_filter(user)
+    if caller_org and doc.data.get("org_id") != caller_org:
         raise HTTPException(status_code=404, detail="Document not found")
 
     try:
@@ -702,14 +711,14 @@ def delete_document(document_id: str, user: Optional[CurrentUser] = Depends(get_
         if "storage://" in file_url:
             path = file_url.replace("storage://", "")
             supabase.storage.from_("documents").remove([path])
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("delete_document: storage cleanup failed for %s: %s", document_id, e)
 
     supabase.table("documents").delete().eq("id", document_id).execute()
 
     org_id = doc.data.get("org_id")
     if org_id:
-        log_activity(org_id, user.user_id if user else None, "document", document_id, "deleted", {
+        log_activity(org_id, get_db_user_id(user), "document", document_id, "deleted", {
             "filename": doc.data.get("filename"),
             "outlet_id": doc.data.get("outlet_id"),
         })

@@ -10,43 +10,11 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 let _cachedToken: string | null = null;
 let _tokenExpiry = 0;
 
-/** Read a cookie value by name (browser only). */
-function readCookie(name: string): string | null {
-  if (typeof document === "undefined") return null;
-  const match = document.cookie.split(";").map((c) => c.trim()).find((c) => c.startsWith(`${name}=`));
-  if (!match) return null;
-  const value = match.slice(name.length + 1);
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
-}
-
-/**
- * Build a demo bearer token from the `grospace-demo-*` cookies set by
- * /api/auth/demo. The backend recognizes `demo:<role>:<id>` as a
- * valid synthetic session (see backend/core/dependencies.py).
- *
- * IMPORTANT: `grospace-demo-session` is set as HttpOnly so JavaScript
- * cannot read it. We detect an active demo session via the non-HttpOnly
- * companion cookies `grospace-demo-role` / `grospace-demo-name` which
- * are always set together with the session cookie.
- */
-function buildDemoToken(): string | null {
-  const role = readCookie("grospace-demo-role");
-  const name = readCookie("grospace-demo-name");
-  if (!role && !name) return null;
-  const safeId = (name || "demo-user").toLowerCase().replace(/[^a-z0-9]+/g, "-");
-  return `demo:${role || "platform_admin"}:${safeId}`;
-}
-
 async function getAuthToken(): Promise<string | null> {
   // Cache token for 60s to avoid redundant session lookups on every API call
   const now = Date.now();
   if (_cachedToken && now < _tokenExpiry) return _cachedToken;
 
-  // Try a real Supabase session first
   try {
     const supabase = createClient();
     const { data: { session } } = await supabase.auth.getSession();
@@ -56,15 +24,7 @@ async function getAuthToken(): Promise<string | null> {
       return _cachedToken;
     }
   } catch {
-    // fall through to demo-cookie check
-  }
-
-  // No real session — fall back to demo cookie if present
-  const demoToken = buildDemoToken();
-  if (demoToken) {
-    _cachedToken = demoToken;
-    _tokenExpiry = now + 60_000;
-    return _cachedToken;
+    // No session — return null so the caller hits the login redirect.
   }
 
   _cachedToken = null;

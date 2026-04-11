@@ -14,7 +14,8 @@ from starlette.requests import Request
 from pydantic import BaseModel
 
 from core.config import supabase, limiter
-from core.dependencies import require_permission
+from core.dependencies import get_current_user, get_org_filter, require_permission
+from core.models import CurrentUser
 from services.extraction_fields import get_num, get_section, get_val
 
 logger = logging.getLogger(__name__)
@@ -534,8 +535,22 @@ def create_event(request: Request, body: EventCreate):
     "/events/{event_id}",
     dependencies=[Depends(require_permission("edit_agreements"))],
 )
-def update_event(event_id: str, body: EventUpdate):
-    """Update an event's status, assignment, or details."""
+@limiter.limit("30/minute")
+def update_event(
+    request: Request,
+    event_id: str,
+    body: EventUpdate,
+    user: Optional[CurrentUser] = Depends(get_current_user),
+):
+    """Update an event's status, assignment, or details. Org-scoped."""
+    # Multi-tenant guard: verify the event belongs to the caller's org
+    existing = supabase.table("critical_dates").select("id, org_id").eq("id", event_id).single().execute()
+    if not existing.data:
+        raise HTTPException(status_code=404, detail="Event not found")
+    caller_org = get_org_filter(user)
+    if caller_org and existing.data.get("org_id") != caller_org:
+        raise HTTPException(status_code=404, detail="Event not found")
+
     updates = body.model_dump(exclude_none=True)
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
@@ -561,8 +576,21 @@ def update_event(event_id: str, body: EventUpdate):
     "/events/{event_id}",
     dependencies=[Depends(require_permission("edit_agreements"))],
 )
-def delete_event(event_id: str):
-    """Delete an event."""
+@limiter.limit("30/minute")
+def delete_event(
+    request: Request,
+    event_id: str,
+    user: Optional[CurrentUser] = Depends(get_current_user),
+):
+    """Delete an event. Org-scoped — prevents cross-tenant deletions."""
+    # Multi-tenant guard
+    existing = supabase.table("critical_dates").select("id, org_id").eq("id", event_id).single().execute()
+    if not existing.data:
+        raise HTTPException(status_code=404, detail="Event not found")
+    caller_org = get_org_filter(user)
+    if caller_org and existing.data.get("org_id") != caller_org:
+        raise HTTPException(status_code=404, detail="Event not found")
+
     result = supabase.table("critical_dates").delete().eq("id", event_id).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Event not found")
