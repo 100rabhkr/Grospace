@@ -247,6 +247,36 @@ export async function getAgreement(id: string) {
   return apiFetch(`/api/agreements/${id}`);
 }
 
+/** Soft-delete an agreement (sends it to the recycle bin) */
+export async function deleteAgreement(id: string) {
+  return apiFetch(`/api/agreements/${id}`, { method: "DELETE" });
+}
+
+/** Restore a soft-deleted agreement from the recycle bin */
+export async function restoreAgreement(id: string) {
+  return apiFetch(`/api/agreements/${id}/restore`, { method: "PATCH" });
+}
+
+/** Permanently delete an agreement (only works if already in recycle bin) */
+export async function deleteAgreementForever(id: string) {
+  return apiFetch(`/api/agreements/${id}/forever`, { method: "DELETE" });
+}
+
+/** List agreements in the recycle bin (org-scoped) */
+export async function listDeletedAgreements() {
+  return apiFetch("/api/agreements/deleted");
+}
+
+/** Permanently delete an outlet (only works if already in recycle bin) */
+export async function deleteOutletForever(id: string) {
+  return apiFetch(`/api/outlets/${id}/forever`, { method: "DELETE" });
+}
+
+/** Permanently remove an extraction job from the processing list */
+export async function deleteExtractionJob(jobId: string) {
+  return apiFetch(`/api/extraction-jobs/${jobId}`, { method: "DELETE" });
+}
+
 /** List outlets (paginated) */
 export async function listOutlets(params?: { page?: number; page_size?: number }) {
   const sp = new URLSearchParams();
@@ -1006,12 +1036,10 @@ export async function uploadOrgLogo(orgId: string, file: File) {
 }
 
 // ============================================
-// AGREEMENT DELETE + DUPLICATE CHECK
+// AGREEMENT DUPLICATE CHECK
 // ============================================
-
-export async function deleteAgreement(agreementId: string) {
-  return apiFetch(`/api/agreements/${agreementId}`, { method: "DELETE" });
-}
+// Note: deleteAgreement / restoreAgreement / deleteAgreementForever /
+// listDeletedAgreements are defined in the Agreements block above.
 
 export async function checkDuplicateAgreement(outletId: string, filename: string) {
   // Check if an agreement with similar filename already exists for this outlet

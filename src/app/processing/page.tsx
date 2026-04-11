@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
-import { listExtractionJobs, markExtractionJobSeen, cancelExtractionJob } from "@/lib/api";
+import { listExtractionJobs, markExtractionJobSeen, cancelExtractionJob, deleteExtractionJob } from "@/lib/api";
 import { useUser } from "@/lib/hooks/use-user";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -297,11 +297,29 @@ export default function ProcessingPage() {
                         {formatTimeAgo(job.updated_at || job.created_at)}
                       </p>
                     </div>
-                    <Link href="/agreements/upload">
-                      <Button size="sm" variant="outline" className="gap-1 text-xs h-7">
-                        Retry
+                    <div className="flex items-center gap-1.5">
+                      <Link href="/agreements/upload">
+                        <Button size="sm" variant="outline" className="gap-1 text-xs h-7">
+                          Retry
+                        </Button>
+                      </Link>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-xs h-7 text-rose-600 hover:text-rose-700 hover:bg-rose-50"
+                        onClick={async () => {
+                          if (!confirm(`Permanently remove "${job.filename}" from the processing list?`)) return;
+                          try {
+                            await deleteExtractionJob(job.id);
+                            setJobs((prev) => prev.filter((j) => j.id !== job.id));
+                          } catch (e) {
+                            alert(e instanceof Error ? e.message : "Failed to delete");
+                          }
+                        }}
+                      >
+                        Delete
                       </Button>
-                    </Link>
+                    </div>
                   </div>
                 </CardContent>
               </Card>

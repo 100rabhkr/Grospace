@@ -357,7 +357,7 @@ def delete_outlet(outlet_id: str, user: Optional[CurrentUser] = Depends(get_curr
 @router.patch("/outlets/{outlet_id}/restore", dependencies=[Depends(require_permission("manage_org_settings"))])
 def restore_outlet(outlet_id: str, user: Optional[CurrentUser] = Depends(get_current_user)):
     """Restore a soft-deleted outlet (admin/CEO only)."""
-    outlet = supabase.table("outlets").select("id, deleted_at, org_id, name").eq("id", outlet_id).single().execute()
+    outlet = supabase.table("outlets").select("id, deleted_at, org_id, name, brand_name").eq("id", outlet_id).single().execute()
     if not outlet.data:
         raise HTTPException(status_code=404, detail="Outlet not found")
 
@@ -380,4 +380,115 @@ def restore_outlet(outlet_id: str, user: Optional[CurrentUser] = Depends(get_cur
             "name": outlet.data.get("name"),
         })
 
+    # Audit to sheets
+    try:
+        from services.sheets_service import write_deletion_audit_row
+        write_deletion_audit_row(
+            action="restore",
+            entity_type="outlet",
+            entity_id=outlet_id,
+            title=outlet.data.get("name") or "",
+            outlet_id=outlet_id,
+            outlet_name=outlet.data.get("name") or "",
+            brand=outlet.data.get("brand_name") or "",
+            deleted_by=(user.email if user else "") or "",
+            org_id=org_id or "",
+        )
+    except Exception:
+        pass
+
     return {"restored": True, "outlet_id": outlet_id}
+
+
+@router.delete("/outlets/{outlet_id}/forever", dependencies=[Depends(require_permission("manage_org_settings"))])
+def delete_outlet_forever(outlet_id: str, user: Optional[CurrentUser] = Depends(get_current_user)):
+    """
+    Permanently delete an outlet and all its downstream data. Only works
+    on outlets already in the recycle bin (deleted_at IS NOT NULL) so this
+    can't bypass the soft-delete safety. Cascades across agreements,
+    documents, events, payments, alerts, obligations, rent_schedules,
+    agreement_clauses, outlet_contacts, outlet_revenue, showcase_tokens.
+    """
+    outlet = supabase.table("outlets").select("*").eq("id", outlet_id).single().execute()
+    if not outlet.data:
+        raise HTTPException(status_code=404, detail="Outlet not found")
+
+    caller_org = get_org_filter(user)
+    org_id = outlet.data.get("org_id")
+    if caller_org and org_id and org_id != caller_org:
+        raise HTTPException(status_code=404, detail="Outlet not found")
+    if not outlet.data.get("deleted_at"):
+        raise HTTPException(
+            status_code=400,
+            detail="Outlet must be in the recycle bin before permanent deletion",
+        )
+
+    # Grab agreements first so we can cascade their children by agreement_id
+    agreements_rows = supabase.table("agreements").select("id").eq("outlet_id", outlet_id).execute()
+    agreement_ids = [r["id"] for r in (agreements_rows.data or [])]
+
+    # Cascade delete everything that hangs off the outlet. Order matters
+    # for FK direction: delete leaves first, then branches, then outlet.
+    try:
+        # Leaf tables that reference agreement_id
+        if agreement_ids:
+            for table in (
+                "rent_schedules", "agreement_clauses", "critical_dates",
+                "payment_records", "obligations", "alerts",
+            ):
+                try:
+                    supabase.table(table).delete().in_("agreement_id", agreement_ids).execute()
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning(
+                        "delete_outlet_forever: %s by agreement_ids failed: %s", table, e
+                    )
+        # Leaf tables that reference outlet_id directly
+        for table in (
+            "payment_records", "obligations", "alerts", "critical_dates",
+            "outlet_contacts", "outlet_revenue", "showcase_tokens",
+            "documents",
+        ):
+            try:
+                supabase.table(table).delete().eq("outlet_id", outlet_id).execute()
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "delete_outlet_forever: %s by outlet_id failed: %s", table, e
+                )
+        # Agreements themselves
+        supabase.table("agreements").delete().eq("outlet_id", outlet_id).execute()
+        # Finally the outlet row
+        supabase.table("outlets").delete().eq("id", outlet_id).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Permanent delete failed: {str(e)[:200]}")
+
+    if org_id:
+        log_activity(org_id, get_db_user_id(user), "outlet", outlet_id, "outlet_deleted_forever", {
+            "name": outlet.data.get("name"),
+            "agreements_cascaded": len(agreement_ids),
+        })
+
+    # Audit to sheets (unified audit tab)
+    try:
+        from services.sheets_service import write_deletion_audit_row
+        display_name = None
+        if user:
+            display_name = user.email or "Demo user"
+        write_deletion_audit_row(
+            action="delete_forever",
+            entity_type="outlet",
+            entity_id=outlet_id,
+            title=outlet.data.get("name") or "",
+            outlet_id=outlet_id,
+            outlet_name=outlet.data.get("name") or "",
+            brand=outlet.data.get("brand_name") or "",
+            status_before=outlet.data.get("status") or "",
+            deleted_by=display_name or "Unknown",
+            org_id=org_id or "",
+            notes=f"Cascaded {len(agreement_ids)} agreement(s) + all events/payments/obligations/alerts",
+        )
+    except Exception:
+        pass
+
+    return {"deleted_forever": True, "outlet_id": outlet_id, "cascaded_agreements": len(agreement_ids)}

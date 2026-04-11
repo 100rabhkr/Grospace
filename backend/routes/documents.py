@@ -45,6 +45,16 @@ _extraction_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_EXTRACTIONS_PER_WORKER
 _EXTRACTION_JOB_HEARTBEAT_SECONDS = max(15, int(os.getenv("EXTRACTION_JOB_HEARTBEAT_SECONDS", "30")))
 _STALE_EXTRACTION_JOB_MINUTES = max(5, int(os.getenv("STALE_EXTRACTION_JOB_MINUTES", "10")))
 
+# CRITICAL: strong references for background extraction tasks.
+# Per https://docs.python.org/3/library/asyncio-task.html#asyncio.create_task
+# the event loop only keeps WEAK references to tasks, so a task whose only
+# reference is the one asyncio.create_task() returned gets garbage-collected
+# mid-execution. We observed this in production as stuck "processing" jobs
+# that never ran (updated_at == created_at, no error, no result).
+#
+# Fix: keep strong refs in a module-level set and discard on completion.
+_background_extraction_tasks: set[asyncio.Task] = set()
+
 
 @lru_cache(maxsize=1)
 def _extraction_service():
@@ -869,8 +879,36 @@ async def upload_and_extract_async(
     clean_job = {k: v for k, v in job_data.items() if v is not None}
     supabase.table("extraction_jobs").insert(clean_job).execute()
 
-    # Run extraction in the background but keep heavy work off the main event loop.
-    asyncio.create_task(_process_extraction_job(job_id, file_bytes, filename, file_ext, file_hash))
+    # Run extraction in the background but keep heavy work off the main event
+    # loop. IMPORTANT: keep a strong reference — the event loop only holds
+    # weak refs to tasks so this would otherwise be GC'd mid-run.
+    #
+    # We also wrap the task in an outer exception handler so any crash in
+    # the coroutine gets written into the job row as `failed` with a real
+    # error message, instead of leaving the job stuck in `processing`
+    # forever (which was the reported bug).
+    async def _run_with_guard():
+        try:
+            await _process_extraction_job(job_id, file_bytes, filename, file_ext, file_hash)
+        except Exception as guard_exc:  # pragma: no cover
+            import logging as _l
+            _l.getLogger(__name__).exception(
+                "extraction task crashed for job %s: %s", job_id, guard_exc,
+            )
+            # Surface a friendly message to the user; the real traceback is
+            # captured in the server logs for debugging.
+            try:
+                supabase.table("extraction_jobs").update({
+                    "status": "failed",
+                    "error": "We couldn't process this document. Please try again — if it keeps failing contact support.",
+                    "updated_at": _utcnow_iso(),
+                }).eq("id", job_id).execute()
+            except Exception:
+                pass
+
+    task = asyncio.create_task(_run_with_guard())
+    _background_extraction_tasks.add(task)
+    task.add_done_callback(_background_extraction_tasks.discard)
 
     return {"job_id": job_id, "status": "processing", "filename": filename}
 
@@ -1016,3 +1054,52 @@ def get_extraction_job(job_id: str, user: Optional[CurrentUser] = Depends(get_cu
     if not result.data:
         raise HTTPException(status_code=404, detail="Extraction job not found")
     return _mark_job_as_stale(result.data) if _is_stale_processing_job(result.data) else result.data
+
+
+@router.delete("/extraction-jobs/{job_id}", dependencies=[Depends(require_permission("view_agreements"))])
+def delete_extraction_job(job_id: str, user: Optional[CurrentUser] = Depends(get_current_user)):
+    """
+    Permanently remove an extraction job from the processing page. Only
+    allowed for terminal states (failed, cancelled, completed) — in-flight
+    processing jobs must be cancelled first.
+
+    Writes a row to the Deletion Audit sheet for traceability.
+    """
+    query = supabase.table("extraction_jobs").select(
+        "id, filename, status, org_id, error"
+    ).eq("id", job_id)
+    if user and _is_uuid(user.user_id):
+        query = query.eq("user_id", user.user_id)
+    else:
+        caller_org = get_org_filter(user)
+        if caller_org:
+            query = query.eq("org_id", caller_org)
+    current = query.single().execute()
+    if not current.data:
+        raise HTTPException(status_code=404, detail="Extraction job not found")
+
+    if current.data.get("status") == "processing":
+        raise HTTPException(
+            status_code=400,
+            detail="Cancel the job first before deleting it from the processing page",
+        )
+
+    supabase.table("extraction_jobs").delete().eq("id", job_id).execute()
+
+    # Audit
+    try:
+        from services.sheets_service import write_deletion_audit_row
+        write_deletion_audit_row(
+            action="delete_forever",
+            entity_type="extraction_job",
+            entity_id=job_id,
+            title=current.data.get("filename") or "",
+            status_before=current.data.get("status") or "",
+            deleted_by=(user.email if user else "") or "",
+            org_id=current.data.get("org_id") or "",
+            notes=(current.data.get("error") or "")[:200],
+        )
+    except Exception:
+        pass
+
+    return {"deleted": True, "job_id": job_id}

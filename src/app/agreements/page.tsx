@@ -8,6 +8,7 @@ import {
   FileText,
   ChevronRight,
   AlertTriangle,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,7 +35,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { listAgreements } from "@/lib/api";
+import { listAgreements, deleteAgreement } from "@/lib/api";
 import { useUser } from "@/lib/hooks/use-user";
 import { canWrite, type UserRole } from "@/components/navigation-config";
 import { Pagination } from "@/components/pagination";
@@ -475,9 +476,29 @@ export default function AgreementsPage() {
                           </StatusBadge>
                         </TableCell>
                         <TableCell>
-                          <Link href={`/agreements/${agr.id}`}>
-                            <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                          </Link>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                if (!confirm(`Move "${agr.document_filename}" to the recycle bin? You can restore it later from Settings → Recycle Bin.`)) return;
+                                try {
+                                  await deleteAgreement(agr.id);
+                                  setAgreements((prev) => prev.filter((a) => a.id !== agr.id));
+                                } catch (err) {
+                                  alert(err instanceof Error ? err.message : "Failed to delete");
+                                }
+                              }}
+                              className="p-1 rounded text-rose-600 hover:bg-rose-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                              title="Delete (move to recycle bin)"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                            <Link href={`/agreements/${agr.id}`}>
+                              <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                            </Link>
+                          </div>
                         </TableCell>
                       </TableRow>
                     );

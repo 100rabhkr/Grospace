@@ -30,6 +30,15 @@ DELETION_HEADERS = [
     "Deleted By", "Org ID",
 ]
 
+# Unified deletion audit trail that covers every entity type (outlet,
+# agreement, extraction_job) and distinguishes soft-delete from
+# permanent "delete forever".
+DELETION_AUDIT_HEADERS = [
+    "Timestamp", "Action", "Entity Type", "Entity ID", "Title",
+    "Related Outlet ID", "Related Outlet Name", "Brand", "Status Before",
+    "Deleted By", "Org ID", "Notes",
+]
+
 
 def _get_spreadsheet():
     """Connect to Google Sheets spreadsheet. Fresh connection each time."""
@@ -341,4 +350,81 @@ def write_changelog_to_sheet(
         return True
     except Exception as e:
         logger.error(f"Failed to write changelog: {e}")
+        return False
+
+
+# ============================================================================
+# Unified Deletion Audit Tab
+# ============================================================================
+# Single sheet tab that captures every delete / restore / permanent-delete
+# operation across outlets, agreements, and extraction jobs. Fed by the
+# delete/restore endpoints via write_deletion_audit_row().
+
+def _get_deletion_audit_sheet():
+    """Get or create the Deletion Audit sheet tab."""
+    spreadsheet = _get_spreadsheet()
+    if not spreadsheet:
+        return None
+    try:
+        sheet = spreadsheet.worksheet("Deletion Audit")
+    except Exception:
+        sheet = spreadsheet.add_worksheet(
+            title="Deletion Audit",
+            rows=5000,
+            cols=len(DELETION_AUDIT_HEADERS),
+        )
+        sheet.insert_row(DELETION_AUDIT_HEADERS, 1)
+        _format_sheet_headers(sheet)
+        return sheet
+    try:
+        first_row = sheet.row_values(1)
+        if not first_row or first_row[0] != DELETION_AUDIT_HEADERS[0]:
+            sheet.insert_row(DELETION_AUDIT_HEADERS, 1)
+            _format_sheet_headers(sheet)
+    except Exception:
+        sheet.insert_row(DELETION_AUDIT_HEADERS, 1)
+    return sheet
+
+
+def write_deletion_audit_row(
+    *,
+    action: str,           # "soft_delete" | "restore" | "delete_forever"
+    entity_type: str,      # "outlet" | "agreement" | "extraction_job"
+    entity_id: str,
+    title: str = "",
+    outlet_id: str = "",
+    outlet_name: str = "",
+    brand: str = "",
+    status_before: str = "",
+    deleted_by: str = "",
+    org_id: str = "",
+    notes: str = "",
+) -> bool:
+    """Append a unified deletion / restore / permanent-delete audit row."""
+    sheet = _get_deletion_audit_sheet()
+    if sheet is None:
+        return False
+    try:
+        row = [
+            datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+            action,
+            entity_type,
+            entity_id,
+            title or "--",
+            outlet_id or "--",
+            outlet_name or "--",
+            brand or "--",
+            status_before or "--",
+            deleted_by or "--",
+            org_id or "--",
+            notes or "--",
+        ]
+        sheet.append_row(row, value_input_option="USER_ENTERED")
+        logger.info(
+            "Deletion audit: %s %s %s by %s",
+            action, entity_type, entity_id, deleted_by,
+        )
+        return True
+    except Exception as e:
+        logger.error(f"Failed to write deletion audit row: {e}")
         return False

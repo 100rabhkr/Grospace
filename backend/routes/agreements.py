@@ -5,6 +5,7 @@ CRUD agreements, confirm-and-activate, save-draft endpoints.
 
 import uuid
 import logging
+from datetime import datetime
 from functools import lru_cache
 
 from fastapi import APIRouter, HTTPException, Depends, Query
@@ -13,7 +14,7 @@ from starlette.requests import Request
 from typing import Optional
 
 from core.config import supabase, limiter, log_activity
-from core.dependencies import get_current_user, get_current_user_sync, get_org_filter, require_permission
+from core.dependencies import get_current_user, get_current_user_sync, get_db_user_id, get_org_filter, require_permission
 from core.models import (
     ConfirmActivateRequest, CurrentUser, UpdateAgreementRequest, SaveDraftRequest,
 )
@@ -174,34 +175,213 @@ async def delete_agreement(
     agreement_id: str,
     user: Optional[CurrentUser] = Depends(get_current_user),
 ):
-    """Delete an agreement and all related data (admin only). Org-scoped."""
-    # Get agreement for audit log
-    agreement = supabase.table("agreements").select("org_id, lessor_name, filename, outlet_id").eq("id", agreement_id).single().execute()
+    """
+    Soft-delete an agreement (admin only). Sends it to the recycle bin
+    without actually removing data, so a user can restore it via
+    PATCH /agreements/{id}/restore or permanently remove it via
+    DELETE /agreements/{id}/forever.
+
+    Org-scoped: even an org_admin cannot soft-delete another org's agreement.
+    """
+    agreement = supabase.table("agreements").select(
+        "id, org_id, outlet_id, status, document_filename, lessor_name, brand_name, deleted_at"
+    ).eq("id", agreement_id).single().execute()
     if not agreement.data:
         raise HTTPException(status_code=404, detail="Agreement not found")
 
-    org_id = agreement.data["org_id"]
-
-    # Multi-tenant guard: even an org_admin cannot delete another org's agreement
+    org_id = agreement.data.get("org_id")
     user_org = get_org_filter(user)
     if user_org and org_id != user_org:
         raise HTTPException(status_code=404, detail="Agreement not found")
 
-    # Cascade delete related data
-    supabase.table("rent_schedules").delete().eq("agreement_id", agreement_id).execute()
-    supabase.table("critical_dates").delete().eq("agreement_id", agreement_id).execute()
-    supabase.table("agreement_clauses").delete().eq("agreement_id", agreement_id).execute()
-    supabase.table("obligations").delete().eq("agreement_id", agreement_id).execute()
-    supabase.table("alerts").delete().eq("agreement_id", agreement_id).execute()
+    if agreement.data.get("deleted_at"):
+        raise HTTPException(status_code=400, detail="Agreement is already deleted")
+
+    deleted_by_uuid = get_db_user_id(user)
+    try:
+        supabase.table("agreements").update({
+            "deleted_at": datetime.utcnow().isoformat(),
+            "deleted_by": deleted_by_uuid,
+        }).eq("id", agreement_id).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete agreement: {str(e)[:200]}")
+
+    # Hide alerts + obligations + events that were sourced from this agreement
+    # so they don't keep firing while the agreement sits in the recycle bin.
+    # We don't delete them — we just mark them inactive. Restore flips them back.
+    try:
+        supabase.table("obligations").update({"is_active": False}).eq("agreement_id", agreement_id).execute()
+    except Exception as e:
+        logger.warning("delete_agreement: failed to deactivate obligations: %s", e)
+
+    # Outlet name for the audit row
+    outlet_name = None
+    if agreement.data.get("outlet_id"):
+        try:
+            outlet_row = supabase.table("outlets").select("name").eq("id", agreement.data["outlet_id"]).single().execute()
+            if outlet_row.data:
+                outlet_name = outlet_row.data.get("name")
+        except Exception:
+            pass
+
+    if org_id:
+        log_activity(org_id, deleted_by_uuid, "agreement", agreement_id, "agreement_soft_deleted", {
+            "filename": agreement.data.get("document_filename"),
+            "lessor_name": agreement.data.get("lessor_name"),
+        })
+
+    # Audit trail to Google Sheets (non-blocking)
+    try:
+        from services.sheets_service import write_deletion_audit_row
+        display_name = None
+        if deleted_by_uuid:
+            try:
+                prof = supabase.table("profiles").select("full_name, email").eq("id", deleted_by_uuid).single().execute()
+                if prof.data:
+                    display_name = prof.data.get("full_name") or prof.data.get("email")
+            except Exception:
+                pass
+        if not display_name and user:
+            display_name = user.email or "Demo user"
+        write_deletion_audit_row(
+            action="soft_delete",
+            entity_type="agreement",
+            entity_id=agreement_id,
+            title=agreement.data.get("document_filename") or agreement.data.get("lessor_name") or "",
+            outlet_id=agreement.data.get("outlet_id") or "",
+            outlet_name=outlet_name or "",
+            brand=agreement.data.get("brand_name") or "",
+            status_before=agreement.data.get("status") or "",
+            deleted_by=display_name or "Unknown",
+            org_id=org_id or "",
+        )
+    except Exception as e:
+        logger.warning("delete_agreement: audit sheet write failed: %s", e)
+
+    return {"deleted": True, "agreement_id": agreement_id, "recycle_bin": True}
+
+
+@router.patch("/agreements/{agreement_id}/restore", dependencies=[Depends(require_permission("manage_org_settings"))])
+def restore_agreement(agreement_id: str, user: Optional[CurrentUser] = Depends(get_current_user)):
+    """Restore a soft-deleted agreement (admin only). Reactivates obligations."""
+    agreement = supabase.table("agreements").select(
+        "id, org_id, outlet_id, document_filename, lessor_name, brand_name, deleted_at"
+    ).eq("id", agreement_id).single().execute()
+    if not agreement.data:
+        raise HTTPException(status_code=404, detail="Agreement not found")
+
+    caller_org = get_org_filter(user)
+    if caller_org and agreement.data.get("org_id") != caller_org:
+        raise HTTPException(status_code=404, detail="Agreement not found")
+    if not agreement.data.get("deleted_at"):
+        raise HTTPException(status_code=400, detail="Agreement is not deleted")
+
+    supabase.table("agreements").update({
+        "deleted_at": None,
+        "deleted_by": None,
+    }).eq("id", agreement_id).execute()
+
+    try:
+        supabase.table("obligations").update({"is_active": True}).eq("agreement_id", agreement_id).execute()
+    except Exception as e:
+        logger.warning("restore_agreement: failed to reactivate obligations: %s", e)
+
+    org_id = agreement.data.get("org_id")
+    if org_id:
+        log_activity(org_id, get_db_user_id(user), "agreement", agreement_id, "agreement_restored", {
+            "filename": agreement.data.get("document_filename"),
+        })
+
+    try:
+        from services.sheets_service import write_deletion_audit_row
+        write_deletion_audit_row(
+            action="restore",
+            entity_type="agreement",
+            entity_id=agreement_id,
+            title=agreement.data.get("document_filename") or "",
+            outlet_id=agreement.data.get("outlet_id") or "",
+            brand=agreement.data.get("brand_name") or "",
+            deleted_by=(user.email if user else "") or "",
+            org_id=org_id or "",
+        )
+    except Exception:
+        pass
+
+    return {"restored": True, "agreement_id": agreement_id}
+
+
+@router.delete("/agreements/{agreement_id}/forever", dependencies=[Depends(require_permission("manage_org_settings"))])
+def delete_agreement_forever(agreement_id: str, user: Optional[CurrentUser] = Depends(get_current_user)):
+    """
+    Permanently delete an agreement and all its downstream data. Only works
+    on agreements that are already in the recycle bin (deleted_at IS NOT NULL)
+    so this can't bypass the soft-delete safety.
+    """
+    agreement = supabase.table("agreements").select(
+        "id, org_id, outlet_id, status, document_filename, lessor_name, brand_name, deleted_at"
+    ).eq("id", agreement_id).single().execute()
+    if not agreement.data:
+        raise HTTPException(status_code=404, detail="Agreement not found")
+
+    caller_org = get_org_filter(user)
+    if caller_org and agreement.data.get("org_id") != caller_org:
+        raise HTTPException(status_code=404, detail="Agreement not found")
+    if not agreement.data.get("deleted_at"):
+        raise HTTPException(
+            status_code=400,
+            detail="Agreement must be in the recycle bin before permanent deletion",
+        )
+
+    # Cascade-delete everything that was rolled up from this agreement
+    for table in (
+        "rent_schedules", "critical_dates", "agreement_clauses",
+        "payment_records", "obligations", "alerts",
+    ):
+        try:
+            supabase.table(table).delete().eq("agreement_id", agreement_id).execute()
+        except Exception as e:
+            logger.warning("delete_agreement_forever: %s cascade failed: %s", table, e)
+
     supabase.table("agreements").delete().eq("id", agreement_id).execute()
 
-    # Audit log
-    log_activity(org_id, None, "agreement", agreement_id, "agreement_deleted", {
-        "lessor_name": agreement.data.get("lessor_name"),
-        "filename": agreement.data.get("filename"),
-    })
+    org_id = agreement.data.get("org_id")
+    if org_id:
+        log_activity(org_id, get_db_user_id(user), "agreement", agreement_id, "agreement_deleted_forever", {
+            "filename": agreement.data.get("document_filename"),
+        })
 
-    return {"deleted": True, "agreement_id": agreement_id}
+    try:
+        from services.sheets_service import write_deletion_audit_row
+        write_deletion_audit_row(
+            action="delete_forever",
+            entity_type="agreement",
+            entity_id=agreement_id,
+            title=agreement.data.get("document_filename") or "",
+            outlet_id=agreement.data.get("outlet_id") or "",
+            brand=agreement.data.get("brand_name") or "",
+            status_before=agreement.data.get("status") or "",
+            deleted_by=(user.email if user else "") or "",
+            org_id=org_id or "",
+            notes="Permanent deletion — cascade removed payments, events, obligations, alerts, clauses",
+        )
+    except Exception:
+        pass
+
+    return {"deleted_forever": True, "agreement_id": agreement_id}
+
+
+@router.get("/agreements/deleted", dependencies=[Depends(require_permission("manage_org_settings"))])
+def list_deleted_agreements(user: Optional[CurrentUser] = Depends(get_current_user)):
+    """List soft-deleted agreements (recycle bin). Scoped to caller's org."""
+    org_id = get_org_filter(user)
+    query = supabase.table("agreements").select(
+        "id, document_filename, lessor_name, brand_name, status, type, "
+        "deleted_at, deleted_by, outlet_id, outlets(name, city)"
+    )
+    if org_id:
+        query = query.eq("org_id", org_id)
+    result = query.not_.is_("deleted_at", "null").order("deleted_at", desc=True).execute()
+    return {"items": result.data or []}
 
 
 @router.post("/confirm-and-activate", dependencies=[Depends(require_permission("create_agreements"))])

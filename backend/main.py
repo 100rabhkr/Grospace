@@ -164,6 +164,52 @@ app.include_router(critical_dates.router)
 app.include_router(india_compliance.router)
 app.include_router(brands.router)
 
+
+# ============================================
+# STARTUP: stale extraction-job sweeper
+# ============================================
+# Railway restarts kill in-flight asyncio tasks. Any job that was mid-
+# extraction at the time of the restart stays in "processing" forever
+# (heartbeat dies, no failed state). On startup we do a one-shot sweep:
+# any job updated more than N minutes ago gets marked as failed so the
+# user sees a clear error instead of a permanent spinner.
+@app.on_event("startup")
+async def _sweep_stale_extraction_jobs_on_startup():
+    import logging
+    _logger = logging.getLogger("startup-sweeper")
+    try:
+        from core.config import supabase
+        stale_minutes = max(5, int(os.getenv("STALE_EXTRACTION_JOB_MINUTES", "10")))
+        cutoff = datetime.now(timezone.utc).timestamp() - (stale_minutes * 60)
+        # Grab everything still marked processing; decide in Python so we
+        # don't depend on a specific Postgres timestamp dialect in PostgREST.
+        rows = supabase.table("extraction_jobs").select(
+            "id, updated_at, created_at"
+        ).eq("status", "processing").execute()
+        marked = 0
+        for row in (rows.data or []):
+            ts_str = row.get("updated_at") or row.get("created_at") or ""
+            try:
+                # Normalize ISO 8601 — supabase returns "2026-04-11T20:27:14.388675+00:00"
+                ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00")).timestamp()
+            except Exception:
+                continue
+            if ts < cutoff:
+                try:
+                    supabase.table("extraction_jobs").update({
+                        "status": "failed",
+                        "error": "Processing took longer than expected. Please upload again.",
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    }).eq("id", row["id"]).execute()
+                    marked += 1
+                except Exception as sweep_e:
+                    _logger.warning("stale sweep: failed to mark %s: %s", row.get("id"), sweep_e)
+        if marked:
+            _logger.warning("stale sweep: marked %d extraction jobs as failed on startup", marked)
+    except Exception as e:
+        _logger.warning("stale sweep: top-level failure: %s", e)
+
+
 # ============================================
 # ENTRYPOINT
 # ============================================

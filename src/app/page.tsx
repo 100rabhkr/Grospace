@@ -775,6 +775,30 @@ export default function Dashboard() {
         if (!cancelled) {
           if (scores.length > 0) {
             setAvgHealthScore(Math.round(scores.reduce((a, b) => a + b, 0) / scores.length));
+          } else if (totalAgreements > 0) {
+            // Agreements exist but the LLM didn't write a health_score.
+            // Compute one from observable risk signals so the dashboard
+            // reflects the real portfolio state instead of the 75
+            // placeholder fallback.
+            let computed = 100;
+            for (const agr of agreements) {
+              const risks = Array.isArray(agr.risk_flags) ? agr.risk_flags : [];
+              for (const r of risks) {
+                const sev = (r as { severity?: string })?.severity;
+                computed -= sev === "high" ? 10 : sev === "medium" ? 5 : 2;
+              }
+              // Expiring within 90 days drags score down
+              if (agr.lease_expiry_date) {
+                const days = (new Date(agr.lease_expiry_date).getTime() - Date.now()) / 86400000;
+                if (days > 0 && days < 90) computed -= 5;
+                else if (days <= 0) computed -= 15;
+              }
+            }
+            setAvgHealthScore(Math.max(0, Math.min(100, Math.round(computed / Math.max(1, totalAgreements)) * 1)));
+          } else {
+            // No agreements at all — leave as null so the UI shows the
+            // "no data yet" empty state instead of a misleading 75.
+            setAvgHealthScore(null);
           }
 
           // Get org member count for onboarding
@@ -1082,29 +1106,42 @@ export default function Dashboard() {
           </div>
 
           <div className="flex-1 flex items-center gap-4">
-            {/* Compact gauge */}
+            {/* Compact gauge — shows real score if we have agreements,
+                "—" placeholder + CTA when the portfolio is empty. No more
+                misleading 75 fallback. */}
             <div className="relative w-[104px] h-[104px] shrink-0">
               <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
                 <circle cx="50" cy="50" r="42" fill="none" stroke="hsl(var(--muted))" strokeWidth="7" />
-                <circle
-                  cx="50" cy="50" r="42"
-                  fill="none"
-                  stroke={
-                    (avgHealthScore ?? 75) >= 70 ? "hsl(var(--success))"
-                    : (avgHealthScore ?? 75) >= 40 ? "hsl(var(--warning))"
-                    : "hsl(var(--destructive))"
-                  }
-                  strokeWidth="7"
-                  strokeLinecap="round"
-                  strokeDasharray={`${(avgHealthScore ?? 75) * 2.64} 264`}
-                  className="transition-all duration-1000 ease-out"
-                />
+                {avgHealthScore !== null && (
+                  <circle
+                    cx="50" cy="50" r="42"
+                    fill="none"
+                    stroke={
+                      avgHealthScore >= 70 ? "hsl(var(--success))"
+                      : avgHealthScore >= 40 ? "hsl(var(--warning))"
+                      : "hsl(var(--destructive))"
+                    }
+                    strokeWidth="7"
+                    strokeLinecap="round"
+                    strokeDasharray={`${avgHealthScore * 2.64} 264`}
+                    className="transition-all duration-1000 ease-out"
+                  />
+                )}
               </svg>
               <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-[28px] font-semibold tracking-tight text-foreground leading-none tabular-nums">
-                  <Counter value={avgHealthScore ?? 75} />
-                </span>
-                <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground mt-1">/ 100</span>
+                {avgHealthScore !== null ? (
+                  <>
+                    <span className="text-[28px] font-semibold tracking-tight text-foreground leading-none tabular-nums">
+                      <Counter value={avgHealthScore} />
+                    </span>
+                    <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground mt-1">/ 100</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-[28px] font-semibold tracking-tight text-muted-foreground/40 leading-none tabular-nums">—</span>
+                    <span className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground mt-1">No data</span>
+                  </>
+                )}
               </div>
             </div>
 
