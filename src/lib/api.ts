@@ -27,14 +27,18 @@ function readCookie(name: string): string | null {
  * Build a demo bearer token from the `grospace-demo-*` cookies set by
  * /api/auth/demo. The backend recognizes `demo:<role>:<id>` as a
  * valid synthetic session (see backend/core/dependencies.py).
+ *
+ * IMPORTANT: `grospace-demo-session` is set as HttpOnly so JavaScript
+ * cannot read it. We detect an active demo session via the non-HttpOnly
+ * companion cookies `grospace-demo-role` / `grospace-demo-name` which
+ * are always set together with the session cookie.
  */
 function buildDemoToken(): string | null {
-  const session = readCookie("grospace-demo-session");
-  if (session !== "authenticated") return null;
-  const role = readCookie("grospace-demo-role") || "platform_admin";
-  const name = readCookie("grospace-demo-name") || "demo-user";
-  const safeId = name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-  return `demo:${role}:${safeId}`;
+  const role = readCookie("grospace-demo-role");
+  const name = readCookie("grospace-demo-name");
+  if (!role && !name) return null;
+  const safeId = (name || "demo-user").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  return `demo:${role || "platform_admin"}:${safeId}`;
 }
 
 async function getAuthToken(): Promise<string | null> {
