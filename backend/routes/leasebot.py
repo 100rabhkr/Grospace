@@ -13,7 +13,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, File, Header
 from starlette.requests import Request
 
 from core.config import supabase, limiter
-from core.dependencies import get_current_user
+from core.dependencies import get_current_user, get_db_user_id
 from services.extraction_fields import get_num, get_or_create_demo_org, get_val
 
 logger = logging.getLogger(__name__)
@@ -261,10 +261,10 @@ async def convert(
         extraction_service.generate_obligations(extraction, agreement_id, outlet_id, org_id)
         extraction_service.generate_alerts(extraction, agreement_id, outlet_id, org_id)
 
-        # Update leasebot_analyses record
+        # Update leasebot_analyses record (user_id is uuid — drop for demo sessions)
         supabase.table("leasebot_analyses").update({
             "converted_at": "now()",
-            "user_id": user.user_id,
+            "user_id": get_db_user_id(user),
             "agreement_id": agreement_id,
         }).eq("token", token).execute()
 

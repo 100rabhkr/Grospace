@@ -70,7 +70,8 @@ async def log_usage(request: Request, user: Optional[CurrentUser] = Depends(get_
 
     try:
         org_id = user.org_id if user else None
-        user_id = user.user_id if user else None
+        # activity_log.user_id is uuid — drop for demo sessions
+        user_id = get_db_user_id(user)
         supabase.table("activity_log").insert({
             "id": str(uuid.uuid4()),
             "org_id": org_id,
@@ -131,11 +132,12 @@ def approve_signup_request(
 
     supabase.table("profiles").update(profile_update).eq("id", signup["user_id"]).execute()
 
-    # Mark signup request as approved
+    # Mark signup request as approved (reviewed_by is uuid type — demo
+    # sessions with synthetic ids would fail the cast, so guard via helper)
     supabase.table("signup_requests").update({
         "status": "approved",
         "reviewed_at": datetime.utcnow().isoformat(),
-        "reviewed_by": user.user_id if user else None,
+        "reviewed_by": get_db_user_id(user),
     }).eq("id", request_id).execute()
 
     return {"ok": True, "user_id": signup["user_id"], "org_id": org_id, "role": role}
@@ -150,7 +152,7 @@ def reject_signup_request(
     supabase.table("signup_requests").update({
         "status": "rejected",
         "reviewed_at": datetime.utcnow().isoformat(),
-        "reviewed_by": user.user_id if user else None,
+        "reviewed_by": get_db_user_id(user),
     }).eq("id", request_id).execute()
     return {"ok": True}
 
@@ -2075,7 +2077,9 @@ def submit_feedback(
         feedback_data["agreement_id"] = agr_id
 
     if user:
-        feedback_data["user_id"] = user.user_id
+        # feedback.user_id is a uuid column — demo sessions carry synthetic
+        # ids that would fail the type cast. Use the helper to drop them.
+        feedback_data["user_id"] = get_db_user_id(user)
         feedback_data["org_id"] = user.org_id
 
     result = supabase.table("feedback").insert(feedback_data).execute()
