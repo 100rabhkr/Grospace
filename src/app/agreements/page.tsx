@@ -35,6 +35,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { listAgreements } from "@/lib/api";
+import { useUser } from "@/lib/hooks/use-user";
+import { canWrite, type UserRole } from "@/components/navigation-config";
 import { Pagination } from "@/components/pagination";
 import { PageHeader } from "@/components/page-header";
 
@@ -162,6 +164,7 @@ function TableSkeleton() {
 // --- Page ---
 
 export default function AgreementsPage() {
+  const { user } = useUser();
   const [agreements, setAgreements] = useState<Agreement[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -245,12 +248,14 @@ export default function AgreementsPage() {
               {total}
             </Badge>
           )}
-          <Link href="/agreements/upload">
-            <Button className="gap-2">
-              <Upload className="h-4 w-4" />
-              Upload Documents
-            </Button>
-          </Link>
+          {canWrite(user?.role as UserRole | undefined) && (
+            <Link href="/agreements/upload">
+              <Button className="gap-2">
+                <Upload className="h-4 w-4" />
+                Upload Documents
+              </Button>
+            </Link>
+          )}
         </PageHeader>
 
         {/* Error State */}

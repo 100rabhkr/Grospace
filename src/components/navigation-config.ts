@@ -17,7 +17,11 @@ import {
   Wallet,
 } from "lucide-react";
 
-export type UserRole = "platform_admin" | "org_admin" | "org_member";
+export type UserRole =
+  | "platform_admin"    // CEO  — full access to everything
+  | "org_admin"         // Admin — full CRUD on their org + member management
+  | "finance_viewer"    // CFO  — read-only financial view
+  | "org_member";       // Manager — operations (view + light updates)
 
 export interface NavItem {
   label: string;
@@ -25,6 +29,10 @@ export interface NavItem {
   icon: LucideIcon;
   description: string;
   minRole?: UserRole;
+  // Hide this item for these specific roles (used for write-only actions
+  // that don't map cleanly onto a rank hierarchy, e.g. CFO shouldn't see
+  // "Add Outlet" even though they have high privilege for reporting)
+  hideForRoles?: UserRole[];
 }
 
 export interface NavSection {
@@ -32,21 +40,51 @@ export interface NavSection {
   items: NavItem[];
 }
 
+// Rank = "how much do you see overall".
+// platform_admin     → 4 (everything, including cross-org)
+// org_admin          → 3 (everything in their org, incl. write + members)
+// finance_viewer     → 2 (everything in their org, read-only)
+// org_member         → 1 (operations view, some updates)
 export const ROLE_RANK: Record<UserRole, number> = {
-  platform_admin: 3,
-  org_admin: 2,
+  platform_admin: 4,
+  org_admin: 3,
+  finance_viewer: 2,
   org_member: 1,
 };
 
 export const roleLabels: Record<string, string> = {
   platform_admin: "Platform Admin",
   org_admin: "Org Admin",
+  finance_viewer: "Finance",
   org_member: "Member",
 };
 
+/**
+ * Does `userRole` have access to a nav item that needs `minRole`?
+ *
+ * Write-oriented items (add outlet, upload docs, pipeline, settings)
+ * tag themselves with `org_admin` or higher via `minRole`. Read-oriented
+ * items pass `minRole` undefined and are visible to everyone.
+ *
+ * `finance_viewer` is rank 2 so it passes when minRole = "org_member" (1)
+ * but fails when minRole = "org_admin" (3). That matches the intent:
+ * finance can see everything operational but cannot create/edit.
+ */
 export function hasAccess(userRole: UserRole, minRole?: UserRole): boolean {
   if (!minRole) return true;
   return ROLE_RANK[userRole] >= ROLE_RANK[minRole];
+}
+
+/** Can this role write to CRUD endpoints? Used to hide inline buttons. */
+export function canWrite(userRole: UserRole | undefined | null): boolean {
+  if (!userRole) return false;
+  return userRole === "platform_admin" || userRole === "org_admin";
+}
+
+/** Can this role see settings / team management? */
+export function canManageOrg(userRole: UserRole | undefined | null): boolean {
+  if (!userRole) return false;
+  return userRole === "platform_admin" || userRole === "org_admin";
 }
 
 export const quickActions: NavItem[] = [

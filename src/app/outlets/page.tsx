@@ -4,6 +4,8 @@ import { useState, useEffect, useMemo, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { listOutlets, createOutlet } from "@/lib/api";
+import { useUser } from "@/lib/hooks/use-user";
+import { canWrite, type UserRole } from "@/components/navigation-config";
 import { Pagination } from "@/components/pagination";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -189,6 +191,7 @@ function RentToRevenueBadge({ ratio }: { ratio: number | null }) {
 
 function OutletsPageInner() {
   const searchParams = useSearchParams();
+  const { user } = useUser();
   const [outlets, setOutlets] = useState<Outlet[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -357,13 +360,15 @@ function OutletsPageInner() {
               Recycle Bin
             </Button>
           </Link>
-          <Button
-            className="bg-foreground text-white hover:bg-foreground/90"
-            onClick={() => setShowCreateOutlet(true)}
-          >
-            <Plus className="h-4 w-4 mr-1" />
-            Create Outlet
-          </Button>
+          {canWrite(user?.role as UserRole | undefined) && (
+            <Button
+              className="bg-foreground text-white hover:bg-foreground/90"
+              onClick={() => setShowCreateOutlet(true)}
+            >
+              <Plus className="h-4 w-4 mr-1" />
+              Create Outlet
+            </Button>
+          )}
         </PageHeader>
 
         {/* Filter Bar */}

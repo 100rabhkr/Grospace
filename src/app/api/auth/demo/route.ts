@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// SLA-tiered demo logins — each role sees a different dashboard
+// Role-tiered demo logins — each persona has a DIFFERENT permission set
+// (see backend/core/config.py::ROLE_PERMISSIONS for the exact matrix).
 const DEMO_ACCOUNTS: Record<string, { password: string; role: string; title: string; fullName: string }> = {
-  "ceo@grospace.in":      { password: "ceo2025",      role: "platform_admin", title: "CEO",     fullName: "Srabhjot Singh" },
-  "cfo@grospace.in":      { password: "cfo2025",      role: "platform_admin", title: "CFO",     fullName: "Rahul Mehta" },
+  // CEO — full access (everything, including org + platform settings)
+  "ceo@grospace.in":      { password: "ceo2025",       role: "platform_admin", title: "CEO",     fullName: "Srabhjot Singh" },
+  // CFO — read-only financial view (sees all data + reports, cannot edit)
+  "cfo@grospace.in":      { password: "cfo2025",       role: "finance_viewer", title: "CFO",     fullName: "Rahul Mehta" },
+  // Admin — full CRUD on org resources + team management
   "admin@grospace.in":    { password: "admin2025",     role: "org_admin",      title: "Admin",   fullName: "Aryan Budukh" },
+  // Manager — operations (view + acknowledge alerts + mark payments paid)
   "manager@grospace.in":  { password: "manager2025",   role: "org_member",     title: "Manager", fullName: "Priya Sharma" },
   // Legacy demo login
   "admin@grospace.com":   { password: "admin2025",     role: "platform_admin", title: "Admin",   fullName: "Demo Admin" },

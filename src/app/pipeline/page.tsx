@@ -12,6 +12,8 @@ import {
   type DraggableStateSnapshot,
 } from "@hello-pangea/dnd";
 import { getPipeline, movePipelineCard, updatePipelineDeal, createOutlet } from "@/lib/api";
+import { useUser } from "@/lib/hooks/use-user";
+import { canWrite, type UserRole } from "@/components/navigation-config";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -142,6 +144,7 @@ function PortalAwareDraggable({
 // ---------------------------------------------------------------------------
 
 export default function PipelinePage() {
+  const { user } = useUser();
   const [stages, setStages] = useState<StageMap>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -326,10 +329,12 @@ export default function PipelinePage() {
               </Button>
             ))}
           </div>
-          <Button size="sm" className="h-8 text-xs gap-1.5" onClick={() => setShowCreateLead(true)}>
-            <Plus className="h-3.5 w-3.5" />
-            Create New Lead
-          </Button>
+          {canWrite(user?.role as UserRole | undefined) && (
+            <Button size="sm" className="h-8 text-xs gap-1.5" onClick={() => setShowCreateLead(true)}>
+              <Plus className="h-3.5 w-3.5" />
+              Create New Lead
+            </Button>
+          )}
         </div>
       </PageHeader>
 

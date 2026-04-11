@@ -62,7 +62,9 @@ RISK_FLAGS = [
 ]
 
 ROLE_PERMISSIONS = {
-    "platform_admin": {"*"},  # Can do everything
+    # Can do everything (CEO)
+    "platform_admin": {"*"},
+    # Full CRUD on their org + member management (Admin)
     "org_admin": {
         "view_outlets", "create_outlets", "edit_outlets", "delete_outlets",
         "view_agreements", "create_agreements", "edit_agreements", "delete_agreements",
@@ -71,9 +73,16 @@ ROLE_PERMISSIONS = {
         "view_reports", "export_reports",
         "manage_org_settings", "manage_org_members",
     },
+    # Operations read + light updates (Manager)
     "org_member": {
         "view_outlets", "view_agreements", "view_alerts", "acknowledge_alerts",
         "view_payments", "update_payments", "view_reports",
+    },
+    # Read-only financial view (CFO) — can see all financial data,
+    # run reports, export, but cannot create/edit/delete anything
+    "finance_viewer": {
+        "view_outlets", "view_agreements", "view_alerts",
+        "view_payments", "view_reports", "export_reports",
     },
 }
 

@@ -39,7 +39,7 @@ def _prune_auth_cache(now: float) -> None:
         _auth_cache.pop(oldest_key, None)
 
 
-_VALID_DEMO_ROLES = {"platform_admin", "org_admin", "org_member"}
+_VALID_DEMO_ROLES = {"platform_admin", "org_admin", "org_member", "finance_viewer"}
 
 
 def _resolve_demo_user_from_token(token: str) -> Optional[CurrentUser]:

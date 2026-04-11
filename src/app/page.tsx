@@ -48,6 +48,7 @@ import {
   Plus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { canWrite, type UserRole } from "@/components/navigation-config";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -920,12 +921,14 @@ export default function Dashboard() {
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <Link href="/outlets?action=create">
-            <Button size="sm" variant="outline" className="gap-1.5">
-              <Plus className="h-3.5 w-3.5" strokeWidth={2} />
-              Add Outlet
-            </Button>
-          </Link>
+          {canWrite(user?.role as UserRole | undefined) && (
+            <Link href="/outlets?action=create">
+              <Button size="sm" variant="outline" className="gap-1.5">
+                <Plus className="h-3.5 w-3.5" strokeWidth={2} />
+                Add Outlet
+              </Button>
+            </Link>
+          )}
           <Link href="/ai-assistant">
             <Button size="sm" className="gap-1.5">
               <Bot className="h-3.5 w-3.5" strokeWidth={2} />
