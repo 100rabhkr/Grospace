@@ -14,6 +14,7 @@ from dateutil.relativedelta import relativedelta
 from fastapi import APIRouter, HTTPException, Depends, Header, Query, Form, Response
 from starlette.requests import Request
 
+import logging
 from core.config import (
     supabase,
     model,
@@ -21,8 +22,11 @@ from core.config import (
     PORTFOLIO_QA_SCHEMA,
     CITY_ABBREVIATIONS,
     execute_supabase_query,
+    log_activity,
 )
-from core.dependencies import get_current_user, get_current_user_sync, get_org_filter, require_permission
+
+logger = logging.getLogger(__name__)
+from core.dependencies import get_current_user, get_current_user_sync, get_db_user_id, get_org_filter, require_permission
 from core.models import (
     CurrentUser, UpdateOrganizationRequest, InviteMemberRequest,
     PortfolioQARequest, SmartChatRequest, FeedbackRequest,
@@ -198,6 +202,78 @@ def create_organization(name: str = Form(...)):
     if not result.data:
         raise HTTPException(status_code=500, detail="Failed to create organization")
     return {"organization": result.data[0]}
+
+
+@router.post("/organizations/self-serve")
+def self_serve_create_organization(
+    name: str = Form(...),
+    user: Optional[CurrentUser] = Depends(get_current_user),
+):
+    """
+    Self-serve org creation for a newly-approved user who isn't yet a
+    member of any organization. Matches the locked flow:
+        "Login / Signup → Create Organization → Add Brand(s) → Add Team & Roles → Dashboard"
+
+    Guarded by two rules (enforced together):
+      1. The caller must be authenticated.
+      2. The caller must NOT already belong to an org.
+
+    On success the caller is auto-promoted to `org_admin` of the new org
+    so they can immediately invite members, add brands, and create outlets
+    without begging an admin.
+    """
+    if not user or not user.user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    # Refuse the call if the user already belongs to an org — we never want
+    # an existing org member to orphan themselves from their current org.
+    if user.org_id:
+        raise HTTPException(
+            status_code=403,
+            detail="You already belong to an organization. Ask an admin to create additional orgs.",
+        )
+
+    clean_name = (name or "").strip()
+    if not clean_name:
+        raise HTTPException(status_code=400, detail="Organization name is required")
+
+    org_id = str(uuid.uuid4())
+    try:
+        org_result = supabase.table("organizations").insert({
+            "id": org_id,
+            "name": clean_name,
+            "created_by": get_db_user_id(user),
+        }).execute()
+        if not org_result.data:
+            raise HTTPException(status_code=500, detail="Failed to create organization")
+
+        # Only attempt the profile promotion if user_id is a real UUID —
+        # demo sessions can't write to profiles.id (uuid PK).
+        db_uid = get_db_user_id(user)
+        if db_uid:
+            try:
+                supabase.table("profiles").update({
+                    "org_id": org_id,
+                    "role": "org_admin",
+                }).eq("id", db_uid).execute()
+            except Exception as e:
+                logger.warning("self_serve_create_organization: profile promotion failed: %s", e)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create organization: {str(e)[:200]}")
+
+    log_activity(
+        org_id, db_uid if (db_uid := get_db_user_id(user)) else None,
+        "organization", org_id, "org_created_self_serve",
+        {"name": clean_name},
+    )
+
+    return {
+        "organization": org_result.data[0],
+        "role": "org_admin",
+        "message": "Organization created. You're now its admin.",
+    }
 
 
 @router.get("/organizations/{org_id}", dependencies=[Depends(require_permission("manage_org_settings"))])

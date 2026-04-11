@@ -64,6 +64,11 @@ import {
   createOrganization,
   uploadTemplate,
   deleteTemplate,
+  listBrands,
+  createBrand,
+  updateBrand,
+  deleteBrand,
+  type Brand,
 } from "@/lib/api";
 
 // -------------------------------------------------------------------
@@ -737,6 +742,12 @@ export default function SettingsPage() {
             Organization
           </TabsTrigger>
           <TabsTrigger
+            value="brands"
+            className="relative h-10 rounded-none bg-transparent px-0 text-[13px] font-semibold text-muted-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:bottom-[-1px] data-[state=active]:after:h-[2px] data-[state=active]:after:bg-foreground"
+          >
+            Brands
+          </TabsTrigger>
+          <TabsTrigger
             value="team"
             className="relative h-10 rounded-none bg-transparent px-0 text-[13px] font-semibold text-muted-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:bottom-[-1px] data-[state=active]:after:h-[2px] data-[state=active]:after:bg-foreground"
           >
@@ -895,6 +906,13 @@ export default function SettingsPage() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* ============================================================= */}
+        {/* Brands Tab                                                     */}
+        {/* ============================================================= */}
+        <TabsContent value="brands" className="mt-6">
+          <BrandsSection />
         </TabsContent>
 
         {/* ============================================================= */}
@@ -1796,6 +1814,212 @@ export default function SettingsPage() {
           </Card>
         </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+
+// -------------------------------------------------------------------
+// Brands Section (Settings → Brands tab)
+// -------------------------------------------------------------------
+
+function BrandsSection() {
+  const [brands, setBrands] = useState<Brand[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [warning, setWarning] = useState<string | null>(null);
+  const [newName, setNewName] = useState("");
+  const [newNotes, setNewNotes] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+
+  async function refresh() {
+    setLoading(true);
+    try {
+      const data = await listBrands();
+      setBrands(data.brands || []);
+      setWarning(data.warning || null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load brands");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function handleCreate() {
+    if (!newName.trim()) return;
+    setCreating(true);
+    setError(null);
+    try {
+      await createBrand({
+        name: newName.trim(),
+        notes: newNotes.trim() || undefined,
+      });
+      setNewName("");
+      setNewNotes("");
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create brand");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function handleSaveEdit(brandId: string) {
+    if (!editName.trim()) return;
+    try {
+      await updateBrand(brandId, { name: editName.trim() });
+      setEditingId(null);
+      await refresh();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to update brand");
+    }
+  }
+
+  async function handleDelete(brand: Brand) {
+    if (!confirm(`Delete brand "${brand.name}"? Outlets that reference it will have the link cleared but keep the brand name for historical reports.`)) return;
+    try {
+      await deleteBrand(brand.id);
+      await refresh();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to delete brand");
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Brands</CardTitle>
+          <p className="text-[12px] text-muted-foreground">
+            Define the brands your organization operates. Outlets pick from
+            this list so reports and filters stay consistent.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {warning && (
+            <div className="rounded-md bg-amber-50 border border-amber-200 p-3 text-[12px] text-amber-900">
+              {warning}
+            </div>
+          )}
+
+          {/* Create form */}
+          <div className="border border-border rounded-lg p-4 space-y-3 bg-muted/30">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <Label className="text-[11px] text-muted-foreground">Brand name</Label>
+                <Input
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="e.g. Good Flippin' Burgers"
+                  disabled={creating}
+                />
+              </div>
+              <div>
+                <Label className="text-[11px] text-muted-foreground">Notes (optional)</Label>
+                <Input
+                  value={newNotes}
+                  onChange={(e) => setNewNotes(e.target.value)}
+                  placeholder="e.g. QSR · franchised model"
+                  disabled={creating}
+                />
+              </div>
+            </div>
+            {error && <p className="text-[11px] text-rose-600">{error}</p>}
+            <div className="flex justify-end">
+              <Button
+                size="sm"
+                onClick={handleCreate}
+                disabled={creating || !newName.trim()}
+              >
+                {creating ? "Creating…" : "Add brand"}
+              </Button>
+            </div>
+          </div>
+
+          {/* Brand list */}
+          {loading ? (
+            <div className="flex items-center gap-2 text-muted-foreground py-4">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span className="text-sm">Loading brands…</span>
+            </div>
+          ) : brands.length === 0 ? (
+            <div className="text-center text-[12px] text-muted-foreground py-6 border border-dashed border-border rounded-lg">
+              No brands yet. Create your first brand above — then every outlet
+              you add will pick from this curated list.
+            </div>
+          ) : (
+            <div className="border border-border rounded-lg overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-muted">
+                  <tr>
+                    <th className="text-left text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wide px-3 py-2">Name</th>
+                    <th className="text-left text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wide px-3 py-2">Notes</th>
+                    <th className="text-right text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wide px-3 py-2">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {brands.map((b) => (
+                    <tr key={b.id} className="border-t border-border">
+                      <td className="px-3 py-2.5 text-[12.5px] font-medium">
+                        {editingId === b.id ? (
+                          <Input
+                            value={editName}
+                            onChange={(e) => setEditName(e.target.value)}
+                            className="h-7 text-[12.5px]"
+                            autoFocus
+                          />
+                        ) : (
+                          b.name
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5 text-[11.5px] text-muted-foreground">
+                        {b.notes || "—"}
+                      </td>
+                      <td className="px-3 py-2.5 text-right space-x-1">
+                        {editingId === b.id ? (
+                          <>
+                            <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => setEditingId(null)}>Cancel</Button>
+                            <Button size="sm" className="h-7 text-[11px]" onClick={() => handleSaveEdit(b.id)}>Save</Button>
+                          </>
+                        ) : (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 text-[11px]"
+                              onClick={() => {
+                                setEditingId(b.id);
+                                setEditName(b.name);
+                              }}
+                            >
+                              Rename
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 text-[11px] text-rose-600 hover:text-rose-700"
+                              onClick={() => handleDelete(b)}
+                            >
+                              Delete
+                            </Button>
+                          </>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

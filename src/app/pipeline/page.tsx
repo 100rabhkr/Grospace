@@ -11,7 +11,7 @@ import {
   type DraggableProvided,
   type DraggableStateSnapshot,
 } from "@hello-pangea/dnd";
-import { getPipeline, movePipelineCard, updatePipelineDeal, createOutlet } from "@/lib/api";
+import { getPipeline, movePipelineCard, updatePipelineDeal, createOutlet, listLeaseDrafts, deleteLeaseDraft } from "@/lib/api";
 import { useUser } from "@/lib/hooks/use-user";
 import { canWrite, type UserRole } from "@/components/navigation-config";
 import { Badge } from "@/components/ui/badge";
@@ -155,6 +155,20 @@ export default function PipelinePage() {
   const [newLeadCity, setNewLeadCity] = useState("");
   const [creatingLead, setCreatingLead] = useState(false);
 
+  // Pre-sign drafts (LOI / draft lease) — separate from the Kanban board
+  interface LeaseDraft {
+    id: string;
+    title: string;
+    document_type?: string | null;
+    document_filename?: string | null;
+    risk_flags?: unknown[];
+    created_at: string;
+    status: string;
+    linked_outlet_id?: string | null;
+  }
+  const [drafts, setDrafts] = useState<LeaseDraft[]>([]);
+  const [draftsLoading, setDraftsLoading] = useState(true);
+
   const fetchPipeline = useCallback(async () => {
     try {
       setError(null);
@@ -167,9 +181,22 @@ export default function PipelinePage() {
     }
   }, []);
 
+  const fetchDrafts = useCallback(async () => {
+    try {
+      const data = await listLeaseDrafts("draft");
+      setDrafts(data.drafts || []);
+    } catch {
+      // non-critical — pre-sign drafts fall back to empty list
+      setDrafts([]);
+    } finally {
+      setDraftsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchPipeline();
-  }, [fetchPipeline]);
+    fetchDrafts();
+  }, [fetchPipeline, fetchDrafts]);
 
   async function handleDragEnd(result: DropResult) {
     const { source, destination, draggableId } = result;
@@ -637,6 +664,90 @@ export default function PipelinePage() {
             })}
           </div>
         </DragDropContext>
+      </div>
+
+      {/* ─────────────────────────────────────────────────────────────── */}
+      {/* Pre-sign Drafts (LOI / draft lease)                            */}
+      {/* ─────────────────────────────────────────────────────────────── */}
+      <div className="mt-8 border-t border-border">
+        <div className="px-5 py-4 flex items-center justify-between gap-4">
+          <div>
+            <h2 className="text-[15px] font-semibold text-foreground">Pre-sign Drafts</h2>
+            <p className="text-[11.5px] text-muted-foreground mt-0.5">
+              Draft leases and LOIs under review — no outlet is created until you activate.
+            </p>
+          </div>
+          <Link href="/agreements/upload?draft=true">
+            <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5">
+              <ExternalLink className="h-3.5 w-3.5" />
+              Upload Draft LOI
+            </Button>
+          </Link>
+        </div>
+        {draftsLoading ? (
+          <div className="px-5 py-6 text-center text-xs text-muted-foreground">Loading drafts…</div>
+        ) : drafts.length === 0 ? (
+          <div className="px-5 py-8 text-center text-xs text-muted-foreground border border-dashed border-border rounded-lg mx-5 mb-5">
+            No pre-sign drafts yet. Upload a draft LOI or lease to run OCR + risk analysis without committing to an outlet.
+          </div>
+        ) : (
+          <div className="mx-5 mb-5 overflow-x-auto border border-border rounded-lg">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-muted border-b border-border">
+                  <th className="text-left text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wide px-3 py-2">Title</th>
+                  <th className="text-left text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wide px-3 py-2">Document</th>
+                  <th className="text-left text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wide px-3 py-2">Risk Flags</th>
+                  <th className="text-left text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wide px-3 py-2">Uploaded</th>
+                  <th className="text-right text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wide px-3 py-2">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {drafts.map((d) => {
+                  const flagCount = Array.isArray(d.risk_flags) ? d.risk_flags.length : 0;
+                  const created = d.created_at ? new Date(d.created_at) : null;
+                  return (
+                    <tr key={d.id} className="border-b border-border last:border-0 hover:bg-muted/40 transition-colors">
+                      <td className="px-3 py-2.5 text-[12.5px] font-medium text-foreground">{d.title}</td>
+                      <td className="px-3 py-2.5 text-[11.5px] text-muted-foreground truncate max-w-[220px]">
+                        {d.document_filename || "—"}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <Badge
+                          variant="outline"
+                          className={`text-[10px] ${flagCount > 0 ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-muted"}`}
+                        >
+                          {flagCount} flag{flagCount === 1 ? "" : "s"}
+                        </Badge>
+                      </td>
+                      <td className="px-3 py-2.5 text-[11.5px] text-muted-foreground">
+                        {created ? created.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—"}
+                      </td>
+                      <td className="px-3 py-2.5 text-right">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 text-[11px]"
+                          onClick={async () => {
+                            if (!confirm(`Discard draft "${d.title}"? This cannot be undone.`)) return;
+                            try {
+                              await deleteLeaseDraft(d.id);
+                              setDrafts((prev) => prev.filter((x) => x.id !== d.id));
+                            } catch (err) {
+                              alert(err instanceof Error ? err.message : "Failed to discard draft");
+                            }
+                          }}
+                        >
+                          Discard
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Create New Lead Dialog */}

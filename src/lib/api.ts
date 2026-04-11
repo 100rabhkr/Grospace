@@ -316,6 +316,21 @@ export async function createOrganization(name: string) {
   });
 }
 
+/**
+ * Self-serve org creation for a brand-new user who isn't yet a member of
+ * any organization. Auto-promotes the caller to org_admin of the new org.
+ * Used by the pending-approval page "Create Your Own Organization" flow.
+ */
+export async function selfServeCreateOrganization(name: string) {
+  const formData = new FormData();
+  formData.append("name", name);
+
+  return apiFetch("/api/organizations/self-serve", {
+    method: "POST",
+    body: formData,
+  });
+}
+
 // ============================================
 // AGREEMENT EDITING
 // ============================================
@@ -753,6 +768,58 @@ export async function createDraft(data: {
     method: "POST",
     body: JSON.stringify(data),
   });
+}
+
+/** List pre-sign lease drafts (Pipeline → Drafts tab) */
+export async function listLeaseDrafts(status: string = "draft") {
+  return apiFetch(`/api/lease-drafts?status=${encodeURIComponent(status)}`);
+}
+
+/** Discard a pre-sign lease draft */
+export async function deleteLeaseDraft(draftId: string) {
+  return apiFetch(`/api/lease-drafts/${draftId}`, { method: "DELETE" });
+}
+
+// ============================================
+// BRANDS
+// ============================================
+
+export interface Brand {
+  id: string;
+  org_id: string;
+  name: string;
+  logo_url?: string | null;
+  notes?: string | null;
+  created_at?: string;
+}
+
+/** List all brands for the caller's org */
+export async function listBrands(): Promise<{ brands: Brand[]; warning?: string }> {
+  return apiFetch("/api/brands");
+}
+
+/** Create a new brand */
+export async function createBrand(data: { name: string; logo_url?: string; notes?: string }) {
+  return apiFetch("/api/brands", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+/** Update a brand */
+export async function updateBrand(
+  brandId: string,
+  data: { name?: string; logo_url?: string; notes?: string },
+) {
+  return apiFetch(`/api/brands/${brandId}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+/** Delete a brand */
+export async function deleteBrand(brandId: string) {
+  return apiFetch(`/api/brands/${brandId}`, { method: "DELETE" });
 }
 
 // ============================================
