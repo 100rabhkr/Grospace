@@ -15,6 +15,7 @@ from fastapi import APIRouter, HTTPException, Depends, Header, Query, Form, Resp
 from starlette.requests import Request
 
 import logging
+
 from core.config import (
     supabase,
     model,
@@ -24,8 +25,6 @@ from core.config import (
     execute_supabase_query,
     log_activity,
 )
-
-logger = logging.getLogger(__name__)
 from core.dependencies import get_current_user, get_current_user_sync, get_db_user_id, get_org_filter, require_permission
 from core.models import (
     CurrentUser, UpdateOrganizationRequest, InviteMemberRequest,
@@ -34,6 +33,8 @@ from core.models import (
 )
 from services.extraction_fields import get_num
 from services.email_service import send_email_via_resend
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["admin"])
 
