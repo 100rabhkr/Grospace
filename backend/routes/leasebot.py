@@ -274,17 +274,41 @@ async def convert(
         }
 
     except Exception as e:
-        # Rollback on failure
+        # Rollback on failure. If rollback itself fails we MUST log loudly
+        # — orphaned obligations/alerts/agreements are the worst possible
+        # half-state because users will see ghost records they can't edit.
+        rollback_errors = []
         try:
             if agreement_id:
-                supabase.table("obligations").delete().eq("agreement_id", agreement_id).execute()
-                supabase.table("alerts").delete().eq("agreement_id", agreement_id).execute()
-                supabase.table("agreements").delete().eq("id", agreement_id).execute()
+                try:
+                    supabase.table("obligations").delete().eq("agreement_id", agreement_id).execute()
+                except Exception as rollback_e:
+                    rollback_errors.append(f"obligations: {rollback_e}")
+                try:
+                    supabase.table("alerts").delete().eq("agreement_id", agreement_id).execute()
+                except Exception as rollback_e:
+                    rollback_errors.append(f"alerts: {rollback_e}")
+                try:
+                    supabase.table("agreements").delete().eq("id", agreement_id).execute()
+                except Exception as rollback_e:
+                    rollback_errors.append(f"agreements: {rollback_e}")
             if outlet_id:
-                other = supabase.table("agreements").select("id").eq("outlet_id", outlet_id).execute()
-                if not other.data:
-                    supabase.table("outlets").delete().eq("id", outlet_id).execute()
-        except Exception:
-            pass
-        logger.error(f"Leasebot convert error: {e}")
+                try:
+                    other = supabase.table("agreements").select("id").eq("outlet_id", outlet_id).execute()
+                    if not other.data:
+                        supabase.table("outlets").delete().eq("id", outlet_id).execute()
+                except Exception as rollback_e:
+                    rollback_errors.append(f"outlets: {rollback_e}")
+        except Exception as outer_rollback_e:
+            rollback_errors.append(f"rollback outer: {outer_rollback_e}")
+
+        if rollback_errors:
+            logger.error(
+                "Leasebot convert FAILED and rollback ALSO failed — orphaned state left behind. "
+                "agreement_id=%s outlet_id=%s original_error=%s rollback_errors=%s",
+                agreement_id, outlet_id, e, "; ".join(rollback_errors),
+            )
+        else:
+            logger.error("Leasebot convert error (rolled back cleanly): %s", e)
+
         raise HTTPException(status_code=500, detail=str(e))

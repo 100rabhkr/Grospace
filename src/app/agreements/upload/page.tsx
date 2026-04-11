@@ -629,6 +629,17 @@ export default function UploadAgreementPage() {
     return null;
   });
 
+  // Draft review mode — enabled via ?draft=true in the URL (the Pipeline
+  // "Upload Draft LOI" button routes here). Per the locked flow:
+  // "Draft Lease / LOI → Upload → OCR + review → Risk analysis → NO outlet creation".
+  // Declared here (before sessionStorage effects) so the wizardContext
+  // can discriminate draft vs upload entry points.
+  const [isDraftMode] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const params = new URLSearchParams(window.location.search);
+    return params.get("draft") === "true";
+  });
+
   const [step, setStep] = useState(1);
   const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -663,35 +674,45 @@ export default function UploadAgreementPage() {
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
 
   // Persist wizard state to sessionStorage to survive browser refresh.
-  // Tag each save with the current outlet_id (or "__none__" for the standalone
-  // flow) so that entering the page from a different outlet starts fresh
-  // instead of rehydrating a stale lease from another outlet.
+  // The context key combines outlet_id AND draft mode so:
+  //   /agreements/upload                  → "none:upload"
+  //   /agreements/upload?outlet_id=abc    → "abc:upload"
+  //   /agreements/upload?draft=true       → "none:draft"
+  //   /agreements/upload?outlet_id=abc&draft=true → "abc:draft"
+  // Any mismatch between saved context and current URL context discards
+  // the stale state so a fresh entry point never shows a previous lease.
   const WIZARD_KEY = "grospace_upload_wizard";
+  const currentWizardContext = `${outletIdFromUrl || "none"}:${isDraftMode ? "draft" : "upload"}`;
+
   useEffect(() => {
     if (step > 1 && result) {
       try {
         sessionStorage.setItem(WIZARD_KEY, JSON.stringify({
           step, result, selectedDocType, customFields, customNotes,
           verifiedSections: Array.from(verifiedSections),
-          outletContext: outletIdFromUrl || "__none__",
+          wizardContext: currentWizardContext,
         }));
       } catch { /* quota */ }
     }
-  }, [step, result, selectedDocType, customFields, customNotes, verifiedSections, outletIdFromUrl]);
+  }, [step, result, selectedDocType, customFields, customNotes, verifiedSections, currentWizardContext]);
 
   // Rehydrate from sessionStorage on mount — but only if the saved wizard
-  // belongs to the SAME outlet context the user is entering from. Otherwise
-  // it was a leftover from a previous upload (different outlet or standalone
-  // flow) and we must start clean so the user actually uploads a new doc.
+  // belongs to the EXACT SAME entry point (same outlet_id AND same draft
+  // mode). Any mismatch means the user explicitly navigated to a new
+  // starting point and should see a clean upload form, not a ghost of
+  // their last session.
   useEffect(() => {
     try {
       const saved = sessionStorage.getItem(WIZARD_KEY);
       if (!saved) return;
       const parsed = JSON.parse(saved);
-      const savedCtx = parsed.outletContext || "__none__";
-      const currentCtx = outletIdFromUrl || "__none__";
-      if (savedCtx !== currentCtx) {
-        // Stale state from a different outlet / flow — discard it.
+      // Support both the new combined key and the legacy outlet-only key
+      // for a window where users still have old state in sessionStorage.
+      const savedCtx: string =
+        parsed.wizardContext
+        ?? `${parsed.outletContext || "none"}:upload`;
+      if (savedCtx !== currentWizardContext) {
+        // Stale state from a different entry point — discard it.
         sessionStorage.removeItem(WIZARD_KEY);
         return;
       }
@@ -755,14 +776,9 @@ export default function UploadAgreementPage() {
   // Upload help section expanded state
   const [showUploadHelp, setShowUploadHelp] = useState(false);
 
-  // Draft review mode — enabled via ?draft=true in the URL (the Pipeline
-  // "Upload Draft LOI" button routes here). Per the locked flow:
-  // "Draft Lease / LOI → Upload → OCR + review → Risk analysis → NO outlet creation"
-  const [isDraftMode] = useState(() => {
-    if (typeof window === "undefined") return false;
-    const params = new URLSearchParams(window.location.search);
-    return params.get("draft") === "true";
-  });
+  // isDraftMode is declared above (near outletIdFromUrl) so the
+  // sessionStorage wizardContext can reference it. This comment is a
+  // breadcrumb for the old location.
 
   // Address matching — suggest linking to existing outlet (#89)
   const [matchedOutlet, setMatchedOutlet] = useState<{ id: string; name: string; city: string } | null>(null);
@@ -1095,6 +1111,13 @@ export default function UploadAgreementPage() {
       return;
     }
     setDuplicateWarning(null);
+    // Starting a brand-new upload — wipe any stale wizard state so we never
+    // accidentally show the previous session's review screen for this file.
+    try { sessionStorage.removeItem(WIZARD_KEY); } catch { /* quota */ }
+    setResult(null);
+    setCustomFields([]);
+    setCustomNotes("");
+    setVerifiedSections(new Set());
 
     // Check for duplicate if outlet_id is known
     if (outletIdFromUrl && selectedFile.name) {

@@ -99,12 +99,25 @@ def _mark_job_as_stale(job: dict) -> dict:
         "error": stale_error,
         "updated_at": _utcnow_iso(),
     }
+    import logging as _logging
+    _logger = _logging.getLogger(__name__)
     try:
         result = supabase.table("extraction_jobs").update(payload).eq("id", job["id"]).execute()
         if result.data:
             return result.data[0]
-    except Exception:
-        pass
+        _logger.warning(
+            "_mark_job_as_stale: update returned no data for job %s — it may remain in 'processing' on next read",
+            job.get("id"),
+        )
+    except Exception as e:
+        # Loud logging: if this silently fails the job stays stuck in
+        # "processing" forever on the user's dashboard and they get no
+        # retry path. We need to know when this happens.
+        _logger.error(
+            "_mark_job_as_stale: failed to transition job %s to failed state: %s. "
+            "Job will remain stuck in 'processing' until the next sweep.",
+            job.get("id"), e,
+        )
     return {**job, **payload}
 
 

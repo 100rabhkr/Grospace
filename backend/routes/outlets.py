@@ -54,20 +54,42 @@ async def list_outlets(
 
 @router.post("/outlets", dependencies=[Depends(require_permission("edit_outlets"))])
 def create_outlet(req: CreateOutletRequest, user: Optional[CurrentUser] = Depends(get_current_user)):
-    """Create a new outlet."""
-    org_id = user.org_id if user else None
-    if not org_id:
+    """Create a new outlet. Always scoped to the caller's organization —
+    refuses to guess if the caller has no org_id rather than silently
+    dropping the outlet into a random org's workspace."""
+    import logging as _logging
+    _logger = _logging.getLogger(__name__)
+
+    org_id: Optional[str] = user.org_id if user else None
+
+    # If the token didn't carry an org_id, try to resolve it from the
+    # caller's profile. Surface failures instead of silently falling
+    # through to "grab the first org in the DB".
+    if not org_id and user and user.user_id:
         try:
-            if user:
-                profile = supabase.table("profiles").select("org_id").eq("id", user.user_id).single().execute()
-                org_id = profile.data.get("org_id") if profile.data else None
-        except Exception:
-            pass
+            profile = supabase.table("profiles").select("org_id").eq("id", user.user_id).single().execute()
+            if profile.data and profile.data.get("org_id"):
+                org_id = profile.data["org_id"]
+        except Exception as e:
+            _logger.warning("create_outlet: profile lookup for user %s failed: %s", user.user_id, e)
+
+    # Platform admins don't have their own org but ARE allowed to create
+    # outlets. For them the "first org in the DB" fallback is acceptable
+    # as a last resort so platform-admin seeding works. Everyone else
+    # MUST have a real org_id — no silent cross-tenant leaks.
     if not org_id:
-        orgs = supabase.table("organizations").select("id").limit(1).execute()
-        org_id = orgs.data[0]["id"] if orgs.data else None
-    if not org_id:
-        raise HTTPException(status_code=400, detail="Could not determine organization")
+        is_platform_admin = bool(user and user.role == "platform_admin")
+        if is_platform_admin:
+            try:
+                orgs = supabase.table("organizations").select("id").limit(1).execute()
+                org_id = orgs.data[0]["id"] if orgs.data else None
+            except Exception as e:
+                _logger.warning("create_outlet: platform_admin org fallback failed: %s", e)
+        if not org_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Your account isn't attached to any organization. Create one from the pending-approval screen or ask an admin to assign you.",
+            )
 
     outlet_data = {
         "id": str(uuid.uuid4()),
@@ -80,7 +102,7 @@ def create_outlet(req: CreateOutletRequest, user: Optional[CurrentUser] = Depend
     result = supabase.table("outlets").insert(clean).execute()
 
     if result.data and org_id:
-        log_activity(org_id, user.user_id if user else None, "outlet", outlet_data["id"], "outlet_created", {
+        log_activity(org_id, get_db_user_id(user), "outlet", outlet_data["id"], "outlet_created", {
             "name": req.name,
             "city": req.city,
         })
@@ -227,6 +249,13 @@ async def upload_profile_photo(
     """Upload a profile/cover photo for an outlet."""
     outlet = supabase.table("outlets").select("id, org_id").eq("id", outlet_id).single().execute()
     if not outlet.data:
+        raise HTTPException(status_code=404, detail="Outlet not found")
+
+    # Multi-tenant guard — prevent cross-tenant profile photo writes. Without
+    # this an attacker who guessed a valid outlet_id could overwrite another
+    # org's outlet photo.
+    caller_org = get_org_filter(user)
+    if caller_org and outlet.data.get("org_id") != caller_org:
         raise HTTPException(status_code=404, detail="Outlet not found")
 
     file_bytes = await file.read()

@@ -10,9 +10,10 @@ from datetime import date, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Depends, Query
+from starlette.requests import Request
 from pydantic import BaseModel
 
-from core.config import supabase
+from core.config import supabase, limiter
 from core.dependencies import require_permission
 from services.extraction_fields import get_num, get_section, get_val
 
@@ -173,12 +174,17 @@ FINANCIAL_EVENT_TYPES = frozenset({
 })
 
 
-@router.post(
-    "/critical-dates",
-    dependencies=[Depends(require_permission("edit_agreements"))],
-)
-def create_critical_date(body: QuickEventCreate):
-    """Create event → auto-create linked reminder → optionally create payment."""
+def _create_critical_date_impl(body: QuickEventCreate):
+    """
+    Internal implementation — the real event creation cascade. Exposed as a
+    plain function so other modules (e.g. payments.create_obligation which
+    forwards manual obligation creates through the event pipeline) can call
+    it without going through the HTTP route's rate limiter or permission
+    dependencies.
+
+    HTTP callers should go through `create_critical_date` below which wraps
+    this with rate limiting + permission checks.
+    """
     # Validate amount
     # Validate date format
     try:
@@ -313,6 +319,26 @@ def create_critical_date(body: QuickEventCreate):
     }
 
 
+# Backwards-compatible alias so internal callers that imported the old
+# symbol name keep working (payments.create_obligation uses this).
+create_critical_date = _create_critical_date_impl
+
+
+@router.post(
+    "/critical-dates",
+    dependencies=[Depends(require_permission("edit_agreements"))],
+)
+@limiter.limit("30/minute")
+def create_critical_date_route(request: Request, body: QuickEventCreate):
+    """
+    HTTP route for creating a custom event (cascades to reminder + payment).
+    Rate limited to 30/min per IP to protect the event pipeline from abuse.
+    Delegates to _create_critical_date_impl so internal forwarders (from
+    the deprecated /outlets/{id}/obligations endpoint) can skip the limiter.
+    """
+    return _create_critical_date_impl(body)
+
+
 # ============================================
 # PAYMENT SCHEDULE HELPER
 # ============================================
@@ -438,7 +464,8 @@ def _generate_payment_schedule_for_event(
     "/events",
     dependencies=[Depends(require_permission("edit_agreements"))],
 )
-def create_event(body: EventCreate):
+@limiter.limit("30/minute")
+def create_event(request: Request, body: EventCreate):
     """Create a new lease event manually (agreement-level) with auto-linked reminder."""
     # Get org_id and outlet_id from agreement
     agreement = (
