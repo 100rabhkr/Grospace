@@ -5,7 +5,8 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { NotificationCenter } from "@/components/notification-center";
-import { findNavItem, navSections } from "@/components/navigation-config";
+import { findNavItem, getNavSectionsForRole } from "@/components/navigation-config";
+import { useUser } from "@/lib/hooks/use-user";
 import {
   Dialog,
   DialogContent,
@@ -27,7 +28,9 @@ interface TopBarProps {
 export function TopBar({ onMenuClick }: TopBarProps) {
   const pathname = usePathname();
   const router = useRouter();
+  const { user } = useUser();
   const currentNav = findNavItem(pathname ?? "/");
+  const navSectionsForUser = getNavSectionsForRole(user?.role);
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -44,8 +47,10 @@ export function TopBar({ onMenuClick }: TopBarProps) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Flat list of all nav items for the search index
-  const allItems = navSections.flatMap((s) =>
+  // Flat list of all nav items for the search index (role-aware so
+  // Super Admin's Cmd+K index doesn't include org-scoped pages they
+  // don't have sidebar access to anyway)
+  const allItems = navSectionsForUser.flatMap((s) =>
     s.items.map((i) => ({ ...i, section: s.label }))
   );
 

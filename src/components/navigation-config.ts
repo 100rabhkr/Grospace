@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  Activity,
   BarChart3,
   Bell,
   Bot,
@@ -104,6 +105,13 @@ export const quickActions: NavItem[] = [
   },
 ];
 
+// ============================================================================
+// Org-scoped nav (org_admin / org_member / finance_viewer)
+// ============================================================================
+// This is the "real" app sidebar — outlets, agreements, pipeline, payments,
+// reminders, reports, settings. Platform admins DO NOT see this — they get
+// platformAdminNavSections below instead.
+
 export const navSections: NavSection[] = [
   {
     label: "Workspace",
@@ -195,19 +203,68 @@ export const navSections: NavSection[] = [
       },
     ],
   },
+];
+
+// ============================================================================
+// Platform Admin nav (Super Admin)
+// ============================================================================
+// Completely different sidebar for role=platform_admin. The Super Admin
+// never touches individual outlets/agreements/payments — they manage the
+// whole customer roster, dispatch invites, and monitor platform health.
+// Drilling into a specific org's workspace happens via /organizations/{id}.
+
+export const platformAdminNavSections: NavSection[] = [
   {
-    label: "Admin",
+    label: "Platform",
     items: [
+      {
+        label: "Overview",
+        href: "/",
+        icon: LayoutDashboard,
+        description: "All customer organizations, platform stats, onboarding status",
+      },
       {
         label: "Organizations",
         href: "/organizations",
         icon: Building2,
-        description: "Multi-org oversight and account provisioning",
-        minRole: "platform_admin",
+        description: "Multi-org oversight, provisioning, billing, admin rotation",
+      },
+      {
+        label: "Activity",
+        href: "/activity",
+        icon: Activity,
+        description: "Cross-org audit trail mirrored from every org's Google Sheet tab",
+      },
+    ],
+  },
+  {
+    label: "Tools",
+    items: [
+      {
+        label: "Gro AI",
+        href: "/ai-assistant",
+        icon: Bot,
+        description: "Ask anything across every org's data",
+      },
+      {
+        label: "Settings",
+        href: "/settings",
+        icon: Settings,
+        description: "Platform-wide settings, create orgs, rotate admin credentials",
       },
     ],
   },
 ];
+
+/**
+ * Returns the sidebar sections a user should see based on their role.
+ * Super Admin (platform_admin) gets the stripped-down Platform nav;
+ * every other role gets the full org-scoped nav.
+ */
+export function getNavSectionsForRole(role: UserRole | undefined | null): NavSection[] {
+  if (role === "platform_admin") return platformAdminNavSections;
+  return navSections;
+}
 
 const contextualItems: NavItem[] = [
   {

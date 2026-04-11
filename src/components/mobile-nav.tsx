@@ -6,9 +6,9 @@ import { cn } from "@/lib/utils";
 import { Logo } from "@/components/logo";
 import { useUser } from "@/lib/hooks/use-user";
 import {
+  getNavSectionsForRole,
   hasAccess,
   isNavItemActive,
-  navSections,
   quickActions,
   roleLabels,
   type NavItem,
@@ -60,7 +60,10 @@ export function MobileNav({ open, onOpenChange }: MobileNavProps) {
   const { user, loading: userLoading } = useUser();
 
   const userRole: UserRole = user?.role || "org_member";
-  const availableQuickActions = quickActions.filter((item) => hasAccess(userRole, item.minRole));
+  const navSectionsForUser = getNavSectionsForRole(userRole);
+  const availableQuickActions = userRole === "platform_admin"
+    ? []
+    : quickActions.filter((item) => hasAccess(userRole, item.minRole));
 
   function handleNavClick(href: string) {
     onOpenChange(false);
@@ -119,7 +122,7 @@ export function MobileNav({ open, onOpenChange }: MobileNavProps) {
 
           <nav className="flex-1 overflow-y-auto px-2.5 pb-2">
             <div className="space-y-2">
-              {navSections.map((section) => {
+              {navSectionsForUser.map((section) => {
                 const visibleItems = section.items.filter((item) => hasAccess(userRole, item.minRole));
                 if (visibleItems.length === 0) return null;
 

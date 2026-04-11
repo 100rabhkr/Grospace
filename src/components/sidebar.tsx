@@ -7,9 +7,9 @@ import { cn } from "@/lib/utils";
 import { Logo } from "@/components/logo";
 import { useUser } from "@/lib/hooks/use-user";
 import {
+  getNavSectionsForRole,
   hasAccess,
   isNavItemActive,
-  navSections,
   quickActions,
   roleLabels,
   type NavItem,
@@ -59,7 +59,13 @@ export function Sidebar() {
   const { user, loading: userLoading } = useUser();
 
   const userRole: UserRole = user?.role || "org_member";
-  const availableQuickActions = quickActions.filter((item) => hasAccess(userRole, item.minRole));
+  // Super Admin gets a platform-level sidebar; everyone else gets the
+  // regular org-scoped nav. Quick actions ("+ Add Outlet", "+ Upload Docs")
+  // are org operations, so Super Admin doesn't see them either.
+  const navSectionsForUser = getNavSectionsForRole(userRole);
+  const availableQuickActions = userRole === "platform_admin"
+    ? []
+    : quickActions.filter((item) => hasAccess(userRole, item.minRole));
 
   return (
     <aside className="flex h-screen w-[260px] shrink-0 flex-col overflow-hidden border-r border-border bg-background">
@@ -111,7 +117,7 @@ export function Sidebar() {
       {/* Navigation — all sections inline, no scroll */}
       <nav className="flex-1 min-h-0 overflow-hidden px-2.5 pb-2">
         <div className="space-y-2.5">
-          {navSections.map((section) => {
+          {navSectionsForUser.map((section) => {
             const visibleItems = section.items.filter((item) => hasAccess(userRole, item.minRole));
             if (visibleItems.length === 0) return null;
 
