@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Card,
   CardContent,
@@ -192,8 +193,33 @@ function statusBadge(status: string) {
 // Page Component
 // -------------------------------------------------------------------
 
-export default function SettingsPage() {
+function SettingsPageInner() {
   const { user, loading: userLoading } = useUser();
+  const searchParams = useSearchParams();
+
+  // Initial tab from ?tab= URL param. Falls back to role-appropriate
+  // default (Super Admin → platform, everyone else → organization).
+  const initialTab = (() => {
+    const t = searchParams.get("tab");
+    const valid = ["platform", "organization", "brands", "team", "approvals", "account", "data"];
+    if (t && valid.includes(t)) return t;
+    return user?.role === "platform_admin" ? "platform" : "organization";
+  })();
+  const [activeTab, setActiveTab] = useState<string>(initialTab);
+
+  // Update active tab when user role resolves (in case initial render
+  // happened before useUser settled)
+  useEffect(() => {
+    if (!userLoading) {
+      const t = searchParams.get("tab");
+      if (t) {
+        setActiveTab(t);
+      } else if (user?.role === "platform_admin") {
+        setActiveTab("platform");
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userLoading, user?.role]);
 
   // Loading states
   const [loadingOrg, setLoadingOrg] = useState(true);
@@ -738,7 +764,7 @@ export default function SettingsPage() {
       <PageHeader title="Settings" description="Manage your organization, team, reminders, and account preferences" />
 
       {/* Tabs — flat underline style, no pill bg */}
-      <Tabs defaultValue={user?.role === "platform_admin" ? "platform" : "organization"} className="w-full">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="h-auto bg-transparent border-b border-border rounded-none p-0 w-full justify-start gap-6 overflow-x-auto scrollbar-hide">
           {user?.role === "platform_admin" && (
             <TabsTrigger
@@ -1801,6 +1827,23 @@ export default function SettingsPage() {
         )}
       </Tabs>
     </div>
+  );
+}
+
+
+// Default export wraps the inner component in Suspense because
+// useSearchParams() requires a Suspense boundary in Next.js 14.
+export default function SettingsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center h-[40vh]">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
+      }
+    >
+      <SettingsPageInner />
+    </Suspense>
   );
 }
 

@@ -421,11 +421,17 @@ export default function OutletDetailPage() {
 
   const handleDeleteContact = async (id: string) => {
     if (!confirm("Delete this contact?")) return;
+    // Optimistic removal — snapshot the previous state so we can restore
+    // if the API call fails. Previous version silently swallowed errors,
+    // leaving the UI in a lying state (row gone on screen, still in DB).
+    const prevContacts = contacts;
+    setContacts((prev) => prev.filter((c) => c.id !== id));
     try {
       await deleteContact(id);
-      setContacts((prev) => prev.filter((c) => c.id !== id));
-    } catch {
-      // handle error
+    } catch (err) {
+      // Restore the row so the UI matches reality
+      setContacts(prevContacts);
+      alert(err instanceof Error ? err.message : "Failed to delete contact");
     }
   };
 

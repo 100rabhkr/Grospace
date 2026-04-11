@@ -300,7 +300,12 @@ function OutletsPageInner() {
       setNewOutletName("");
       setNewOutletCity("");
       const newId = data.outlet?.id || data.id;
-      window.location.href = `/agreements/upload?outlet_id=${newId}`;
+      // Route to the outlet detail page — from there the user can
+      // click "Upload Lease" which opens an in-place modal. The old
+      // flow that navigated straight to /agreements/upload bypassed
+      // the detail page entirely and broke the "stay on outlet"
+      // flow the user explicitly asked for.
+      window.location.href = `/outlets/${newId}`;
     } catch (e) {
       console.error("Failed to create outlet:", e);
       setError("Failed to create outlet. Please try again.");
