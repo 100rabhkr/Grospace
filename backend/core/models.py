@@ -36,6 +36,10 @@ class ConfirmActivateRequest(BaseModel):
     confidence: dict = {}
     filename: str
     org_id: Optional[str] = None  # If None, use/create demo org
+    # When the upload was initiated from an existing outlet's page, this is
+    # set so the backend attaches the new agreement to that outlet instead
+    # of creating a fresh outlet from extraction data.
+    existing_outlet_id: Optional[str] = None
     document_text: Optional[str] = None  # Cached OCR/extracted text for Q&A
     document_url: Optional[str] = None  # URL to the uploaded document in storage
     file_hash: Optional[str] = None  # SHA256 hash for duplicate detection

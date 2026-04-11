@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, Suspense } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { listOutlets, createOutlet } from "@/lib/api";
 import { useUser } from "@/lib/hooks/use-user";
 import { canWrite, type UserRole } from "@/components/navigation-config";
@@ -191,6 +191,7 @@ function RentToRevenueBadge({ ratio }: { ratio: number | null }) {
 
 function OutletsPageInner() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const { user } = useUser();
   const [outlets, setOutlets] = useState<Outlet[]>([]);
   const [loading, setLoading] = useState(true);
@@ -690,6 +691,7 @@ function OutletsPageInner() {
                     <TableRow
                       key={outlet.id}
                       className="cursor-pointer h-12"
+                      onClick={() => router.push(`/outlets/${outlet.id}`)}
                     >
                       {/* Primary column — strongest text */}
                       <TableCell>

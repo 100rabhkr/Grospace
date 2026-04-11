@@ -224,6 +224,27 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
     if not org_id:
         org_id = _extraction_service().get_or_create_demo_org()
 
+    # When the caller passed an existing outlet_id (upload initiated from an
+    # outlet's detail page), look it up first and reuse it for both the RPC
+    # path and the sequential fallback — we do NOT want to create a new outlet.
+    existing_outlet_row = None
+    if req.existing_outlet_id:
+        try:
+            lookup = supabase.table("outlets").select(
+                "id, org_id, name, city, state, property_type, brand_name"
+            ).eq("id", req.existing_outlet_id).single().execute()
+            if lookup.data:
+                # Validate the outlet belongs to the caller's org
+                if lookup.data.get("org_id") == org_id:
+                    existing_outlet_row = lookup.data
+                else:
+                    logger.warning(
+                        "existing_outlet_id %s belongs to different org, ignoring",
+                        req.existing_outlet_id,
+                    )
+        except Exception as e:
+            logger.warning("existing_outlet_id lookup failed: %s", e)
+
     # Prepare all data objects upfront
     from services.extraction import (
         build_outlet_data, build_agreement_data,
@@ -231,6 +252,15 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
     )
 
     outlet_data = build_outlet_data(req.extraction, org_id)
+    # If we have a valid existing outlet, pin the id so build_outlet_data
+    # merges into that record instead of creating a new one.
+    if existing_outlet_row:
+        outlet_data["id"] = existing_outlet_row["id"]
+        # Preserve fields the user already set that shouldn't be overwritten
+        # by extraction defaults — if the extraction returns a name we keep
+        # the original outlet name.
+        if existing_outlet_row.get("name"):
+            outlet_data["name"] = existing_outlet_row["name"]
     agreement_data = build_agreement_data(
         req.extraction, req.document_type, req.risk_flags, req.confidence,
         req.filename, org_id, req.document_text, req.document_url, req.file_hash,
@@ -261,8 +291,15 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
         },
     }
 
-    # Try transactional RPC first (requires migration_015)
+    # Try transactional RPC first (requires migration_015).
+    # When the caller passed an existing_outlet_id we deliberately skip the
+    # RPC — `confirm_and_activate_tx` unconditionally inserts a new outlet
+    # row, which would create a duplicate. The sequential fallback below
+    # reuses the pinned outlet id instead.
+    skip_rpc = existing_outlet_row is not None
     try:
+        if skip_rpc:
+            raise RuntimeError("confirm_and_activate_tx: skipped (existing_outlet_id provided)")
         result = supabase.rpc("confirm_and_activate_tx", {
             "p_outlet": outlet_data,
             "p_agreement": agreement_data,
@@ -318,13 +355,22 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
 
     except Exception as rpc_err:
         if "confirm_and_activate_tx" in str(rpc_err):
-            # Migration not run yet — fall back to sequential inserts
-            logger.warning("confirm_and_activate_tx RPC not found, using sequential fallback")
+            # Migration not run yet OR we deliberately skipped (existing outlet).
+            # Use sequential inserts.
+            if skip_rpc:
+                logger.info("sequential path: attaching to existing outlet %s", existing_outlet_row["id"])
+            else:
+                logger.warning("confirm_and_activate_tx RPC not found, using sequential fallback")
             outlet_id = None
             agreement_id = None
             try:
                 extraction_service = _extraction_service()
-                outlet_id = extraction_service.create_outlet_from_extraction(req.extraction, org_id)
+                # Reuse existing outlet if caller provided one, otherwise
+                # create a new outlet from extraction data.
+                if existing_outlet_row is not None:
+                    outlet_id = existing_outlet_row["id"]
+                else:
+                    outlet_id = extraction_service.create_outlet_from_extraction(req.extraction, org_id)
                 agreement_id = extraction_service.create_agreement_record(
                     extraction=req.extraction, doc_type=req.document_type,
                     risk_flags=req.risk_flags, confidence=req.confidence,

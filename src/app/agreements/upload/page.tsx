@@ -30,7 +30,6 @@ import {
   MapPin,
   Plus,
   Download,
-  Upload,
   Sparkles,
   Lightbulb,
   ShieldCheck,
@@ -365,11 +364,8 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
 
   return (
     <div className="max-w-[1100px] mx-auto animate-fade-in">
-      {/* ── Top horizontal stepper ── */}
-      <ProcessingTopStepper currentStep={1 /* 0=Upload done, 1=Processing, 2=Review, 3=Activated */} />
-
-      {/* ── 2-pane layout ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] gap-5 mt-6">
+      {/* ── 2-pane layout — page-level stepper is rendered above this block ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] gap-5">
         {/* ═════════════ LEFT (60%) — Main processing experience ═════════════ */}
         <div className="space-y-5">
           {/* Hero processing card with animated ring */}
@@ -495,69 +491,89 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
           </Card>
         </div>
 
-        {/* ═════════════ RIGHT (40%) — AI Insights / tips / facts ═════════════ */}
+        {/* ═════════════ RIGHT (40%) — File metadata, pipeline stages, tips ═════════════ */}
         <div className="space-y-5">
-          {/* AI Insights panel */}
+          {/* File snapshot — shows ACTUAL file info, never fabricated data */}
           <Card variant="default" className="p-5">
             <div className="flex items-center gap-2 mb-4">
+              <div className="flex h-7 w-7 items-center justify-center rounded-md bg-foreground text-background">
+                <FileText className="h-3.5 w-3.5" strokeWidth={2} />
+              </div>
+              <div>
+                <h3 className="text-[13px] font-semibold text-foreground leading-none">Document</h3>
+                <p className="text-[10.5px] text-muted-foreground leading-none mt-1">Currently processing</p>
+              </div>
+            </div>
+            <ul className="divide-y divide-border -mx-2">
+              <li className="flex items-center justify-between px-2 py-3 gap-3">
+                <span className="text-[11.5px] text-muted-foreground shrink-0">File</span>
+                <span className="text-[12px] font-semibold text-foreground truncate text-right min-w-0">
+                  {fileName || "—"}
+                </span>
+              </li>
+              <li className="flex items-center justify-between px-2 py-3">
+                <span className="text-[11.5px] text-muted-foreground">Size</span>
+                <span className="text-[12px] font-semibold text-foreground tabular-nums">
+                  {fileSizeMB != null ? `${fileSizeMB.toFixed(2)} MB` : "—"}
+                </span>
+              </li>
+              <li className="flex items-center justify-between px-2 py-3">
+                <span className="text-[11.5px] text-muted-foreground">Type</span>
+                <span className="text-[12px] font-semibold text-foreground">
+                  {isImage ? "Image / scan" : "PDF"}
+                </span>
+              </li>
+              <li className="flex items-center justify-between px-2 py-3">
+                <span className="text-[11.5px] text-muted-foreground">Elapsed</span>
+                <span className="text-[12px] font-semibold text-foreground tabular-nums">
+                  {elapsedSec}s
+                </span>
+              </li>
+              <li className="flex items-center justify-between px-2 py-3">
+                <span className="text-[11.5px] text-muted-foreground">Est. total</span>
+                <span className="text-[12px] font-semibold text-foreground tabular-nums">
+                  {estimatedRangeLow}–{estimatedRangeHigh}s
+                </span>
+              </li>
+            </ul>
+          </Card>
+
+          {/* Pipeline stages — the SAME 7 processing steps, shown as a condensed
+           * status panel on the right. This is a faithful mirror of the live
+           * step tracker on the left, no fabricated progress numbers. */}
+          <Card variant="default" className="p-5">
+            <div className="flex items-center gap-2 mb-3">
               <div className="flex h-7 w-7 items-center justify-center rounded-md bg-foreground text-background">
                 <Sparkles className="h-3.5 w-3.5" strokeWidth={2} />
               </div>
               <div>
-                <h3 className="text-[13px] font-semibold text-foreground leading-none">Gro AI Insights</h3>
-                <p className="text-[10.5px] text-muted-foreground leading-none mt-1">Updating in real time</p>
+                <h3 className="text-[13px] font-semibold text-foreground leading-none">Gro AI pipeline</h3>
+                <p className="text-[10.5px] text-muted-foreground leading-none mt-1">
+                  {activeStep < steps.length ? `Step ${activeStep + 1} of ${steps.length}` : "Finalizing"}
+                </p>
               </div>
             </div>
-
             <ul className="divide-y divide-border -mx-2">
-              <li className="flex items-center justify-between px-2 py-3">
-                <span className="text-[11.5px] text-muted-foreground">Document type</span>
-                <span className="text-[12px] font-semibold text-foreground">
-                  {activeStep >= 3 ? "Lease / LOI" : (
-                    <span className="text-muted-foreground/50 font-normal">detecting…</span>
-                  )}
-                </span>
-              </li>
-              <li className="flex items-center justify-between px-2 py-3">
-                <span className="text-[11.5px] text-muted-foreground">Pages scanned</span>
-                <span className="text-[12px] font-semibold text-foreground tabular-nums">
-                  {activeStep >= 2 ? `${Math.min(estimatedPages, Math.max(1, Math.round((activeStep / steps.length) * estimatedPages)))} / ${estimatedPages}` : (
-                    <span className="text-muted-foreground/50 font-normal">—</span>
-                  )}
-                </span>
-              </li>
-              <li className="flex items-center justify-between px-2 py-3">
-                <span className="text-[11.5px] text-muted-foreground">Clauses detected</span>
-                <span className="text-[12px] font-semibold text-foreground tabular-nums">
-                  {activeStep >= 4 ? `${activeStep * 3 + 2}` : (
-                    <span className="text-muted-foreground/50 font-normal">—</span>
-                  )}
-                </span>
-              </li>
-              <li className="flex items-center justify-between px-2 py-3">
-                <span className="text-[11.5px] text-muted-foreground">Financial fields</span>
-                <span className="text-[12px] font-semibold text-foreground tabular-nums">
-                  {activeStep >= 5 ? `${Math.min(12, activeStep * 2)}` : (
-                    <span className="text-muted-foreground/50 font-normal">—</span>
-                  )}
-                </span>
-              </li>
-              <li className="flex items-center justify-between px-2 py-3">
-                <span className="text-[11.5px] text-muted-foreground">Risk flags</span>
-                <span className="text-[12px] font-semibold text-foreground tabular-nums">
-                  {activeStep >= 6 ? `scanning…` : (
-                    <span className="text-muted-foreground/50 font-normal">—</span>
-                  )}
-                </span>
-              </li>
-              <li className="flex items-center justify-between px-2 py-3">
-                <span className="text-[11.5px] text-muted-foreground">Confidence</span>
-                <span className="text-[12px] font-semibold text-foreground tabular-nums">
-                  {activeStep >= 5 ? `~${Math.min(95, 60 + activeStep * 5)}%` : (
-                    <span className="text-muted-foreground/50 font-normal">—</span>
-                  )}
-                </span>
-              </li>
+              {steps.map((s, i) => {
+                const isDone = i < activeStep;
+                const isActive = i === activeStep;
+                return (
+                  <li key={s.label} className="flex items-center gap-2 px-2 py-2">
+                    <span
+                      className={`h-1.5 w-1.5 rounded-full shrink-0 ${
+                        isDone ? "bg-success" : isActive ? "bg-foreground animate-pulse" : "bg-muted-foreground/30"
+                      }`}
+                    />
+                    <span
+                      className={`text-[11.5px] truncate ${
+                        isDone ? "text-foreground/80" : isActive ? "text-foreground font-semibold" : "text-muted-foreground/60"
+                      }`}
+                    >
+                      {s.label}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           </Card>
 
@@ -597,70 +613,9 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
   );
 }
 
-/* ──────────────────────────────────────────────────────────────
- * Top horizontal stepper — 4 steps: Upload / Processing / Review / Activated
- * ────────────────────────────────────────────────────────────── */
-function ProcessingTopStepper({ currentStep }: { currentStep: 0 | 1 | 2 | 3 }) {
-  const stepperSteps = [
-    { label: "Upload", icon: Upload },
-    { label: "Processing", icon: Loader2 },
-    { label: "Review", icon: Eye },
-    { label: "Activated", icon: CheckCircle2 },
-  ];
-  return (
-    <div className="flex items-center justify-between gap-3 max-w-2xl mx-auto">
-      {stepperSteps.map((step, idx) => {
-        const StepIcon = step.icon;
-        const isDone = idx < currentStep;
-        const isActive = idx === currentStep;
-        const isLast = idx === stepperSteps.length - 1;
-        return (
-          <div key={step.label} className="flex items-center flex-1 last:flex-none">
-            <div className="flex flex-col items-center gap-2 shrink-0">
-              <div
-                className={`relative flex h-9 w-9 items-center justify-center rounded-full transition-all duration-base ${
-                  isDone
-                    ? "bg-success text-success-foreground"
-                    : isActive
-                      ? "bg-foreground text-background"
-                      : "bg-muted text-muted-foreground"
-                }`}
-              >
-                {isDone ? (
-                  <Check className="h-4 w-4" strokeWidth={2.5} />
-                ) : (
-                  <StepIcon
-                    className={`h-4 w-4 ${isActive && step.label === "Processing" ? "animate-spin" : ""}`}
-                    strokeWidth={2}
-                  />
-                )}
-                {isActive && (
-                  <span className="absolute inset-0 rounded-full border-2 border-foreground/20 animate-ping" />
-                )}
-              </div>
-              <span
-                className={`text-[11px] font-semibold tracking-tight whitespace-nowrap ${
-                  isDone ? "text-foreground" : isActive ? "text-foreground" : "text-muted-foreground/60"
-                }`}
-              >
-                {step.label}
-              </span>
-            </div>
-            {!isLast && (
-              <div className="flex-1 h-px mx-2 mt-[-18px] bg-border relative">
-                <div
-                  className={`absolute inset-y-0 left-0 bg-foreground transition-all duration-slow ${
-                    isDone ? "w-full" : "w-0"
-                  }`}
-                />
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
+/* The page-level step indicator in UploadAgreementPage handles the
+ * Upload / Processing / Review / Activated state — ProcessingStep does not
+ * render its own top stepper. Keep this file lean. */
 
 export default function UploadAgreementPage() {
   const router = useRouter();
@@ -2483,6 +2438,10 @@ export default function UploadAgreementPage() {
                         risk_flags: result.risk_flags,
                         confidence: result.confidence,
                         filename: result.filename,
+                        // When the upload was initiated from an outlet's
+                        // detail page, attach the agreement to that outlet
+                        // instead of creating a fresh one.
+                        existing_outlet_id: outletIdFromUrl || undefined,
                         document_text: result.document_text,
                         document_url: result.document_url,
                         file_hash: result.file_hash,

@@ -218,6 +218,9 @@ export async function confirmAndActivate(data: {
   risk_flags: unknown[];
   confidence: Record<string, string>;
   filename: string;
+  /** If set, attach the new agreement to this existing outlet instead of
+   *  creating a new one from extraction data. */
+  existing_outlet_id?: string;
   document_text?: string | null;
   document_url?: string | null;
   file_hash?: string | null;
