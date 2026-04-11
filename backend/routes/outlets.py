@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from core.config import supabase, log_activity
 from core.models import CurrentUser, UpdateOutletRequest
-from core.dependencies import get_current_user, get_org_filter, require_permission
+from core.dependencies import get_current_user, get_db_user_id, get_org_filter, require_permission
 
 
 class CreateOutletRequest(BaseModel):
@@ -266,37 +266,51 @@ def delete_outlet(outlet_id: str, user: Optional[CurrentUser] = Depends(get_curr
     if not outlet.data:
         raise HTTPException(status_code=404, detail="Outlet not found")
 
+    # Multi-tenant guard — don't let an admin in Org A delete Org B's outlet.
+    org_id = outlet.data.get("org_id")
+    caller_org = get_org_filter(user)
+    if caller_org and org_id and org_id != caller_org:
+        raise HTTPException(status_code=404, detail="Outlet not found")
+
     if outlet.data.get("deleted_at"):
         raise HTTPException(status_code=400, detail="Outlet is already deleted")
 
-    org_id = outlet.data.get("org_id")
-    deleted_by = user.user_id if user else None
+    # outlets.deleted_by is `uuid REFERENCES auth.users(id)` — demo sessions
+    # carry synthetic non-UUID ids that would fail the FK. Pass None for demos.
+    deleted_by_uuid = get_db_user_id(user)
 
     # Soft delete — set timestamp, don't actually remove
-    supabase.table("outlets").update({
-        "deleted_at": datetime.utcnow().isoformat(),
-        "deleted_by": deleted_by,
-    }).eq("id", outlet_id).execute()
+    try:
+        supabase.table("outlets").update({
+            "deleted_at": datetime.utcnow().isoformat(),
+            "deleted_by": deleted_by_uuid,
+        }).eq("id", outlet_id).execute()
+    except Exception as e:
+        # Surface the real DB error to the caller instead of a generic 500
+        raise HTTPException(status_code=500, detail=f"Failed to delete outlet: {str(e)[:200]}")
 
     # Log to activity
     if org_id:
-        log_activity(org_id, deleted_by, "outlet", outlet_id, "outlet_deleted", {
+        log_activity(org_id, deleted_by_uuid, "outlet", outlet_id, "outlet_deleted", {
             "name": outlet.data.get("name"),
             "city": outlet.data.get("city"),
             "brand_name": outlet.data.get("brand_name"),
         })
 
-    # Log to Google Sheets
+    # Log to Google Sheets (non-critical, never block the delete on this)
     try:
         from services.sheets_service import write_deletion_to_sheet
         profile_name = None
-        if deleted_by:
+        if deleted_by_uuid:
             try:
-                profile = supabase.table("profiles").select("full_name, email").eq("id", deleted_by).single().execute()
+                profile = supabase.table("profiles").select("full_name, email").eq("id", deleted_by_uuid).single().execute()
                 if profile.data:
                     profile_name = profile.data.get("full_name") or profile.data.get("email")
             except Exception:
                 pass
+        # Demo users: use their display name from the token role instead of "Unknown"
+        if not profile_name and user:
+            profile_name = user.email or "Demo user"
         write_deletion_to_sheet(
             outlet_id=outlet_id,
             outlet_name=outlet.data.get("name", ""),
@@ -318,6 +332,11 @@ def restore_outlet(outlet_id: str, user: Optional[CurrentUser] = Depends(get_cur
     if not outlet.data:
         raise HTTPException(status_code=404, detail="Outlet not found")
 
+    # Multi-tenant guard
+    caller_org = get_org_filter(user)
+    if caller_org and outlet.data.get("org_id") and outlet.data["org_id"] != caller_org:
+        raise HTTPException(status_code=404, detail="Outlet not found")
+
     if not outlet.data.get("deleted_at"):
         raise HTTPException(status_code=400, detail="Outlet is not deleted")
 
@@ -328,7 +347,7 @@ def restore_outlet(outlet_id: str, user: Optional[CurrentUser] = Depends(get_cur
 
     org_id = outlet.data.get("org_id")
     if org_id:
-        log_activity(org_id, user.user_id if user else None, "outlet", outlet_id, "outlet_restored", {
+        log_activity(org_id, get_db_user_id(user), "outlet", outlet_id, "outlet_restored", {
             "name": outlet.data.get("name"),
         })
 

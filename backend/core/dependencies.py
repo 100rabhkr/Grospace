@@ -136,6 +136,26 @@ def get_org_filter(user: Optional[CurrentUser]) -> Optional[str]:
     return user.org_id
 
 
+def get_db_user_id(user: Optional[CurrentUser]) -> Optional[str]:
+    """
+    Return `user.user_id` only if it is a real UUID that the database can
+    accept for `uuid REFERENCES auth.users(id)` columns (deleted_by,
+    created_by, uploaded_by, acknowledged_by, etc.).
+
+    Demo sessions carry synthetic IDs like "srabhjot-singh" that would fail
+    the UUID cast / FK. For those, return None — nullable DB columns will
+    accept it cleanly and audit trail still gets the org_id + action.
+    """
+    if not user or not user.user_id:
+        return None
+    try:
+        import uuid as _uuid
+        _uuid.UUID(user.user_id)
+        return user.user_id
+    except (ValueError, AttributeError):
+        return None
+
+
 def check_role_permission(user_role: str, action: str) -> bool:
     """Check if a user role has permission for a given action."""
     perms = ROLE_PERMISSIONS.get(user_role, set())

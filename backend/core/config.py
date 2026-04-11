@@ -187,13 +187,25 @@ TRANSIENT_SUPABASE_ERRORS = (
 # ============================================
 
 def log_activity(org_id: str, user_id: str | None, entity_type: str, entity_id: str, action: str, details: dict | None = None):
-    """Insert an activity log entry. Non-blocking — failures are silently ignored."""
+    """Insert an activity log entry. Non-blocking — failures are silently ignored.
+
+    If user_id is non-None but not a real UUID (demo sessions), store it as
+    NULL so the `uuid REFERENCES auth.users(id)` FK on activity_log.user_id
+    doesn't reject the insert."""
     import uuid
+    # Guard against demo/synthetic user_ids that would fail the UUID column
+    db_user_id: str | None = None
+    if user_id:
+        try:
+            uuid.UUID(user_id)
+            db_user_id = user_id
+        except (ValueError, AttributeError):
+            db_user_id = None
     try:
         supabase.table("activity_log").insert({
             "id": str(uuid.uuid4()),
             "org_id": org_id,
-            "user_id": user_id,
+            "user_id": db_user_id,
             "entity_type": entity_type,
             "entity_id": entity_id,
             "action": action,

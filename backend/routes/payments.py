@@ -15,7 +15,7 @@ from core.models import (
     CurrentUser, PaymentUpdateRequest, GeneratePaymentsRequest,
     BulkMarkPaidRequest, MGLRRequest, CreateObligationRequest, UpdateObligationRequest,
 )
-from core.dependencies import get_current_user, get_org_filter, require_permission
+from core.dependencies import get_current_user, get_db_user_id, get_org_filter, require_permission
 from services.extraction_fields import get_num
 
 router = APIRouter(prefix="/api", tags=["payments"])
@@ -81,7 +81,7 @@ def update_payment(
     if req.notes is not None:
         update_data["notes"] = req.notes
     if user:
-        update_data["marked_by"] = user.user_id
+        update_data["marked_by"] = get_db_user_id(user)
 
     result = supabase.table("payment_records").update(update_data).eq("id", payment_id).execute()
     if not result.data:

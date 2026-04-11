@@ -14,7 +14,7 @@ from core.models import (
     CurrentUser, SnoozeRequest, AssignRequest,
     CreateReminderRequest, UpdateReminderRequest,
 )
-from core.dependencies import get_current_user, get_org_filter, require_permission
+from core.dependencies import get_current_user, get_db_user_id, get_org_filter, require_permission
 from services.email_service import dispatch_notification
 
 router = APIRouter(prefix="/api", tags=["alerts"])
@@ -91,7 +91,7 @@ def acknowledge_alert(
         "acknowledged_at": datetime.now(timezone.utc).isoformat(),
     }
     if user:
-        update_data["acknowledged_by"] = user.user_id
+        update_data["acknowledged_by"] = get_db_user_id(user)
 
     result = supabase.table("alerts").update(update_data).eq("id", alert_id).execute()
     if not result.data:
