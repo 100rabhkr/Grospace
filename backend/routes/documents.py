@@ -25,6 +25,19 @@ from core.dependencies import get_current_user, get_org_filter, require_permissi
 
 router = APIRouter(prefix="/api", tags=["documents"])
 
+def _is_uuid(s: Optional[str]) -> bool:
+    """True iff `s` is a real UUID string. Demo tokens carry synthetic
+    non-UUID user_ids (e.g. "srabhjot-singh") that cannot be used as
+    filters against extraction_jobs.user_id (uuid REFERENCES auth.users)."""
+    if not s:
+        return False
+    try:
+        uuid.UUID(s)
+        return True
+    except (ValueError, AttributeError):
+        return False
+
+
 # Ring buffer for tracking processing times (last 100)
 _processing_times: deque = deque(maxlen=100)
 _MAX_CONCURRENT_EXTRACTIONS_PER_WORKER = max(1, int(os.getenv("MAX_CONCURRENT_EXTRACTIONS_PER_WORKER", "1")))
@@ -665,16 +678,6 @@ async def upload_and_extract_async(
     except Exception:
         pass
 
-    # Helper: is this user_id a real UUID (so it matches auth.users.id)?
-    def _is_uuid(s: Optional[str]) -> bool:
-        if not s:
-            return False
-        try:
-            uuid.UUID(s)
-            return True
-        except (ValueError, AttributeError):
-            return False
-
     # Server-side bulk upload limit: check active processing jobs for this user
     if user and _is_uuid(user.user_id):
         try:
@@ -845,7 +848,7 @@ def list_extraction_jobs(
             "id, org_id, user_id, filename, status, error, created_at, updated_at, seen"
         ).order("created_at", desc=True)
 
-        if user and user.user_id:
+        if user and _is_uuid(user.user_id):
             query = query.eq("user_id", user.user_id)
         else:
             org_id = get_org_filter(user)
@@ -866,7 +869,7 @@ def list_extraction_jobs(
 def mark_job_seen(job_id: str, user: Optional[CurrentUser] = Depends(get_current_user)):
     """Mark an extraction job as seen by the user."""
     query = supabase.table("extraction_jobs").update({"seen": True}).eq("id", job_id)
-    if user and user.user_id:
+    if user and _is_uuid(user.user_id):
         query = query.eq("user_id", user.user_id)
     else:
         org_id = get_org_filter(user)
@@ -883,7 +886,7 @@ def cancel_extraction_job(job_id: str, user: Optional[CurrentUser] = Depends(get
     """Cancel a processing extraction job."""
     # Check current status
     current_query = supabase.table("extraction_jobs").select("id, status").eq("id", job_id)
-    if user and user.user_id:
+    if user and _is_uuid(user.user_id):
         current_query = current_query.eq("user_id", user.user_id)
     else:
         org_id = get_org_filter(user)
@@ -898,7 +901,7 @@ def cancel_extraction_job(job_id: str, user: Optional[CurrentUser] = Depends(get
         "status": "cancelled",
         "error": "Cancelled by user",
     }).eq("id", job_id)
-    if user and user.user_id:
+    if user and _is_uuid(user.user_id):
         update_query = update_query.eq("user_id", user.user_id)
     else:
         org_id = get_org_filter(user)
@@ -912,7 +915,7 @@ def cancel_extraction_job(job_id: str, user: Optional[CurrentUser] = Depends(get
 def get_extraction_job(job_id: str, user: Optional[CurrentUser] = Depends(get_current_user)):
     """Get the status and result of an extraction job."""
     query = supabase.table("extraction_jobs").select("*").eq("id", job_id)
-    if user and user.user_id:
+    if user and _is_uuid(user.user_id):
         query = query.eq("user_id", user.user_id)
     else:
         org_id = get_org_filter(user)
