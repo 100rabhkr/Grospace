@@ -264,7 +264,7 @@ def self_serve_create_organization(
         raise HTTPException(status_code=500, detail=f"Failed to create organization: {str(e)[:200]}")
 
     log_activity(
-        org_id, db_uid if (db_uid := get_db_user_id(user)) else None,
+        org_id, get_db_user_id(user),
         "organization", org_id, "org_created_self_serve",
         {"name": clean_name},
     )
