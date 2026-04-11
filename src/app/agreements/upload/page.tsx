@@ -662,7 +662,10 @@ export default function UploadAgreementPage() {
   const [verifiedSections, setVerifiedSections] = useState<Set<string>>(new Set());
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
 
-  // Persist wizard state to sessionStorage to survive browser refresh
+  // Persist wizard state to sessionStorage to survive browser refresh.
+  // Tag each save with the current outlet_id (or "__none__" for the standalone
+  // flow) so that entering the page from a different outlet starts fresh
+  // instead of rehydrating a stale lease from another outlet.
   const WIZARD_KEY = "grospace_upload_wizard";
   useEffect(() => {
     if (step > 1 && result) {
@@ -670,27 +673,38 @@ export default function UploadAgreementPage() {
         sessionStorage.setItem(WIZARD_KEY, JSON.stringify({
           step, result, selectedDocType, customFields, customNotes,
           verifiedSections: Array.from(verifiedSections),
+          outletContext: outletIdFromUrl || "__none__",
         }));
       } catch { /* quota */ }
     }
-  }, [step, result, selectedDocType, customFields, customNotes, verifiedSections]);
+  }, [step, result, selectedDocType, customFields, customNotes, verifiedSections, outletIdFromUrl]);
 
-  // Rehydrate from sessionStorage on mount
+  // Rehydrate from sessionStorage on mount — but only if the saved wizard
+  // belongs to the SAME outlet context the user is entering from. Otherwise
+  // it was a leftover from a previous upload (different outlet or standalone
+  // flow) and we must start clean so the user actually uploads a new doc.
   useEffect(() => {
     try {
       const saved = sessionStorage.getItem(WIZARD_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.result && parsed.step > 1) {
-          setStep(parsed.step);
-          setResult(parsed.result);
-          setSelectedDocType(parsed.selectedDocType || "");
-          setCustomFields(parsed.customFields || []);
-          setCustomNotes(parsed.customNotes || "");
-          setVerifiedSections(new Set(parsed.verifiedSections || []));
-        }
+      if (!saved) return;
+      const parsed = JSON.parse(saved);
+      const savedCtx = parsed.outletContext || "__none__";
+      const currentCtx = outletIdFromUrl || "__none__";
+      if (savedCtx !== currentCtx) {
+        // Stale state from a different outlet / flow — discard it.
+        sessionStorage.removeItem(WIZARD_KEY);
+        return;
+      }
+      if (parsed.result && parsed.step > 1) {
+        setStep(parsed.step);
+        setResult(parsed.result);
+        setSelectedDocType(parsed.selectedDocType || "");
+        setCustomFields(parsed.customFields || []);
+        setCustomNotes(parsed.customNotes || "");
+        setVerifiedSections(new Set(parsed.verifiedSections || []));
       }
     } catch { /* ignore */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Get ordered section keys from extraction result
