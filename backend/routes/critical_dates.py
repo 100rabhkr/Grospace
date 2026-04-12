@@ -193,6 +193,11 @@ def _create_critical_date_impl(body: QuickEventCreate):
     except (ValueError, TypeError):
         raise HTTPException(status_code=400, detail="date_value must be a valid ISO date (YYYY-MM-DD)")
 
+    # When event_type is "custom", the title is the only identifier —
+    # make it mandatory so users don't create unnamed ghost events.
+    if body.event_type == "custom" and not (body.title or "").strip():
+        raise HTTPException(status_code=400, detail="Event name is required for custom events")
+
     # Reject zero AND negative amounts. A zero-amount obligation would
     # create a ghost row that never generates payment_records because the
     # cascade checks `amount > 0`. Audit finding #4.

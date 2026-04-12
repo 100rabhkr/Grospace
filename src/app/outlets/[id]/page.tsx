@@ -3004,10 +3004,11 @@ function UploadLeaseModal({
               <Loader2 className="h-8 w-8 animate-spin text-foreground/60 mx-auto" />
               <div>
                 <p className="text-[13px] font-semibold text-foreground">{progress}</p>
-                <p className="text-[11px] text-muted-foreground mt-1">
+                <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
                   This typically takes 2–4 minutes for PDFs. You can close this
-                  dialog and check the Processing page — the extraction will
-                  continue in the background.
+                  dialog — the extraction continues in the background. Track it
+                  from the <strong>Processing</strong> tab in the sidebar. You&apos;ll
+                  see a notification when it&apos;s done.
                 </p>
               </div>
               <Button
@@ -3016,31 +3017,31 @@ function UploadLeaseModal({
                 className="text-xs"
                 onClick={() => {
                   onClose();
-                  // Don't call onComplete — user chose to leave mid-processing.
-                  // The extraction will finish in the background and appear in
-                  // the Processing page. They can activate it from there.
                 }}
               >
-                Close & continue in background
+                Close & check Processing tab
               </Button>
             </div>
           )}
 
           {step === "done" && (
-            <div className="py-8 text-center space-y-4">
-              <div className="h-12 w-12 rounded-full bg-emerald-100 flex items-center justify-center mx-auto">
-                <CheckCircle2 className="h-6 w-6 text-emerald-600" />
+            <div className="py-8 text-center space-y-4 animate-fade-in">
+              <div className="h-16 w-16 rounded-full bg-emerald-100 flex items-center justify-center mx-auto animate-bounce" style={{ animationDuration: "1s", animationIterationCount: "2" }}>
+                <CheckCircle2 className="h-8 w-8 text-emerald-600" />
               </div>
               <div>
-                <p className="text-[15px] font-semibold text-foreground">Lease processed & activated</p>
-                <p className="text-[12px] text-muted-foreground mt-1">
-                  The agreement has been created, events auto-generated, and
-                  payments scheduled. Refreshing this page now…
+                <p className="text-[17px] font-semibold text-foreground">Lease activated!</p>
+                <p className="text-[12.5px] text-muted-foreground mt-1.5 leading-relaxed max-w-[280px] mx-auto">
+                  Agreement created. Events, reminders, and 12 months of
+                  payment tracking auto-generated.
                 </p>
               </div>
-              <Button size="sm" onClick={onComplete}>
-                Done
-              </Button>
+              <div className="flex items-center justify-center gap-2 pt-2">
+                <Button size="sm" className="gap-1.5" onClick={onComplete}>
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  View on outlet page
+                </Button>
+              </div>
             </div>
           )}
 

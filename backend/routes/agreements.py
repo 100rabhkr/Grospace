@@ -439,10 +439,19 @@ async def confirm_and_activate(request: Request, req: ConfirmActivateRequest):
     if existing_outlet_row:
         outlet_data["id"] = existing_outlet_row["id"]
         # Preserve fields the user already set that shouldn't be overwritten
-        # by extraction defaults — if the extraction returns a name we keep
-        # the original outlet name.
-        if existing_outlet_row.get("name"):
-            outlet_data["name"] = existing_outlet_row["name"]
+        # by extraction defaults. The user named their outlet "Chaayos
+        # Connaught Place" — we must NOT rename it to "Ambience Mall" just
+        # because the PDF says that's the property name. Show the extracted
+        # property name in brand_name or the agreement's extracted_data, but
+        # the outlet keeps its user-given identity.
+        original_name = existing_outlet_row.get("name")
+        if original_name:
+            extracted_property = outlet_data.get("name", "")
+            outlet_data["name"] = original_name
+            # If extraction found a different property name, note it as a
+            # brand_name fallback so it's visible on the outlet detail page.
+            if extracted_property and extracted_property != original_name and not existing_outlet_row.get("brand_name"):
+                outlet_data["brand_name"] = extracted_property
     agreement_data = build_agreement_data(
         req.extraction, req.document_type, req.risk_flags, req.confidence,
         req.filename, org_id, req.document_text, req.document_url, req.file_hash,

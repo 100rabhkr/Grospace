@@ -196,7 +196,9 @@ def list_organizations(
 
     def _build_data_query():
         query = supabase.table("organizations").select(
-            "id, name, logo_url, created_at, created_by, alert_preferences"
+            "id, name, logo_url, created_at, created_by, alert_preferences, "
+            "default_admin_email, default_admin_user_id, sheet_tab_name, "
+            "business_type, hq_city, expected_outlets_size"
         ).order("created_at", desc=True)
         if user and user.role != "platform_admin" and user.org_id:
             query = query.eq("id", user.org_id)

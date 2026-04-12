@@ -9,6 +9,7 @@ type UserData = {
   fullName: string;
   role: "platform_admin" | "org_admin" | "org_member";
   orgId: string | null;
+  orgName: string | null;
   initials: string;
 };
 
@@ -160,6 +161,7 @@ export function useUser() {
         fullName: demoName,
         role: demoRole,
         orgId: null,
+        orgName: null,
         initials: getInitials(demoName),
       });
     }
@@ -221,12 +223,28 @@ export function useUser() {
           authUser.email?.split("@")[0] ||
           "User";
 
+        // Resolve org name for the sidebar footer
+        let orgName: string | null = null;
+        if (profile?.org_id) {
+          try {
+            const { data: orgData } = await supabase
+              .from("organizations")
+              .select("name")
+              .eq("id", profile.org_id)
+              .single();
+            orgName = orgData?.name || null;
+          } catch {
+            // Non-critical
+          }
+        }
+
         applyResolvedUser({
           id: authUser.id,
           email: authUser.email || "",
           fullName,
           role: (profile?.role as UserData["role"]) || "org_member",
           orgId: profile?.org_id || null,
+          orgName,
           initials: getInitials(fullName),
         });
       } catch {

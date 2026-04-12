@@ -155,7 +155,11 @@ export function Sidebar() {
               {userLoading ? "Loading..." : user?.fullName || "User"}
             </p>
             <p className="truncate text-[11px] font-medium text-muted-foreground leading-tight">
-              {userLoading ? "" : roleLabels[user?.role || ""] || "Member"}
+              {userLoading ? "" : (
+                user?.orgName
+                  ? `${user.orgName} · ${roleLabels[user?.role || ""] || "Member"}`
+                  : roleLabels[user?.role || ""] || "Member"
+              )}
             </p>
           </div>
           <button

@@ -37,6 +37,8 @@ import {
   Loader2,
   X,
   CalendarDays,
+  IndianRupee,
+  FileText,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 
@@ -605,21 +607,52 @@ export default function PaymentsPage() {
                               )}
                               Paid
                             </Button>
-                            {payment.status !== "overdue" && (
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <Button variant="outline" size="sm" className="h-7 text-xs">
-                                    <ChevronDown className="h-3 w-3" />
-                                  </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="outline" size="sm" className="h-7 text-xs">
+                                  <ChevronDown className="h-3 w-3" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                {payment.status !== "overdue" && (
                                   <DropdownMenuItem onClick={() => handleMarkOverdue(payment.id)}>
                                     <Clock className="h-3.5 w-3.5 mr-2" />
                                     Mark Overdue
                                   </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            )}
+                                )}
+                                <DropdownMenuItem onClick={async () => {
+                                  const amount = window.prompt("Enter amount paid:", String(payment.due_amount || 0));
+                                  if (amount === null) return;
+                                  const parsed = parseFloat(amount);
+                                  if (isNaN(parsed) || parsed <= 0) { alert("Invalid amount"); return; }
+                                  try {
+                                    await updatePayment(payment.id, {
+                                      status: parsed < (payment.due_amount || 0) ? "partially_paid" : "paid",
+                                      paid_amount: parsed,
+                                    });
+                                    setPayments((prev) => prev.map((p) =>
+                                      p.id === payment.id ? { ...p, status: parsed < (payment.due_amount || 0) ? "partially_paid" : "paid", paid_amount: parsed, paid_at: new Date().toISOString() } : p
+                                    ));
+                                  } catch (err) { alert(err instanceof Error ? err.message : "Failed"); }
+                                }}>
+                                  <IndianRupee className="h-3.5 w-3.5 mr-2" />
+                                  Partial Payment
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={async () => {
+                                  const note = window.prompt("Payment notes:", payment.notes || "");
+                                  if (note === null) return;
+                                  try {
+                                    await updatePayment(payment.id, { status: payment.status, notes: note });
+                                    setPayments((prev) => prev.map((p) =>
+                                      p.id === payment.id ? { ...p, notes: note } : p
+                                    ));
+                                  } catch (err) { alert(err instanceof Error ? err.message : "Failed"); }
+                                }}>
+                                  <FileText className="h-3.5 w-3.5 mr-2" />
+                                  Add Note
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </div>
                         )}
                         {payment.status === "paid" && (

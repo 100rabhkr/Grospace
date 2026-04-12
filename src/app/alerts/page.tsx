@@ -354,7 +354,7 @@ export default function AlertsPage() {
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [severityFilter, setSeverityFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [timeFilter, setTimeFilter] = useState<string>("3");  // months ahead — default 3
+  const [timeFilter, setTimeFilter] = useState<string>("all");  // default: show all upcoming reminders
   const [outletFilter, setOutletFilter] = useState<string>("all");
   const [cityFilter, setCityFilter] = useState<string>("all");
   const [brandFilter, setBrandFilter] = useState<string>("all");
