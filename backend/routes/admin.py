@@ -1257,20 +1257,31 @@ def invite_org_member(
             except Exception as e:
                 raise HTTPException(status_code=500, detail=f"Failed to create auth user: {str(e)[:200]}")
 
-            profile_row = {
-                "id": user_id,
+            # The handle_new_user trigger (migration 033) already created a
+            # profile row with org_id=NULL when auth.admin.create_user() ran.
+            # We can't INSERT (unique_violation) — we must UPDATE the existing
+            # row to set org_id + role + must_reset_password. This was the
+            # root cause of the "invited member lands on pending-approval" bug.
+            profile_update = {
                 "email": clean_email,
                 "full_name": clean_email.split("@")[0].replace(".", " ").title(),
                 "org_id": org_id,
                 "role": req.role,
             }
             try:
-                supabase.table("profiles").insert({**profile_row, "must_reset_password": True}).execute()
+                supabase.table("profiles").update(
+                    {**profile_update, "must_reset_password": True}
+                ).eq("id", user_id).execute()
             except Exception:
                 try:
-                    supabase.table("profiles").insert(profile_row).execute()
+                    supabase.table("profiles").update(profile_update).eq("id", user_id).execute()
                 except Exception as e:
-                    logger.warning("invite_org_member: profile insert failed: %s", e)
+                    logger.warning("invite_org_member: profile update failed, trying insert: %s", e)
+                    # Last resort: insert if the trigger didn't fire (shouldn't happen)
+                    try:
+                        supabase.table("profiles").insert({"id": user_id, **profile_update}).execute()
+                    except Exception as e2:
+                        logger.error("invite_org_member: profile upsert fully failed: %s", e2)
             member = {"id": user_id, "email": clean_email, "role": req.role, "org_id": org_id}
     except HTTPException:
         raise
