@@ -45,7 +45,7 @@ type Agreement = {
 
 const RENEWAL_STAGES = [
   { value: "not_started", label: "Not Started", color: "bg-slate-100 text-slate-700" },
-  { value: "under_review", label: "Under Review", color: "bg-blue-100 text-blue-700" },
+  { value: "under_review", label: "Under Review", color: "bg-muted text-foreground" },
   { value: "negotiation", label: "Negotiation", color: "bg-amber-100 text-amber-700" },
   { value: "approved", label: "Approved", color: "bg-emerald-100 text-emerald-700" },
   { value: "renewed", label: "Renewed", color: "bg-green-100 text-green-800" },
@@ -62,7 +62,7 @@ function urgencyBadge(days: number | null) {
   if (days < 0) return <Badge className="text-[10px] bg-rose-100 text-rose-700 border-0">Expired {Math.abs(days)}d ago</Badge>;
   if (days <= 30) return <Badge className="text-[10px] bg-rose-100 text-rose-700 border-0">{days}d left</Badge>;
   if (days <= 90) return <Badge className="text-[10px] bg-amber-100 text-amber-700 border-0">{days}d left</Badge>;
-  if (days <= 180) return <Badge className="text-[10px] bg-blue-100 text-blue-700 border-0">{days}d left</Badge>;
+  if (days <= 180) return <Badge className="text-[10px] bg-muted text-foreground border-0">{days}d left</Badge>;
   if (days <= 365) return <Badge variant="outline" className="text-[10px]">{days}d left</Badge>;
   return <Badge variant="outline" className="text-[10px] text-muted-foreground">{Math.round(days / 365)}y+</Badge>;
 }
@@ -128,8 +128,8 @@ export default function RenewalsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Lease Renewals"
-        description="Track renewal progress across your portfolio"
+        title="Licenses"
+        description="Track licenses and renewal progress across your portfolio"
       >
         <Badge variant="secondary" className="bg-muted text-foreground font-medium">
           {agreements.length} leases
@@ -140,25 +140,25 @@ export default function RenewalsPage() {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <Card className="cursor-pointer hover:shadow-sm transition-shadow" onClick={() => setFilter("all")}>
           <CardContent className="p-4 text-center">
-            <p className="text-2xl font-bold">{agreements.length}</p>
+            <p className="text-2xl font-semibold">{agreements.length}</p>
             <p className="text-xs text-muted-foreground">Total Active</p>
           </CardContent>
         </Card>
         <Card className={`cursor-pointer hover:shadow-sm transition-shadow ${expiringCount > 0 ? "border-amber-200" : ""}`} onClick={() => setFilter("expiring_soon")}>
           <CardContent className="p-4 text-center">
-            <p className="text-2xl font-bold text-amber-600">{expiringCount}</p>
+            <p className="text-2xl font-semibold text-amber-600">{expiringCount}</p>
             <p className="text-xs text-muted-foreground">Expiring in 6 months</p>
           </CardContent>
         </Card>
         <Card className={`cursor-pointer hover:shadow-sm transition-shadow ${expiredCount > 0 ? "border-rose-200" : ""}`} onClick={() => setFilter("expired")}>
           <CardContent className="p-4 text-center">
-            <p className="text-2xl font-bold text-rose-600">{expiredCount}</p>
+            <p className="text-2xl font-semibold text-rose-600">{expiredCount}</p>
             <p className="text-xs text-muted-foreground">Expired</p>
           </CardContent>
         </Card>
         <Card className="cursor-pointer hover:shadow-sm transition-shadow" onClick={() => setFilter("renewed")}>
           <CardContent className="p-4 text-center">
-            <p className="text-2xl font-bold text-emerald-600">{agreements.filter(a => a.renewal_status === "renewed").length}</p>
+            <p className="text-2xl font-semibold text-emerald-600">{agreements.filter(a => a.renewal_status === "renewed").length}</p>
             <p className="text-xs text-muted-foreground">Renewed</p>
           </CardContent>
         </Card>

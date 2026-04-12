@@ -424,7 +424,7 @@ async def focused_retry_extraction(text: str, extraction: dict, confidence: dict
                     extraction[section_key] = {}
                 for field_key, field_val in section_data.items():
                     dot_key = f"{section_key}.{field_key}"
-                    if dot_key in missing_fields:
+                    if dot_key in missing_fields or field_key in missing_fields:
                         # Check if the retry actually found something
                         val = field_val
                         if isinstance(field_val, dict) and "value" in field_val:
@@ -912,6 +912,23 @@ def _normalize_indian_amount(value) -> Optional[float]:
         return None
 
 
+def _is_value_wrapper(value) -> bool:
+    return isinstance(value, dict) and "value" in value
+
+
+def _get_cleanable_value(container: dict, field: str):
+    value = container.get(field)
+    return value.get("value") if _is_value_wrapper(value) else value
+
+
+def _set_cleanable_value(container: dict, field: str, value):
+    existing = container.get(field)
+    if _is_value_wrapper(existing):
+        existing["value"] = value
+    else:
+        container[field] = value
+
+
 def _validate_and_clean_fields(result: dict, text: str) -> dict:
     """Validate and fix common extraction mistakes in-place.
 
@@ -927,7 +944,16 @@ def _validate_and_clean_fields(result: dict, text: str) -> dict:
 
     # --- Recursively process nested dicts ---
     for key, val in result.items():
-        if isinstance(val, dict):
+        if _is_value_wrapper(val):
+            inner_value = val.get("value")
+            if isinstance(inner_value, dict):
+                val["value"] = _validate_and_clean_fields(inner_value, text)
+            elif isinstance(inner_value, list):
+                val["value"] = [
+                    _validate_and_clean_fields(item, text) if isinstance(item, dict) else item
+                    for item in inner_value
+                ]
+        elif isinstance(val, dict):
             result[key] = _validate_and_clean_fields(val, text)
 
     # --- Strip currency symbols and normalize monetary fields ---
@@ -941,12 +967,13 @@ def _validate_and_clean_fields(result: dict, text: str) -> dict:
         "mglr_monthly", "rent_per_sqft", "mglr_per_sqft",
     ]
     for field in monetary_fields:
-        if field in result and result[field] is not None:
-            normalized = _normalize_indian_amount(result[field])
+        if field in result and _get_cleanable_value(result, field) is not None:
+            raw_value = _get_cleanable_value(result, field)
+            normalized = _normalize_indian_amount(raw_value)
             if normalized is not None:
-                result[field] = normalized
+                _set_cleanable_value(result, field, normalized)
             else:
-                result[field] = _strip_currency(result[field])
+                _set_cleanable_value(result, field, _strip_currency(raw_value))
 
     # --- Normalize date fields to ISO YYYY-MM-DD ---
     date_fields = [
@@ -957,10 +984,11 @@ def _validate_and_clean_fields(result: dict, text: str) -> dict:
         "revised_lease_expiry",
     ]
     for field in date_fields:
-        if field in result and isinstance(result[field], str):
-            normalized = _normalize_date(result[field])
+        raw_value = _get_cleanable_value(result, field)
+        if field in result and isinstance(raw_value, str):
+            normalized = _normalize_date(raw_value)
             if normalized:
-                result[field] = normalized
+                _set_cleanable_value(result, field, normalized)
 
     # --- Validate percentage fields (0-100 range) ---
     percentage_fields = [
@@ -968,38 +996,38 @@ def _validate_and_clean_fields(result: dict, text: str) -> dict:
         "revised_escalation_pct",
     ]
     for field in percentage_fields:
-        val = result.get(field)
+        val = _get_cleanable_value(result, field)
         if isinstance(val, (int, float)):
             if val > 100:
-                result[field] = None
+                _set_cleanable_value(result, field, None)
             elif val < 0:
-                result[field] = abs(val) if abs(val) <= 100 else None
+                _set_cleanable_value(result, field, abs(val) if abs(val) <= 100 else None)
 
     # --- Monthly rent: detect likely annual values ---
-    rent = result.get("monthly_rent")
+    rent = _get_cleanable_value(result, "monthly_rent")
     if isinstance(rent, (int, float)) and rent > 1000000:
         text_lower = text.lower()
         if "per month" not in text_lower and "p.m." not in text_lower and "/month" not in text_lower:
-            result["monthly_rent"] = round(rent / 12, 2)
+            _set_cleanable_value(result, "monthly_rent", round(rent / 12, 2))
 
     # --- Lease dates: swap if expiry < commencement ---
-    commencement = result.get("lease_commencement_date")
-    expiry = result.get("lease_expiry_date")
+    commencement = _get_cleanable_value(result, "lease_commencement_date")
+    expiry = _get_cleanable_value(result, "lease_expiry_date")
     if commencement and expiry and isinstance(commencement, str) and isinstance(expiry, str):
         try:
             dt_start = datetime.strptime(commencement, "%Y-%m-%d")
             dt_end = datetime.strptime(expiry, "%Y-%m-%d")
             if dt_end < dt_start:
-                result["lease_commencement_date"] = expiry
-                result["lease_expiry_date"] = commencement
+                _set_cleanable_value(result, "lease_commencement_date", expiry)
+                _set_cleanable_value(result, "lease_expiry_date", commencement)
         except (ValueError, TypeError):
             pass
 
     # --- Security deposit months: extract number from strings like "6 months" ---
-    sd_months = result.get("security_deposit_months")
+    sd_months = _get_cleanable_value(result, "security_deposit_months")
     if isinstance(sd_months, str):
         match = re.search(r"(\d+)", sd_months)
-        result["security_deposit_months"] = int(match.group(1)) if match else None
+        _set_cleanable_value(result, "security_deposit_months", int(match.group(1)) if match else None)
 
     # --- Cross-validation: derive monthly_rent from rent_schedule if missing ---
     rent_section = result.get("rent", result)  # Handle both flat and nested structures
@@ -1146,15 +1174,45 @@ async def extract_structured_data(text: str, doc_type: str) -> dict:
         "7. If a field's value is calculated from a formula (e.g., '60 days from handover'), "
         "return the formula as a string rather than guessing a date.\n"
         "8. For each field, also return a confidence score: 'high', 'medium', 'low', or 'not_found'.\n"
-        "8b. SOURCE REFERENCES: For each extracted field, ALSO return 'source_page' (the page number where you found it, "
-        "starting from 1) and 'source_quote' (the exact 10-30 word quote from the document where this value appears). "
-        "Format each field as: {\"value\": <extracted_value>, \"confidence\": \"high|medium|low\", \"source_page\": <int>, "
-        "\"source_quote\": \"<exact text from document>\"}. If you cannot identify the page, omit source_page.\n"
+        "8b. SOURCE REFERENCES — MANDATORY FOR EVERY FIELD: For EVERY extracted field, you MUST return:\n"
+        "  - 'source_page': the page number (1-indexed) where you found this value. "
+        "Look for page markers like '--- PAGE X ---' in the text. NEVER skip source_page.\n"
+        "  - 'source_quote': the exact 10-30 word quote from the document. Copy the EXACT text, don't paraphrase.\n"
+        "  Format: {\"value\": <val>, \"confidence\": \"high|medium|low\", \"source_page\": <int>, \"source_quote\": \"<exact text>\"}\n"
+        "  If the document has page markers (--- PAGE 1 ---, --- PAGE 2 ---), use those to determine page numbers.\n"
         "9. Cross-verify extracted values — if rent is 2,85,000/month, total outflow should be >= that.\n"
         "10. Pay special attention to: party names (lessor vs lessee), lock-in periods, notice periods.\n"
         "11. EXTRACT ALL FIELDS even if confidence is low — mark as 'low' confidence rather than skipping. "
         "Only use 'not_found' if the field is truly absent from the document.\n"
-        "12. If the document is bilingual (Hindi/English), extract data from BOTH languages. "
+        "12. NEVER RETURN EMPTY SECTIONS. Every section (parties, premises, lease_term, rent, charges, deposits, legal) "
+        "MUST have at least some data. If you can infer a value from context, do so with 'low' confidence. "
+        "An incomplete extraction is far better than an empty one.\n"
+        "13. CRITICAL FIELDS that MUST be extracted if they exist ANYWHERE in the document: "
+        "lessor_name, lessee_name, brand_name, city, property_name, monthly_rent, lease_term_years, "
+        "commencement_date, expiry_date, security_deposit_amount, lock_in_months, escalation_percentage. "
+        "Search the ENTIRE document including schedules, annexures, addendums, and signature pages.\n"
+        "14. For DEPOSITS section — look for: security deposit, CAM deposit, utility deposit, advance rent. "
+        "These are often in a separate section titled 'Security Deposit' or 'Financial Terms'.\n"
+        "15. For LEGAL section — look for: usage restriction, brand change, structural alterations, "
+        "subletting, jurisdiction, arbitration, late payment interest, force majeure, exclusivity, co-tenancy. "
+        "These clauses are often near the end of the document.\n"
+        "16. For FRANCHISE section — look for: 'FOFO', 'FOCO', 'COCO', 'franchise model', 'profit split', "
+        "'franchisee', 'franchisor', 'operator entity', 'investor entity', 'brand owner'. "
+        "These terms appear in franchise/brand agreement sections, often near the end of the document. "
+        "If the document mentions ANY franchise arrangement, extract the model and profit split.\n"
+        "17. For CHARGES section — THIS IS CRITICAL, DO NOT SKIP:\n"
+        "  - CAM (Common Area Maintenance): Look for 'CAM', 'maintenance charges', 'common area', "
+        "'maintenance fee', 'service charges'. It is ALWAYS present in Indian lease agreements. "
+        "CAM may be expressed as: Rs X per sq ft per month, Rs X per month, X% of rent, or a fixed amount. "
+        "Common variations: 'CAM charges @ Rs. 32/- per sq. ft.', 'Monthly CAM: Rs. 59,200/-', "
+        "'CAM Area Basis: Super Built-Up Area', 'CAM Escalation: 5% per annum'. "
+        "If you see ANY maintenance-related charge, extract it as cam_rate_per_sqft or cam_monthly.\n"
+        "  - HVAC: Look for 'HVAC', 'air conditioning', 'AC charges'. Extract rate per sq ft.\n"
+        "  - Electricity: Look for 'electricity', 'power', 'load', 'KW', 'metering'. Extract load and metering type.\n"
+        "  - GST: Look for 'GST', 'tax', '18%'. Almost all Indian commercial leases have GST at 18%.\n"
+        "  - Operating Hours: Look for 'operating hours', 'business hours', 'mall timings'.\n"
+        "  - Marketing Charges: Look for 'marketing', 'promotion', 'advertising fund'.\n"
+        "17. If the document is bilingual (Hindi/English), extract data from BOTH languages. "
         "Hindi terms to recognize: किरायेदार (tenant/lessee), मकान मालिक (lessor/landlord), "
         "किराया (rent), जमा राशि (deposit), अवधि (term/period), नवीनीकरण (renewal).\n\n"
         "INDIAN LEASE TERMINOLOGY TO WATCH FOR:\n"
@@ -1196,6 +1254,19 @@ async def extract_structured_data(text: str, doc_type: str) -> dict:
     if template_key and template_key in INDIAN_LEASE_TEMPLATES:
         prompt += f"DOCUMENT TYPE HINT:\n{INDIAN_LEASE_TEMPLATES[template_key]}\n\n"
 
+    # CRITICAL FORMAT REMINDER — placed right before document to ensure Gemini follows it
+    prompt += (
+        "\n\nIMPORTANT REMINDER — OUTPUT FORMAT:\n"
+        "For EVERY field, return a JSON object with these keys:\n"
+        '  {"value": <extracted_value>, "confidence": "high|medium|low", '
+        '"source_page": <page_number_integer>, "source_quote": "<exact 10-30 word quote from document>"}\n'
+        "DO NOT return raw strings. EVERY field MUST be an object with value, confidence, source_page, and source_quote.\n"
+        "The document has page markers like '--- PAGE 1 ---'. Use those to determine source_page numbers.\n"
+        "For fields NOT FOUND in the document:\n"
+        '  {"value": "not_found", "confidence": "not_found", "source_page": 1, '
+        '"source_quote": "Not explicitly mentioned in this document"}\n'
+        "EVERY field must have ALL 4 keys. No exceptions.\n\n"
+    )
     prompt += f"DOCUMENT TEXT:\n{text}"
 
     # First extraction pass (with retry on failure)
@@ -1208,21 +1279,22 @@ async def extract_structured_data(text: str, doc_type: str) -> dict:
                 use_prompt = (
                     f"Extract ALL fields from this {doc_type_label} as JSON.\n"
                     f"Schema:\n{json.dumps(schema, indent=2)}\n\n"
-                    f"DOCUMENT TEXT (first 10000 chars):\n{text[:10000]}"
+                    f"DOCUMENT TEXT:\n{text[:50000]}"
                 )
                 print(f"[EXTRACTION] Retrying with simplified prompt (attempt {attempt + 1})")
 
-            # Truncate document text to avoid exceeding context window
-            # Keep first 15K chars — covers most lease content (typically 5-8K for core clauses)
-            if attempt == 0 and len(use_prompt) > 20000:
-                # Find the "DOCUMENT TEXT:" marker and truncate after it
+            # Gemini 3.1 Pro supports 1M tokens (~4M chars) — send full document
+            # Only truncate for extremely long documents (>200K chars / ~200+ pages)
+            if attempt == 0 and len(use_prompt) > 200000:
                 marker = "DOCUMENT TEXT:"
                 marker_pos = use_prompt.find(marker)
                 if marker_pos > 0:
                     preamble = use_prompt[:marker_pos + len(marker)]
                     doc_text = use_prompt[marker_pos + len(marker):]
-                    use_prompt = preamble + doc_text[:15000]
-                    print(f"[EXTRACTION] Truncated prompt from {len(prompt)} to {len(use_prompt)} chars")
+                    # Keep first 80K + last 40K for very large docs
+                    doc_text = doc_text[:80000] + "\n\n--- [TRUNCATED — END OF DOCUMENT] ---\n\n" + doc_text[-40000:]
+                    use_prompt = preamble + doc_text
+                    print("[EXTRACTION] Very large doc truncated to ~120K chars")
 
             # Use Pro model for maximum accuracy — quality over speed
             print(f"[EXTRACTION] Attempt {attempt + 1}: Sending prompt ({len(use_prompt)} chars) to {model_pro.model_name}...")
@@ -1250,11 +1322,14 @@ async def extract_structured_data(text: str, doc_type: str) -> dict:
             else:
                 print(f"[EXTRACTION] Attempt {attempt + 1}: Parsed but empty/invalid: {type(parsed)}")
         except (json.JSONDecodeError, Exception) as e:
-            print(f"[EXTRACTION] Attempt {attempt + 1} failed: {type(e).__name__}: {e}")
+            import traceback
+            print(f"[EXTRACTION] Attempt {attempt + 1} FAILED: {type(e).__name__}: {e}", flush=True)
+            print(f"[EXTRACTION] Model: {getattr(model_pro, 'model_name', 'unknown')}", flush=True)
+            print(f"[EXTRACTION] Traceback:\n{traceback.format_exc()}", flush=True)
             if hasattr(e, 'response'):
-                print(f"[EXTRACTION] Response details: {getattr(e, 'response', 'N/A')}")
+                print(f"[EXTRACTION] Response details: {getattr(e, 'response', 'N/A')}", flush=True)
             if attempt == 1:
-                result = {}  # Give up after retry
+                result = {}  # Give up after retry — last error already logged above
 
     # Field-level validation and cleanup
     if result and doc_type in ("lease_loi", "franchise_agreement", "supplementary_agreement"):
@@ -1277,7 +1352,11 @@ async def extract_structured_data(text: str, doc_type: str) -> dict:
             "- Lock-in period (in months)\n"
             "- Security deposit (amount and number of months)\n"
             "- Area measurements (carpet vs super area)\n"
-            "- CAM / maintenance charges (monthly amount)\n"
+            "- CAM / maintenance charges — THIS IS THE MOST COMMONLY MISSED FIELD. "
+            "Search the ENTIRE document for 'CAM', 'maintenance', 'common area', 'service charge'. "
+            "If cam_rate_per_sqft or cam_monthly is 'not_found' but the document mentions ANY maintenance charges, "
+            "you MUST extract them. CAM is present in virtually every Indian commercial lease. "
+            "Return the monthly amount. If given as rate/sqft, calculate: rate * area.\n"
             "- Escalation percentage (should be reasonable: typically 3-25%. If > 25%, double-check.)\n"
             "- Notice period (in months)\n"
             "- Total monthly outflow should approximately equal: rent + CAM + maintenance + other charges. "
@@ -1334,7 +1413,7 @@ async def extract_structured_data_vision(images: list, doc_type: str) -> dict:
         "3. For dates: Use YYYY-MM-DD format. Handle Indian formats: DD/MM/YYYY, DD-MM-YYYY.\n"
         "4. For rent: Always return MONTHLY values.\n"
         "5. Distinguish lessor (owner/licensor) from lessee (tenant/licensee) carefully.\n"
-        "6. For each field, return an object with: {\"value\": ..., \"confidence\": \"high\"|\"medium\"|\"low\"|\"not_found\", \"source_page\": N} where source_page is the page number (1-indexed) where you found this data.\n"
+        "6. For each field, return an object with: {\"value\": ..., \"confidence\": \"high\"|\"medium\"|\"low\"|\"not_found\", \"source_page\": N, \"source_quote\": \"exact quote\"} where source_page is the page number (1-indexed) where you found this data.\n"
         "7. If handwritten, do your best to read accurately.\n"
         "8. If a value is a formula (e.g., '60 days from handover'), return as string.\n"
         "9. EXTRACT ALL FIELDS even if confidence is low — mark as 'low' confidence rather than skipping.\n"
@@ -1356,7 +1435,7 @@ async def extract_structured_data_vision(images: list, doc_type: str) -> dict:
     )
 
     try:
-        page_images = images[:8]
+        page_images = images[:20]
         print(f"[VISION EXTRACT] Starting extraction with {len(page_images)} page images for doc_type={doc_type}")
 
         # --- Attempt 1: JSON mode ---
@@ -1490,6 +1569,10 @@ def calculate_confidence(extraction: dict) -> dict:
                 else:
                     return "low"  # Formula or text description
 
+        # Booleans
+        if isinstance(field_val, bool):
+            return "high"
+
         # Numeric fields
         if isinstance(field_val, (int, float)):
             if field_val == 0:
@@ -1503,6 +1586,8 @@ def calculate_confidence(extraction: dict) -> dict:
                 return "low"
             if stripped.lower() in ("na", "n/a", "nil", "none", "-", "unknown", "not specified", "not mentioned"):
                 return "not_found"
+            if len(stripped) <= 4 and stripped.isalpha() and stripped.upper() == stripped:
+                return "high"
             if len(stripped) < 5 and not any(c.isdigit() for c in stripped):
                 return "medium"
             return "high"
@@ -1510,10 +1595,6 @@ def calculate_confidence(extraction: dict) -> dict:
         # Lists
         if isinstance(field_val, list):
             return "high" if len(field_val) > 0 else "not_found"
-
-        # Booleans
-        if isinstance(field_val, bool):
-            return "high"
 
         return "medium"
 
@@ -1608,6 +1689,9 @@ async def detect_risk_flags_vision(images: list, extraction: dict) -> list:
 
 def _detect_india_specific_risk_flags(extraction: dict) -> list:
     """Detect India-specific commercial lease risk flags from extracted structured data."""
+    if not extraction:
+        return []
+
     flags = []
     flag_id_start = 100  # Use 100+ range to avoid collision with AI-generated flag IDs (1-8)
 
@@ -1873,13 +1957,17 @@ def _get_nested_num(section: dict, key: str) -> Optional[float]:
 
 async def process_document(file_bytes: bytes, filename: str) -> dict:
     """
-    Universal document processor. Handles PDFs (text-based, scanned, mixed)
-    and image files. Never raises — always returns a result dict.
+    Universal document processor — Clean 2-tool pipeline:
+    1. Document AI (or PyMuPDF fallback) for text + bounding boxes
+    2. Gemini 3.1 Pro for AI extraction + verification + risk flags
+
+    Handles PDFs (text-based, scanned, mixed) and image files.
+    Never raises — always returns a result dict.
     """
     extraction_method = "unknown"
     text = ""
     images = []
-    ocr_pages = []  # Word-level bounding boxes for scanned doc highlighting
+    ocr_pages = []  # Word-level bounding boxes for highlighting
     doc_type = "lease_loi"
     extraction = {}
     confidence = {}
@@ -1889,81 +1977,139 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
     try:
         file_type = get_file_type(filename)
 
-        # --- Step 1: Get content — DUAL EXTRACTION (Improvement #1) ---
         import time as _time
         _extraction_start = _time.time()
 
-        table_text = ""
         if file_type == "pdf":
-            # Run dual extraction: PyMuPDF + Cloud Vision
-            try:
-                text, pymupdf_text, cv_text = await extract_text_dual(file_bytes)
-            except Exception:
-                text = ""
-                pymupdf_text = ""
-                cv_text = ""
+            # ── PRIMARY: Document AI (best accuracy + tables + bboxes) ──
+            docai_processor = os.getenv("DOCUMENT_AI_PROCESSOR")
+            docai_success = False
 
-            # Extract tables with pdfplumber (Improvement #2)
-            try:
-                table_text = extract_tables_from_pdf(file_bytes)
-            except Exception as e:
-                print(f"[PROCESS] Table extraction failed: {e}")
+            if docai_processor:
+                try:
+                    import json as _json
+                    from google.cloud import documentai_v1 as documentai
+                    from google.oauth2.service_account import Credentials as SACreds
 
-            # Try Document AI if configured (best quality for tables/forms)
-            docai_text = ""
-            try:
-                docai_text = await extract_with_document_ai(file_bytes)
-                if docai_text and len(docai_text.strip()) > len(text.strip()) * 1.2:
-                    print(f"[PROCESS] Document AI produced better results ({len(docai_text)} vs {len(text.strip())} chars)")
-                    text = docai_text
-                    table_text = ""  # Already included in docai_text
-                    extraction_method = "document_ai"
-            except Exception as e:
-                print(f"[PROCESS] Document AI skipped: {e}")
-
-            print(f"[PROCESS] Dual extraction: {len(text.strip())} chars, tables: {len(table_text.strip())} chars")
-
-            # Need at least 500 chars of actual content for text-based extraction
-            # Scanned PDFs often have ~100-200 chars of metadata but no real content
-            min_text_threshold = 500
-            if len(text.strip()) >= min_text_threshold:
-                extraction_method = "text+cloud_vision" if cv_text else "text"
-                # Append table data to text for Gemini context (preserving page markers)
-                if table_text.strip():
-                    text = text + "\n\n" + table_text
-                # Extract bboxes for highlighting if Cloud Vision was used
-                # Run in background — don't block extraction
-                if cv_text and not ocr_pages:
-                    try:
-                        if not images:
-                            images = pdf_bytes_to_images(file_bytes)
-                        if images:
-                            # Only extract bboxes for first 5 pages to save time
-                            bbox_images = images  # All pages for complete highlighting
-                            bbox_result = extract_text_with_bboxes(bbox_images)
-                            ocr_pages = bbox_result.get("pages", [])
-                            print(f"[PROCESS] BBox extraction: {sum(len(p.get('words', [])) for p in ocr_pages)} words across {len(ocr_pages)} pages (of {len(images)} total)")
-                    except Exception as bbox_err:
-                        print(f"[PROCESS] BBox extraction failed: {bbox_err}")
-            else:
-                print(f"[PROCESS] Text too sparse ({len(text.strip())} chars < {min_text_threshold}), falling back to vision...")
-                images = pdf_bytes_to_images(file_bytes)
-                print(f"[PROCESS] Converted PDF to {len(images)} page images")
-                if images:
-                    # Extract text + bounding boxes together
-                    bbox_result = extract_text_with_bboxes(images)
-                    cloud_vision_text = bbox_result.get("text", "")
-                    ocr_pages = bbox_result.get("pages", [])
-                    print(f"[PROCESS] Cloud Vision OCR: {len(cloud_vision_text.strip())} chars, {sum(len(p.get('words', [])) for p in ocr_pages)} words with bboxes")
-                    if len(cloud_vision_text.strip()) >= 100:
-                        text = cloud_vision_text
-                        if table_text.strip():
-                            text = text + "\n\n" + table_text
-                        extraction_method = "cloud_vision"
+                    creds_json = os.getenv("GOOGLE_CLOUD_CREDENTIALS_JSON")
+                    if creds_json:
+                        creds_info = _json.loads(creds_json)
+                        creds = SACreds.from_service_account_info(creds_info)
+                        docai_client = documentai.DocumentProcessorServiceClient(credentials=creds)
                     else:
-                        extraction_method = "vision"
-                else:
-                    extraction_method = "text" if text.strip() else "failed"
+                        docai_client = documentai.DocumentProcessorServiceClient()
+
+                    raw_doc = documentai.RawDocument(content=file_bytes, mime_type="application/pdf")
+                    docai_result = docai_client.process_document(
+                        request=documentai.ProcessRequest(name=docai_processor, raw_document=raw_doc)
+                    )
+                    document = docai_result.document
+
+                    # Extract text with page markers
+                    doc_text = ""
+                    for page_idx, page in enumerate(document.pages):
+                        doc_text += f"\n--- PAGE {page_idx + 1} ---\n"
+                        # Get all text for this page via text segments
+                        for block in page.blocks:
+                            if block.layout.text_anchor.text_segments:
+                                start = int(block.layout.text_anchor.text_segments[0].start_index) if block.layout.text_anchor.text_segments[0].start_index else 0
+                                end = int(block.layout.text_anchor.text_segments[-1].end_index)
+                                doc_text += document.text[start:end] + "\n"
+                        # Extract tables
+                        for table in page.tables:
+                            doc_text += "\n[TABLE]\n"
+                            for row in list(table.header_rows) + list(table.body_rows):
+                                cells = []
+                                for cell in row.cells:
+                                    if cell.layout.text_anchor.text_segments:
+                                        s = int(cell.layout.text_anchor.text_segments[0].start_index) if cell.layout.text_anchor.text_segments[0].start_index else 0
+                                        e = int(cell.layout.text_anchor.text_segments[-1].end_index)
+                                        cells.append(document.text[s:e].strip())
+                                    else:
+                                        cells.append("")
+                                doc_text += " | ".join(cells) + "\n"
+                            doc_text += "[/TABLE]\n"
+
+                    # Extract word-level bounding boxes from Document AI tokens
+                    for page_idx, page in enumerate(document.pages):
+                        page_words = []
+                        for token in page.tokens:
+                            segs = token.layout.text_anchor.text_segments
+                            if not segs:
+                                continue
+                            s = int(segs[0].start_index) if segs[0].start_index else 0
+                            e = int(segs[0].end_index)
+                            word_text = document.text[s:e].strip()
+                            if not word_text:
+                                continue
+                            verts = token.layout.bounding_poly.normalized_vertices
+                            if len(verts) >= 4:
+                                x = float(verts[0].x)
+                                y = float(verts[0].y)
+                                w = max(float(verts[1].x - verts[0].x), 0.001)
+                                h = max(float(verts[2].y - verts[0].y), 0.001)
+                                page_words.append({"text": word_text, "bbox": {"x": x, "y": y, "w": w, "h": h}})
+                        ocr_pages.append({
+                            "page_number": page_idx + 1,
+                            "width": int(page.dimension.width) if page.dimension else 0,
+                            "height": int(page.dimension.height) if page.dimension else 0,
+                            "words": page_words,
+                        })
+
+                    if len(doc_text.strip()) > 200:
+                        text = doc_text
+                        extraction_method = "document_ai"
+                        docai_success = True
+                        total_words = sum(len(p["words"]) for p in ocr_pages)
+                        print(f"[PROCESS] Document AI: {len(text)} chars, {len(document.pages)} pages, {total_words} words with bboxes")
+                    else:
+                        print(f"[PROCESS] Document AI returned sparse text ({len(doc_text.strip())} chars), falling back")
+
+                except Exception as e:
+                    print(f"[PROCESS] Document AI failed: {type(e).__name__}: {e}")
+
+            # ── FALLBACK: PyMuPDF (if Document AI not configured or failed) ──
+            if not docai_success:
+                try:
+                    pymupdf_text = extract_text_from_pdf(file_bytes)
+                    print(f"[PROCESS] PyMuPDF: {len(pymupdf_text)} chars")
+
+                    if len(pymupdf_text.strip()) >= 500:
+                        text = pymupdf_text
+                        extraction_method = "text"
+                    else:
+                        # Scanned PDF — try Cloud Vision as last resort
+                        print(f"[PROCESS] PyMuPDF sparse ({len(pymupdf_text.strip())} chars), trying Cloud Vision...")
+                        cv_images = pdf_bytes_to_images(file_bytes)
+                        if cv_images:
+                            bbox_result = extract_text_with_bboxes(cv_images)
+                            cv_text = bbox_result.get("text", "")
+                            ocr_pages = bbox_result.get("pages", [])
+                            if len(cv_text.strip()) >= 100:
+                                text = cv_text
+                                extraction_method = "cloud_vision"
+                                print(f"[PROCESS] Cloud Vision: {len(cv_text)} chars, {sum(len(p.get('words', [])) for p in ocr_pages)} words")
+                            else:
+                                # Last resort: Gemini vision
+                                images = cv_images
+                                extraction_method = "vision"
+                                print(f"[PROCESS] Falling back to Gemini vision ({len(cv_images)} page images)")
+                except Exception as e:
+                    print(f"[PROCESS] Fallback extraction failed: {e}")
+
+            # Add pdfplumber tables if not already from Document AI
+            if extraction_method != "document_ai":
+                try:
+                    table_text = extract_tables_from_pdf(file_bytes)
+                    if table_text.strip():
+                        text = text + "\n\n" + table_text
+                        print(f"[PROCESS] pdfplumber tables: {len(table_text)} chars")
+                except Exception:
+                    pass
+
+            # Document AI bboxes are more accurate — use them for highlighting
+            if docai_success:
+                extraction_method = "document_ai"
 
         elif file_type == "image":
             images = load_image_bytes(file_bytes)
@@ -2049,7 +2195,6 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
                         )
                         all_ocr_text += (ocr_response.text or "") + "\n"
                     text = all_ocr_text.strip()
-                    text = ocr_response.text or ""
                     print(f"[PROCESS] Gemini OCR pass: {len(text)} chars extracted for OCR view")
                 except Exception as ocr_err:
                     print(f"[PROCESS] Gemini OCR pass failed: {ocr_err}")
@@ -2109,9 +2254,13 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
             # Merge: only downgrade confidence, never upgrade
             for key, validated_conf in source_validated_confidence.items():
                 existing = confidence.get(key)
+                target_key = key
+                if existing is None and "." in key:
+                    target_key = key.split(".", 1)[1]
+                    existing = confidence.get(target_key)
                 conf_order = {"not_found": 0, "low": 1, "medium": 2, "high": 3}
                 if existing and conf_order.get(validated_conf, 2) < conf_order.get(existing, 2):
-                    confidence[key] = validated_conf
+                    confidence[target_key] = validated_conf
 
         # --- Step 4.65: Two-pass focused retry (Improvement #4) ---
         # Skip if extraction already took >90s (avoid timeout during demo)
@@ -2146,7 +2295,7 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
         # --- Step 5: Detect risk flags ---
         if doc_type == "lease_loi":
             try:
-                if extraction_method in ("text", "cloud_vision", "cloud_vision_fallback", "text+cloud_vision"):
+                if extraction_method in ("text", "cloud_vision", "cloud_vision_fallback", "text+cloud_vision", "document_ai"):
                     risk_flags = await detect_risk_flags(text, extraction)
                 elif extraction_method == "vision":
                     risk_flags = await detect_risk_flags_vision(images, extraction)
@@ -2165,6 +2314,8 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
 
         if extraction_method == "failed":
             error_message = "Could not extract content from this file. The file may be empty, corrupt, or in an unsupported format."
+        elif not extraction and not error_message:
+            error_message = "No structured fields could be extracted from this document. Please retry with a clearer scan or check AI/OCR service configuration."
 
     except Exception as e:
         error_message = f"Processing error: {str(e)}"
@@ -2176,7 +2327,7 @@ async def process_document(file_bytes: bytes, filename: str) -> dict:
     })
 
     return {
-        "status": "success" if extraction_method != "failed" else "partial",
+        "status": "success" if extraction_method != "failed" and extraction else "partial",
         "document_type": doc_type,
         "extraction": extraction,
         "confidence": confidence,
@@ -2216,8 +2367,11 @@ def get_num(field_data):
     v = get_val(field_data)
     if v is None:
         return None
+    normalized = _normalize_indian_amount(v)
+    if normalized is not None:
+        return float(normalized)
     try:
-        return float(v)
+        return float(str(v).replace(",", ""))
     except (ValueError, TypeError):
         return None
 
@@ -2346,6 +2500,8 @@ def build_agreement_data(extraction: dict, doc_type: str, risk_flags: list, conf
         if isinstance(first_year, dict):
             monthly_rent = get_num(first_year.get("mglr_monthly")) or get_num(first_year.get("monthly_rent")) or get_num(first_year.get("rent"))
             rent_per_sqft = get_num(first_year.get("mglr_per_sqft")) or get_num(first_year.get("rent_per_sqft"))
+    monthly_rent = monthly_rent or get_num(rent.get("monthly_rent")) or get_num(rent.get("mglr_monthly"))
+    rent_per_sqft = rent_per_sqft or get_num(rent.get("rent_per_sqft")) or get_num(rent.get("mglr_per_sqft"))
 
     cam_monthly = get_num(charges.get("cam_monthly"))
     security_deposit = get_num(deposits.get("security_deposit_amount"))
@@ -2436,6 +2592,7 @@ def build_obligations_data(extraction: dict, org_id: str) -> list:
         first = rent_schedule[0]
         if isinstance(first, dict):
             monthly_rent = get_num(first.get("mglr_monthly")) or get_num(first.get("monthly_rent")) or get_num(first.get("rent"))
+    monthly_rent = monthly_rent or get_num(rent.get("monthly_rent")) or get_num(rent.get("mglr_monthly"))
 
     if monthly_rent:
         obligations.append({
@@ -2670,6 +2827,8 @@ def create_agreement_record(extraction: dict, doc_type: str, risk_flags: list, c
         if isinstance(first_year, dict):
             monthly_rent = get_num(first_year.get("mglr_monthly")) or get_num(first_year.get("monthly_rent")) or get_num(first_year.get("rent"))
             rent_per_sqft = get_num(first_year.get("mglr_per_sqft")) or get_num(first_year.get("rent_per_sqft"))
+    monthly_rent = monthly_rent or get_num(rent.get("monthly_rent")) or get_num(rent.get("mglr_monthly"))
+    rent_per_sqft = rent_per_sqft or get_num(rent.get("rent_per_sqft")) or get_num(rent.get("mglr_per_sqft"))
 
     cam_monthly = get_num(charges.get("cam_monthly"))
     security_deposit = get_num(deposits.get("security_deposit_amount"))
@@ -2761,6 +2920,7 @@ def generate_obligations(extraction: dict, agreement_id: str, outlet_id: str, or
         first = rent_schedule[0]
         if isinstance(first, dict):
             monthly_rent = get_num(first.get("mglr_monthly")) or get_num(first.get("monthly_rent")) or get_num(first.get("rent"))
+    monthly_rent = monthly_rent or get_num(rent.get("monthly_rent")) or get_num(rent.get("mglr_monthly"))
 
     if monthly_rent:
         obligations.append({

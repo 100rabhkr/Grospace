@@ -1,13 +1,26 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams, useRouter } from "next/navigation";
 import { listOutlets, createOutlet } from "@/lib/api";
+import { useUser } from "@/lib/hooks/use-user";
+import { canWrite, type UserRole } from "@/components/navigation-config";
 import { Pagination } from "@/components/pagination";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { StatusBadge, statusTone } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -48,12 +61,16 @@ interface OutletAgreement {
   monthly_rent: number;
   lease_expiry_date: string;
   risk_flags: unknown[];
+  total_monthly_outflow?: number;
+  security_deposit?: number;
 }
 
 interface Outlet {
   id: string;
   name: string;
   brand_name: string;
+  company_name: string | null;
+  business_category: string | null;
   address: string;
   city: string;
   state: string;
@@ -172,7 +189,10 @@ function RentToRevenueBadge({ ratio }: { ratio: number | null }) {
 // Page Component
 // ---------------------------------------------------------------------------
 
-export default function OutletsPage() {
+function OutletsPageInner() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const { user } = useUser();
   const [outlets, setOutlets] = useState<Outlet[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -186,7 +206,8 @@ export default function OutletsPage() {
   const [propertyTypeFilter, setPropertyTypeFilter] = useState("all");
   const [franchiseModelFilter, setFranchiseModelFilter] = useState("all");
   const [brandFilter, setBrandFilter] = useState("all");
-  const [viewMode, setViewMode] = useState<"card" | "table">("card");
+  const [companyFilter, setCompanyFilter] = useState("all");
+  const [viewMode, setViewMode] = useState<"card" | "table">("table");
   const [showCreateOutlet, setShowCreateOutlet] = useState(false);
   const [newOutletName, setNewOutletName] = useState("");
   const [newOutletCity, setNewOutletCity] = useState("");
@@ -209,6 +230,18 @@ export default function OutletsPage() {
     fetchOutlets();
   }, [page]);
 
+  // Auto-default to table view when more than 10 outlets
+  useEffect(() => {
+    if (outlets.length > 10) setViewMode("table");
+  }, [outlets.length]);
+
+  // Auto-open create dialog when navigated with ?action=create
+  useEffect(() => {
+    if (searchParams.get("action") === "create") {
+      setShowCreateOutlet(true);
+    }
+  }, [searchParams]);
+
   // Derive unique filter options from fetched data
   const uniqueCities = useMemo(
     () => Array.from(new Set(outlets.map((o) => o.city))).sort(),
@@ -230,6 +263,10 @@ export default function OutletsPage() {
     () => Array.from(new Set(outlets.map((o) => o.brand_name).filter(Boolean))).sort(),
     [outlets]
   );
+  const uniqueCompanies = useMemo(
+    () => Array.from(new Set(outlets.map((o) => o.company_name).filter(Boolean))).sort() as string[],
+    [outlets]
+  );
 
   const filteredOutlets = useMemo(() => {
     return outlets.filter((outlet) => {
@@ -240,7 +277,8 @@ export default function OutletsPage() {
           (outlet.brand_name || "").toLowerCase().includes(query) ||
           (outlet.city || "").toLowerCase().includes(query) ||
           (outlet.address || "").toLowerCase().includes(query) ||
-          (outlet.site_code || "").toLowerCase().includes(query);
+          (outlet.site_code || "").toLowerCase().includes(query) ||
+          (outlet.company_name || "").toLowerCase().includes(query);
         if (!matchesSearch) return false;
       }
       if (cityFilter !== "all" && outlet.city !== cityFilter) return false;
@@ -248,9 +286,10 @@ export default function OutletsPage() {
       if (propertyTypeFilter !== "all" && outlet.property_type !== propertyTypeFilter) return false;
       if (franchiseModelFilter !== "all" && outlet.franchise_model !== franchiseModelFilter) return false;
       if (brandFilter !== "all" && outlet.brand_name !== brandFilter) return false;
+      if (companyFilter !== "all" && outlet.company_name !== companyFilter) return false;
       return true;
     });
-  }, [outlets, searchQuery, cityFilter, statusFilter, propertyTypeFilter, franchiseModelFilter, brandFilter]);
+  }, [outlets, searchQuery, cityFilter, statusFilter, propertyTypeFilter, franchiseModelFilter, brandFilter, companyFilter]);
 
   const handleCreateOutlet = async () => {
     if (!newOutletName.trim()) return;
@@ -260,7 +299,13 @@ export default function OutletsPage() {
       setShowCreateOutlet(false);
       setNewOutletName("");
       setNewOutletCity("");
-      window.location.href = `/outlets/${data.outlet?.id || data.id}`;
+      const newId = data.outlet?.id || data.id;
+      // Route to the outlet detail page — from there the user can
+      // click "Upload Lease" which opens an in-place modal. The old
+      // flow that navigated straight to /agreements/upload bypassed
+      // the detail page entirely and broke the "stay on outlet"
+      // flow the user explicitly asked for.
+      window.location.href = `/outlets/${newId}`;
     } catch (e) {
       console.error("Failed to create outlet:", e);
       setError("Failed to create outlet. Please try again.");
@@ -321,13 +366,15 @@ export default function OutletsPage() {
               Recycle Bin
             </Button>
           </Link>
-          <Button
-            className="bg-foreground text-white hover:bg-foreground/90"
-            onClick={() => setShowCreateOutlet(true)}
-          >
-            <Plus className="h-4 w-4 mr-1" />
-            Create Outlet
-          </Button>
+          {canWrite(user?.role as UserRole | undefined) && (
+            <Button
+              className="bg-foreground text-white hover:bg-foreground/90"
+              onClick={() => setShowCreateOutlet(true)}
+            >
+              <Plus className="h-4 w-4 mr-1" />
+              Create Outlet
+            </Button>
+          )}
         </PageHeader>
 
         {/* Filter Bar */}
@@ -413,6 +460,21 @@ export default function OutletsPage() {
                 <SelectItem value="all">All Brands</SelectItem>
                 {uniqueBrands.map((brand) => (
                   <SelectItem key={brand} value={brand!}>{brand}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+
+          {/* Company Filter */}
+          {uniqueCompanies.length > 1 && (
+            <Select value={companyFilter} onValueChange={setCompanyFilter}>
+              <SelectTrigger className="w-full lg:w-44 bg-card border-border text-foreground">
+                <SelectValue placeholder="All Companies" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Companies</SelectItem>
+                {uniqueCompanies.map((company) => (
+                  <SelectItem key={company} value={company}>{company}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -607,43 +669,24 @@ export default function OutletsPage() {
 
         {/* Table View */}
         {viewMode === "table" && filteredOutlets.length > 0 && (
-          <div className="border border-border rounded-lg overflow-hidden">
+          <div className="rounded-xl border border-border bg-card overflow-hidden elevation-1">
             <Table>
               <TableHeader>
-                <TableRow className="bg-muted hover:bg-muted">
-                  <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                    Outlet Name
-                  </TableHead>
-                  <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                    Site Code
-                  </TableHead>
-                  <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                    City
-                  </TableHead>
-                  <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                    Property Type
-                  </TableHead>
-                  <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                    Status
-                  </TableHead>
-                  <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                    Franchise Model
-                  </TableHead>
-                  <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wide text-right">
-                    Area (sqft)
-                  </TableHead>
-                  <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wide text-right">
-                    Monthly Rent
-                  </TableHead>
-                  <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                    Lease Expiry
-                  </TableHead>
-                  <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wide text-center">
-                    Rent/Revenue
-                  </TableHead>
-                  <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wide text-center">
-                    Risk Flags
-                  </TableHead>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>Outlet</TableHead>
+                  <TableHead>Code</TableHead>
+                  <TableHead>City</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Model</TableHead>
+                  <TableHead className="text-right">Area</TableHead>
+                  <TableHead className="text-right">Rent</TableHead>
+                  <TableHead className="text-right">Outflow</TableHead>
+                  <TableHead className="text-right">Revenue</TableHead>
+                  <TableHead>Lease Expiry</TableHead>
+                  <TableHead className="text-right">Tenure</TableHead>
+                  <TableHead className="text-right">R/R</TableHead>
+                  <TableHead className="text-right">Risks</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -652,64 +695,106 @@ export default function OutletsPage() {
                   return (
                     <TableRow
                       key={outlet.id}
-                      className="hover:bg-muted transition-colors cursor-pointer"
+                      className="cursor-pointer h-12"
+                      onClick={() => router.push(`/outlets/${outlet.id}`)}
                     >
+                      {/* Primary column — strongest text */}
                       <TableCell>
                         <Link
                           href={`/outlets/${outlet.id}`}
-                          className="flex items-center gap-2 text-sm font-medium text-foreground hover:underline"
+                          className="flex items-center gap-3 group"
                         >
-                          <div className="h-8 w-8 rounded-md bg-muted overflow-hidden flex-shrink-0 flex items-center justify-center">
+                          <div className="h-8 w-8 rounded-md bg-muted overflow-hidden flex-shrink-0 flex items-center justify-center ring-1 ring-border">
                             {(outlet as unknown as Record<string, unknown>).profile_photo_url ? (
                               <img src={(outlet as unknown as Record<string, unknown>).profile_photo_url as string} alt="" className="h-full w-full object-cover" />
                             ) : (
-                              <Store className="h-4 w-4 text-muted-foreground/40" />
+                              <Store className="h-3.5 w-3.5 text-muted-foreground/50" strokeWidth={1.75} />
                             )}
                           </div>
-                          {outlet.name}
+                          <div className="min-w-0">
+                            <p className="text-[13px] font-semibold text-foreground group-hover:underline truncate">
+                              {outlet.name}
+                            </p>
+                            <p className="text-[11px] text-muted-foreground truncate">
+                              {outlet.brand_name || "—"}
+                            </p>
+                          </div>
                         </Link>
                       </TableCell>
+
                       <TableCell>
                         {outlet.site_code ? (
-                          <span className="font-mono text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded">
+                          <span className="font-mono text-[11px] text-muted-foreground">
                             {outlet.site_code}
                           </span>
                         ) : (
-                          <span className="text-xs text-muted-foreground">—</span>
+                          <span className="text-[11px] text-muted-foreground">—</span>
                         )}
                       </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {outlet.city}
+
+                      <TableCell className="text-muted-foreground">
+                        {outlet.city || "—"}
                       </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {propertyTypeLabel(outlet.property_type)}
+
+                      <TableCell className="text-muted-foreground">
+                        {propertyTypeLabel(outlet.property_type) || "—"}
                       </TableCell>
+
                       <TableCell>
-                        <Badge
-                          className={`${statusColor(outlet.status)} border-0 text-xs font-medium`}
-                        >
+                        <StatusBadge tone={statusTone(outlet.status)}>
                           {statusLabel(outlet.status)}
-                        </Badge>
+                        </StatusBadge>
                       </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {franchiseModelLabel(outlet.franchise_model)}
+
+                      <TableCell className="text-muted-foreground">
+                        {franchiseModelLabel(outlet.franchise_model) || "—"}
                       </TableCell>
-                      <TableCell className="text-sm text-foreground font-medium text-right">
+
+                      <TableCell className="text-right text-foreground tabular-nums font-medium">
                         {outlet.super_area_sqft
                           ? outlet.super_area_sqft.toLocaleString("en-IN")
-                          : "--"}
+                          : "—"}
                       </TableCell>
-                      <TableCell className="text-sm text-foreground font-medium text-right">
+
+                      <TableCell className="text-right text-foreground tabular-nums font-semibold">
                         {primaryAgreement && primaryAgreement.monthly_rent > 0
                           ? formatCurrency(primaryAgreement.monthly_rent)
-                          : "--"}
+                          : "—"}
                       </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
+
+                      <TableCell className="text-right text-muted-foreground tabular-nums">
+                        {primaryAgreement?.total_monthly_outflow
+                          ? formatCurrency(primaryAgreement.total_monthly_outflow)
+                          : "—"}
+                      </TableCell>
+
+                      <TableCell className="text-right text-muted-foreground tabular-nums">
+                        {outlet.monthly_net_revenue
+                          ? formatCurrency(outlet.monthly_net_revenue)
+                          : "—"}
+                      </TableCell>
+
+                      <TableCell className="text-muted-foreground tabular-nums">
                         {primaryAgreement
                           ? formatDate(primaryAgreement.lease_expiry_date)
-                          : "--"}
+                          : "—"}
                       </TableCell>
-                      <TableCell className="text-center">
+
+                      <TableCell className="text-right">
+                        {(() => {
+                          if (!primaryAgreement?.lease_expiry_date) return <span className="text-[11px] text-muted-foreground">—</span>;
+                          const months = Math.ceil((new Date(primaryAgreement.lease_expiry_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24 * 30));
+                          if (months <= 0) return <StatusBadge tone="danger" bare>Expired</StatusBadge>;
+                          const tone = months < 3 ? "danger" : months < 12 ? "warning" : "success";
+                          return (
+                            <StatusBadge tone={tone as "danger" | "warning" | "success"} bare>
+                              {months < 12 ? `${months}mo` : `${Math.round(months / 12)}y ${months % 12}m`}
+                            </StatusBadge>
+                          );
+                        })()}
+                      </TableCell>
+
+                      <TableCell className="text-right">
                         <RentToRevenueBadge
                           ratio={getRentToRevenue(
                             primaryAgreement?.monthly_rent,
@@ -717,13 +802,14 @@ export default function OutletsPage() {
                           )}
                         />
                       </TableCell>
-                      <TableCell className="text-center">
+
+                      <TableCell className="text-right">
                         {primaryAgreement && primaryAgreement.risk_flags && primaryAgreement.risk_flags.length > 0 ? (
-                          <Badge variant="outline" className="bg-rose-50 text-rose-700 border-rose-200 text-xs">
+                          <StatusBadge tone="danger" bare>
                             {primaryAgreement.risk_flags.length}
-                          </Badge>
+                          </StatusBadge>
                         ) : (
-                          <span className="text-sm text-muted-foreground">--</span>
+                          <span className="text-[11px] text-muted-foreground">—</span>
                         )}
                       </TableCell>
                     </TableRow>
@@ -738,39 +824,73 @@ export default function OutletsPage() {
       </div>
 
       {/* Create Outlet Dialog */}
-      {showCreateOutlet && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <Card className="max-w-md mx-4 w-full">
-            <CardContent className="pt-6 pb-6 space-y-4">
-              <h3 className="text-lg font-semibold">Create New Outlet</h3>
-              <p className="text-sm text-muted-foreground">
-                Create an outlet first, then upload lease documents from the outlet page.
-              </p>
-              <div className="space-y-3">
-                <Input
-                  placeholder="Outlet name (e.g., Saket Select Citywalk)"
-                  value={newOutletName}
-                  onChange={(e) => setNewOutletName(e.target.value)}
-                />
-                <Input
-                  placeholder="City (e.g., New Delhi)"
-                  value={newOutletCity}
-                  onChange={(e) => setNewOutletCity(e.target.value)}
-                />
+      <Dialog open={showCreateOutlet} onOpenChange={setShowCreateOutlet}>
+        <DialogContent className="sm:max-w-[440px]">
+          <DialogHeader>
+            <div className="flex items-center gap-3 mb-1">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <Store className="h-5 w-5" strokeWidth={1.8} />
               </div>
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setShowCreateOutlet(false)}>
-                  Cancel
-                </Button>
-                <Button onClick={handleCreateOutlet} disabled={!newOutletName.trim() || creatingOutlet}>
-                  {creatingOutlet ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Plus className="h-4 w-4 mr-1" />}
-                  Create Outlet
-                </Button>
+              <div>
+                <DialogTitle className="text-[17px] font-semibold tracking-tight">
+                  Create New Outlet
+                </DialogTitle>
+                <DialogDescription className="text-[12.5px] text-muted-foreground mt-0.5">
+                  You can attach lease documents after creation.
+                </DialogDescription>
               </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
+            </div>
+          </DialogHeader>
+
+          <div className="space-y-4 pt-1">
+            <div className="space-y-1.5">
+              <Label htmlFor="outlet-name" className="text-[12px] font-semibold text-foreground">
+                Outlet Name
+              </Label>
+              <Input
+                id="outlet-name"
+                placeholder="e.g., Saket Select Citywalk"
+                value={newOutletName}
+                onChange={(e) => setNewOutletName(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="outlet-city" className="text-[12px] font-semibold text-foreground">
+                City
+              </Label>
+              <Input
+                id="outlet-city"
+                placeholder="e.g., New Delhi"
+                value={newOutletCity}
+                onChange={(e) => setNewOutletCity(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button variant="outline" onClick={() => setShowCreateOutlet(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreateOutlet} disabled={!newOutletName.trim() || creatingOutlet}>
+              {creatingOutlet ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Plus className="h-4 w-4" />
+              )}
+              Create Outlet
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
+  );
+}
+
+export default function OutletsPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center h-screen"><div className="animate-spin h-8 w-8 border-2 border-foreground border-t-transparent rounded-full" /></div>}>
+      <OutletsPageInner />
+    </Suspense>
   );
 }

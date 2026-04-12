@@ -39,6 +39,8 @@ type ReportRow = {
   outlet_id: string;
   outlet_name: string;
   brand: string;
+  company: string;
+  business_category: string;
   city: string;
   state: string;
   property_type: string;
@@ -140,6 +142,8 @@ export default function ReportsPage() {
   const [expiryMax, setExpiryMax] = useState<string>("");
   const [hasOverdueFilter, setHasOverdueFilter] = useState<string>("all");
   const [hasRiskFilter, setHasRiskFilter] = useState<string>("all");
+  const [companyFilter, setCompanyFilter] = useState<string>("all");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
 
   // Sort
   const [sortField, setSortField] = useState<SortField>("outlet_name");
@@ -175,6 +179,8 @@ export default function ReportsPage() {
 
   // Derived unique values for filter options
   const uniqueBrands = useMemo(() => uniqueValues(allData, "brand"), [allData]);
+  const uniqueCompanies = useMemo(() => uniqueValues(allData, "company"), [allData]);
+  const uniqueCategories = useMemo(() => uniqueValues(allData, "business_category"), [allData]);
   const uniqueCities = useMemo(() => uniqueValues(allData, "city"), [allData]);
   const uniquePropertyTypes = useMemo(() => uniqueValues(allData, "property_type"), [allData]);
   const uniqueModels = useMemo(() => uniqueValues(allData, "franchise_model"), [allData]);
@@ -190,6 +196,8 @@ export default function ReportsPage() {
       data = data.filter((r) => r.outlet_name.toLowerCase().includes(q));
     }
     if (brandFilter !== "all") data = data.filter((r) => r.brand === brandFilter);
+    if (companyFilter !== "all") data = data.filter((r) => (r as Record<string, unknown>).company === companyFilter);
+    if (categoryFilter !== "all") data = data.filter((r) => (r as Record<string, unknown>).business_category === categoryFilter);
     if (cityFilter !== "all") data = data.filter((r) => r.city === cityFilter);
     if (propertyTypeFilter !== "all") data = data.filter((r) => r.property_type === propertyTypeFilter);
     if (modelFilter !== "all") data = data.filter((r) => r.franchise_model === modelFilter);
@@ -214,7 +222,7 @@ export default function ReportsPage() {
     });
 
     return sorted;
-  }, [allData, searchQuery, brandFilter, cityFilter, propertyTypeFilter, modelFilter, statusFilter, expiryMin, expiryMax, hasOverdueFilter, hasRiskFilter, sortField, sortDirection]);
+  }, [allData, searchQuery, brandFilter, companyFilter, categoryFilter, cityFilter, propertyTypeFilter, modelFilter, statusFilter, expiryMin, expiryMax, hasOverdueFilter, hasRiskFilter, sortField, sortDirection]);
 
   // ---------- Sort handler ----------
 
@@ -421,6 +429,20 @@ export default function ReportsPage() {
             <Download className="h-4 w-4 mr-1" />
             PDF
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={loading || filteredData.length === 0}
+            onClick={() => {
+              const subject = encodeURIComponent("GroSpace Portfolio Report");
+              const summary = filteredData.slice(0, 10).map(r => `${r.outlet_name} — ${r.city} — Rent: Rs ${(r.monthly_rent || 0).toLocaleString("en-IN")}`).join("\n");
+              const body = encodeURIComponent(`Portfolio Report Summary (${filteredData.length} outlets)\n\n${summary}\n\n---\nGenerated from GroSpace`);
+              window.open(`mailto:?subject=${subject}&body=${body}`, "_self");
+            }}
+          >
+            <Download className="h-4 w-4 mr-1" />
+            Email
+          </Button>
         </div>
       </PageHeader>
 
@@ -453,7 +475,7 @@ export default function ReportsPage() {
             />
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             <Select value={brandFilter} onValueChange={setBrandFilter}>
               <SelectTrigger><SelectValue placeholder="Brand" /></SelectTrigger>
               <SelectContent>
@@ -461,6 +483,26 @@ export default function ReportsPage() {
                 {uniqueBrands.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
               </SelectContent>
             </Select>
+
+            {uniqueCompanies.length > 0 && (
+              <Select value={companyFilter} onValueChange={setCompanyFilter}>
+                <SelectTrigger><SelectValue placeholder="Company" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Companies</SelectItem>
+                  {uniqueCompanies.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            )}
+
+            {uniqueCategories.length > 0 && (
+              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                <SelectTrigger><SelectValue placeholder="Category" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Categories</SelectItem>
+                  {uniqueCategories.map((c) => <SelectItem key={c} value={c}>{c.replace(/_/g, " ")}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            )}
 
             <Select value={cityFilter} onValueChange={setCityFilter}>
               <SelectTrigger><SelectValue placeholder="City" /></SelectTrigger>

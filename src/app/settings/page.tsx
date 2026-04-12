@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Card,
   CardContent,
@@ -22,10 +23,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Settings,
-  Users,
-  Bell,
-  User,
   Shield,
   Mail,
   Upload,
@@ -40,12 +37,13 @@ import {
   XCircle,
   Building2,
   Eye,
-  Database,
   AlertTriangle,
   MapPin,
   Store,
   Download,
   FileText,
+  ExternalLink,
+  Plus,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { useUser } from "@/lib/hooks/use-user";
@@ -68,6 +66,14 @@ import {
   createOrganization,
   uploadTemplate,
   deleteTemplate,
+  listBrands,
+  createBrand,
+  updateBrand,
+  deleteBrand,
+  type Brand,
+  createOrganizationWithAdmin,
+  changeOwnPassword,
+  resetSuperAdminPassword,
 } from "@/lib/api";
 
 // -------------------------------------------------------------------
@@ -140,6 +146,11 @@ const DEFAULT_ALERT_PREFS: AlertPreference[] = [
   { key: "license_expiry", label: "License Expiry", daysBefore: 180 },
   { key: "lock_in_expiry", label: "Lock-in Expiry", daysBefore: 90 },
   { key: "renewal_window", label: "Renewal Window", daysBefore: 30 },
+  { key: "electricity", label: "Electricity Bill", daysBefore: 7 },
+  { key: "water", label: "Water Bill", daysBefore: 7 },
+  { key: "property_tax", label: "Property Tax", daysBefore: 30 },
+  { key: "insurance_renewal", label: "Insurance Renewal", daysBefore: 30 },
+  { key: "custom", label: "Custom Events", daysBefore: 7 },
 ];
 
 // -------------------------------------------------------------------
@@ -182,8 +193,33 @@ function statusBadge(status: string) {
 // Page Component
 // -------------------------------------------------------------------
 
-export default function SettingsPage() {
+function SettingsPageInner() {
   const { user, loading: userLoading } = useUser();
+  const searchParams = useSearchParams();
+
+  // Initial tab from ?tab= URL param. Falls back to role-appropriate
+  // default (Super Admin → platform, everyone else → organization).
+  const initialTab = (() => {
+    const t = searchParams.get("tab");
+    const valid = ["platform", "organization", "brands", "team", "approvals", "account", "data"];
+    if (t && valid.includes(t)) return t;
+    return user?.role === "platform_admin" ? "platform" : "organization";
+  })();
+  const [activeTab, setActiveTab] = useState<string>(initialTab);
+
+  // Update active tab when user role resolves (in case initial render
+  // happened before useUser settled)
+  useEffect(() => {
+    if (!userLoading) {
+      const t = searchParams.get("tab");
+      if (t) {
+        setActiveTab(t);
+      } else if (user?.role === "platform_admin") {
+        setActiveTab("platform");
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userLoading, user?.role]);
 
   // Loading states
   const [loadingOrg, setLoadingOrg] = useState(true);
@@ -223,9 +259,10 @@ export default function SettingsPage() {
   const [accountName, setAccountName] = useState("");
   const [accountEmail, setAccountEmail] = useState("");
   const [accountRole, setAccountRole] = useState("");
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
+  // Legacy state retained for handleAccountSave reset path only
+  const [, setCurrentPassword] = useState("");
+  const [, setNewPassword] = useState("");
+  const [, setConfirmPassword] = useState("");
   const [accountSaved, setAccountSaved] = useState(false);
   const [accountSaving, setAccountSaving] = useState(false);
 
@@ -254,9 +291,15 @@ export default function SettingsPage() {
   const orgId = user?.orgId;
   const [orgLogoUrl, setOrgLogoUrl] = useState<string | null>(null);
 
-  // Fetch organization details
+  // Fetch organization details. Super Admin (platform_admin) has no org_id
+  // so we must clear loading states immediately to avoid infinite spinners.
   useEffect(() => {
-    if (!orgId) return;
+    if (!orgId) {
+      setLoadingOrg(false);
+      setLoadingMembers(false);
+      setLoadingPrefs(false);
+      return;
+    }
     setLoadingOrg(true);
     getOrganization(orgId)
       .then((data) => {
@@ -273,7 +316,7 @@ export default function SettingsPage() {
 
   // Fetch team members
   useEffect(() => {
-    if (!orgId) return;
+    if (!orgId) { setLoadingMembers(false); return; }
     setLoadingMembers(true);
     getOrgMembers(orgId)
       .then((data) => setTeamMembers(data.items || data.members || []))
@@ -283,7 +326,7 @@ export default function SettingsPage() {
 
   // Fetch alert preferences
   useEffect(() => {
-    if (!orgId) return;
+    if (!orgId) { setLoadingPrefs(false); return; }
     setLoadingPrefs(true);
     getAlertPreferences(orgId)
       .then((data) => {
@@ -330,8 +373,10 @@ export default function SettingsPage() {
       setAccountRole(user.role || "org_member");
       setLoadingProfile(false);
     }
-    // Only fetch from API if real user (not demo)
-    if (user && user.id !== "demo-user") {
+    // Fetch the authoritative profile from the backend. The old guard
+    // that skipped this for user.id === "demo-user" is a leftover from
+    // the removed demo auth path and is no longer reachable.
+    if (user) {
       getProfile()
         .then((data) => {
           const profile = data.profile;
@@ -553,12 +598,35 @@ export default function SettingsPage() {
     }
   }
 
+  // Invite result banner — shown after inviting a member so the inviter
+  // can see whether the email was delivered, and copy the temp password
+  // manually if Resend blocked the recipient (test-mode limitation).
+  const [inviteResult, setInviteResult] = useState<{
+    email: string;
+    tempPassword: string;
+    emailSent: boolean;
+    emailReason?: string | null;
+    emailError?: string | null;
+  } | null>(null);
+
   async function handleInvite() {
     if (!orgId || !inviteEmail) return;
     setInviting(true);
+    setInviteResult(null);
     try {
       const res = await inviteOrgMember(orgId, inviteEmail, inviteRole);
       setTeamMembers((prev) => [...prev, { ...res.member, status: "invited" }]);
+
+      // Surface the result to the UI so the inviter can copy credentials
+      // if the invitation email failed (common in Resend test mode).
+      setInviteResult({
+        email: res.member?.email || inviteEmail,
+        tempPassword: res.temp_password || "",
+        emailSent: !!res.email_sent,
+        emailReason: res.email_reason,
+        emailError: res.email_error,
+      });
+
       setInviteEmail("");
       setInviteRole("org_member");
       setShowInviteForm(false);
@@ -726,43 +794,83 @@ export default function SettingsPage() {
       {/* Page Header */}
       <PageHeader title="Settings" description="Manage your organization, team, reminders, and account preferences" />
 
-      {/* Tabs */}
-      <Tabs defaultValue="organization" className="w-full">
-        <TabsList className="grid w-full max-w-4xl grid-cols-4 sm:grid-cols-7">
-          <TabsTrigger value="organization" className="gap-1.5 text-xs sm:text-sm">
-            <Settings className="w-3.5 h-3.5 hidden sm:inline-block" />
-            Organization
-          </TabsTrigger>
-          <TabsTrigger value="team" className="gap-1.5 text-xs sm:text-sm">
-            <Users className="w-3.5 h-3.5 hidden sm:inline-block" />
-            Team & Roles
-          </TabsTrigger>
-          <TabsTrigger value="approvals" className="gap-1.5 text-xs sm:text-sm relative">
-            <Clock className="w-3.5 h-3.5 hidden sm:inline-block" />
-            Approvals
-            {signupRequests.length > 0 && (
-              <span className="absolute -top-1 -right-1 bg-rose-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
-                {signupRequests.length}
-              </span>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="templates" className="gap-1.5 text-xs sm:text-sm">
-            <FileText className="w-3.5 h-3.5 hidden sm:inline-block" />
-            Templates
-          </TabsTrigger>
-          <TabsTrigger value="alerts" className="gap-1.5 text-xs sm:text-sm">
-            <Bell className="w-3.5 h-3.5 hidden sm:inline-block" />
-            Reminder Preferences
-          </TabsTrigger>
-          <TabsTrigger value="account" className="gap-1.5 text-xs sm:text-sm">
-            <User className="w-3.5 h-3.5 hidden sm:inline-block" />
+      {/* Tabs — flat underline style, no pill bg */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="h-auto bg-transparent border-b border-border rounded-none p-0 w-full justify-start gap-6 overflow-x-auto scrollbar-hide">
+          {user?.role === "platform_admin" && (
+            <TabsTrigger
+              value="platform"
+              className="relative h-10 rounded-none bg-transparent px-0 text-[13px] font-semibold text-muted-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:bottom-[-1px] data-[state=active]:after:h-[2px] data-[state=active]:after:bg-foreground"
+            >
+              Platform
+            </TabsTrigger>
+          )}
+          {/* Org-scoped tabs: hidden for Super Admin (who has no org_id).
+              Super Admin manages orgs from Platform tab + /organizations/{id}. */}
+          {user?.role !== "platform_admin" && (
+            <>
+              <TabsTrigger
+                value="organization"
+                className="relative h-10 rounded-none bg-transparent px-0 text-[13px] font-semibold text-muted-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:bottom-[-1px] data-[state=active]:after:h-[2px] data-[state=active]:after:bg-foreground"
+              >
+                Organization
+              </TabsTrigger>
+              <TabsTrigger
+                value="brands"
+                className="relative h-10 rounded-none bg-transparent px-0 text-[13px] font-semibold text-muted-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:bottom-[-1px] data-[state=active]:after:h-[2px] data-[state=active]:after:bg-foreground"
+              >
+                Brands
+              </TabsTrigger>
+              <TabsTrigger
+                value="team"
+                className="relative h-10 rounded-none bg-transparent px-0 text-[13px] font-semibold text-muted-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:bottom-[-1px] data-[state=active]:after:h-[2px] data-[state=active]:after:bg-foreground"
+              >
+                Team & Roles
+              </TabsTrigger>
+            </>
+          )}
+          {/* Approvals — legacy signup-request flow, only Super Admin sees it */}
+          {user?.role === "platform_admin" && (
+            <TabsTrigger
+              value="approvals"
+              className="relative h-10 rounded-none bg-transparent px-0 text-[13px] font-semibold text-muted-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:bottom-[-1px] data-[state=active]:after:h-[2px] data-[state=active]:after:bg-foreground"
+            >
+              Approvals
+              {signupRequests.length > 0 && (
+                <span className="ml-2 inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full bg-foreground text-background text-[10px] font-semibold">
+                  {signupRequests.length}
+                </span>
+              )}
+            </TabsTrigger>
+          )}
+          {/* Templates + Reminder Preferences: dropped for both roles —
+              legacy features that added clutter. Reminder config moved into
+              the Organization tab (TODO) and templates aren't a real feature. */}
+          <TabsTrigger
+            value="account"
+            className="relative h-10 rounded-none bg-transparent px-0 text-[13px] font-semibold text-muted-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:bottom-[-1px] data-[state=active]:after:h-[2px] data-[state=active]:after:bg-foreground"
+          >
             Account
           </TabsTrigger>
-          <TabsTrigger value="data" className="gap-1.5 text-xs sm:text-sm">
-            <Database className="w-3.5 h-3.5 hidden sm:inline-block" />
-            Data
-          </TabsTrigger>
+          {/* Data tab: Super Admin only (platform-wide export/flush operations) */}
+          {user?.role === "platform_admin" && (
+            <TabsTrigger
+              value="data"
+              className="relative h-10 rounded-none bg-transparent px-0 text-[13px] font-semibold text-muted-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:bottom-[-1px] data-[state=active]:after:h-[2px] data-[state=active]:after:bg-foreground"
+            >
+              Data
+            </TabsTrigger>
+          )}
         </TabsList>
+
+        {/* ============================================================= */}
+        {/* Platform Tab (Super Admin only)                                */}
+        {/* ============================================================= */}
+        {user?.role === "platform_admin" && (
+          <TabsContent value="platform" className="mt-6">
+            <PlatformSuperAdminSection />
+          </TabsContent>
+        )}
 
         {/* ============================================================= */}
         {/* Organization Tab                                               */}
@@ -883,6 +991,13 @@ export default function SettingsPage() {
         </TabsContent>
 
         {/* ============================================================= */}
+        {/* Brands Tab                                                     */}
+        {/* ============================================================= */}
+        <TabsContent value="brands" className="mt-6">
+          <BrandsSection />
+        </TabsContent>
+
+        {/* ============================================================= */}
         {/* Team Members Tab                                               */}
         {/* ============================================================= */}
         <TabsContent value="team" className="mt-6 space-y-4">
@@ -903,6 +1018,70 @@ export default function SettingsPage() {
               <Mail className="w-3.5 h-3.5" />
               Invite Member
             </Button>
+          </div>
+
+          {/* Invite result banner — show generated credentials + email status */}
+          {inviteResult && (
+            <div className={`rounded-lg border p-4 space-y-2 ${
+              inviteResult.emailSent
+                ? "border-emerald-200 bg-emerald-50/30"
+                : "border-amber-200 bg-amber-50/30"
+            }`}>
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className={`text-[13px] font-semibold ${inviteResult.emailSent ? "text-emerald-900" : "text-amber-900"}`}>
+                    {inviteResult.emailSent
+                      ? `Invitation email sent to ${inviteResult.email}`
+                      : `Email could not be sent to ${inviteResult.email}`}
+                  </p>
+                  {inviteResult.emailReason === "test_mode_recipient_blocked" && (
+                    <p className="text-[11.5px] text-amber-800 mt-1 leading-relaxed">
+                      Resend is in test mode and can only deliver to the account owner&apos;s email.
+                      Verify a custom domain at <a href="https://resend.com/domains" target="_blank" rel="noopener noreferrer" className="underline font-semibold">resend.com/domains</a> to unlock delivery to all recipients.
+                      For now, <strong>copy the credentials below</strong> and hand them off manually.
+                    </p>
+                  )}
+                  {inviteResult.emailError && inviteResult.emailReason !== "test_mode_recipient_blocked" && (
+                    <p className="text-[11.5px] text-amber-800 mt-1">{inviteResult.emailError}</p>
+                  )}
+                </div>
+                <Button size="sm" variant="ghost" onClick={() => setInviteResult(null)} className="text-[11px] shrink-0">
+                  Dismiss
+                </Button>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div className="rounded bg-white border border-border px-3 py-2">
+                  <p className="text-[9.5px] uppercase tracking-wider text-muted-foreground font-semibold">Login email</p>
+                  <p className="text-[12px] font-mono text-foreground mt-0.5 break-all">{inviteResult.email}</p>
+                </div>
+                <div className="rounded bg-white border border-border px-3 py-2">
+                  <p className="text-[9.5px] uppercase tracking-wider text-muted-foreground font-semibold">Temporary password</p>
+                  <p className="text-[12px] font-mono text-foreground mt-0.5 break-all">{inviteResult.tempPassword}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-[11px] gap-1"
+                  onClick={() => {
+                    const text = `Login: ${inviteResult.email}\nPassword: ${inviteResult.tempPassword}\nURL: ${window.location.origin}/auth/login`;
+                    navigator.clipboard.writeText(text);
+                    alert("Credentials copied to clipboard!");
+                  }}
+                >
+                  Copy credentials
+                </Button>
+                <p className="text-[10.5px] text-muted-foreground">
+                  Save this — the password won&apos;t be shown again.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Role hierarchy explanation */}
+          <div className="rounded-lg border border-blue-100 bg-blue-50/50 p-3 text-xs text-blue-700">
+            <strong>Role Hierarchy (Top → Bottom):</strong> Platform Admin has full system access across all organizations. Org Admin manages their organization, team, and settings. Org Member has view-only access with limited actions. Higher roles inherit all permissions of lower roles.
           </div>
 
           {/* Role Tier Overview Card (Task 42) */}
@@ -1097,9 +1276,13 @@ export default function SettingsPage() {
         </TabsContent>
 
         {/* ============================================================= */}
-        {/* Pending Approvals Tab                                          */}
+        {/* Pending Approvals Tab (Super Admin only)                       */}
         {/* ============================================================= */}
+        {user?.role === "platform_admin" && (
         <TabsContent value="approvals" className="mt-6 space-y-4">
+          <div className="rounded-lg border border-blue-100 bg-blue-50/50 p-3 text-xs text-blue-700">
+            <strong>How Approvals Work:</strong> When new users sign up for GroSpace, their request appears here. You can assign them to an organization, set their role (Org Member, Org Admin, or Platform Admin), and approve or reject their access. Approved users get immediate access to their assigned organization.
+          </div>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-base flex items-center gap-2">
@@ -1287,11 +1470,20 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
         </TabsContent>
+        )}
 
         {/* ============================================================= */}
         {/* Templates Tab                                                  */}
         {/* ============================================================= */}
+        {/* Templates tab — retained for fallback URL access but no tab
+            trigger exists so this is effectively dead code. Wrapped in a
+            permanent `false` guard to kill-switch it without deleting the
+            markup (in case we restore templates later). */}
+        {false && (
         <TabsContent value="templates" className="mt-6 space-y-4">
+          <div className="rounded-lg border border-blue-100 bg-blue-50/50 p-3 text-xs text-blue-700">
+            <strong>Agreement Templates:</strong> Upload your standard lease agreement templates here. These serve as your baseline terms — when new agreements are extracted, you can compare them against these standards to quickly identify deviations in rent structure, lock-in periods, escalation clauses, and other key terms.
+          </div>
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -1354,9 +1546,16 @@ export default function SettingsPage() {
                           <p className="text-xs text-muted-foreground">{t.description || "No description"} &middot; {formatFileSize(t.size)} &middot; {new Date(t.uploaded_at).toLocaleDateString()}</p>
                         </div>
                       </div>
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => handleTemplateDelete(t)}>
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        {t.file_url && (
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground" onClick={() => window.open(t.file_url, "_blank")}>
+                            <ExternalLink className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => handleTemplateDelete(t)}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -1364,10 +1563,12 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
         </TabsContent>
+        )}
 
         {/* ============================================================= */}
-        {/* Alert Preferences Tab                                          */}
+        {/* Alert Preferences Tab — killswitched (same pattern as Templates) */}
         {/* ============================================================= */}
+        {false && (
         <TabsContent value="alerts" className="mt-6 space-y-4">
           {/* Alert Lead Times */}
           <Card>
@@ -1467,8 +1668,8 @@ export default function SettingsPage() {
 
           <Separator className="my-4" />
 
-          {/* Notification Routing - Hidden for AHAAR demo */}
-          {false && (<Card>
+          {/* Notification Routing */}
+          {true && (<Card>
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
                 <MessageCircle className="w-4 h-4" />
@@ -1584,11 +1785,15 @@ export default function SettingsPage() {
           </Card>
           )}
         </TabsContent>
+        )}
 
         {/* ============================================================= */}
         {/* Account Tab                                                    */}
         {/* ============================================================= */}
         <TabsContent value="account" className="mt-6 space-y-4">
+          {/* Change Password (for every role) */}
+          <ChangePasswordSection isSuperAdmin={user?.role === "platform_admin"} />
+
           {/* Profile */}
           <Card>
             <CardHeader>
@@ -1652,56 +1857,8 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
 
-          {/* Change Password */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <Shield className="w-4 h-4" />
-                Change Password
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-2 max-w-md">
-                <Label htmlFor="current-password">Current Password</Label>
-                <Input
-                  id="current-password"
-                  type="password"
-                  value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
-                  placeholder="Enter current password"
-                />
-              </div>
-
-              <div className="grid gap-2 max-w-md">
-                <Label htmlFor="new-password">New Password</Label>
-                <Input
-                  id="new-password"
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="Enter new password"
-                />
-              </div>
-
-              <div className="grid gap-2 max-w-md">
-                <Label htmlFor="confirm-password">Confirm New Password</Label>
-                <Input
-                  id="confirm-password"
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="Confirm new password"
-                />
-                {newPassword &&
-                  confirmPassword &&
-                  newPassword !== confirmPassword && (
-                    <p className="text-xs text-rose-600">
-                      Passwords do not match
-                    </p>
-                  )}
-              </div>
-            </CardContent>
-          </Card>
+          {/* Change Password lives at the top of this tab as
+              <ChangePasswordSection/> — do not duplicate it here. */}
 
           {/* Save */}
           <div className="flex items-center gap-3">
@@ -1724,10 +1881,14 @@ export default function SettingsPage() {
         </TabsContent>
 
         {/* ============================================================= */}
-        {/* Data Management Tab                                            */}
+        {/* Data Management Tab (Super Admin only)                         */}
         {/* ============================================================= */}
+        {user?.role === "platform_admin" && (
         <TabsContent value="data" className="mt-6 space-y-4">
           {/* Support & Ops (#110) */}
+          <div className="rounded-lg border border-blue-100 bg-blue-50/50 p-3 text-xs text-blue-700">
+            <strong>About This Page:</strong> This section shows your platform support contacts, status update schedule, and scope documentation. Use the support email for any technical issues. Status updates are sent weekly with sprint progress notes.
+          </div>
           <Card>
             <CardHeader>
               <CardTitle className="text-base flex items-center gap-2">
@@ -1759,7 +1920,849 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
         </TabsContent>
+        )}
       </Tabs>
+    </div>
+  );
+}
+
+
+// Default export wraps the inner component in Suspense because
+// useSearchParams() requires a Suspense boundary in Next.js 14.
+export default function SettingsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex items-center justify-center h-[40vh]">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
+      }
+    >
+      <SettingsPageInner />
+    </Suspense>
+  );
+}
+
+
+// -------------------------------------------------------------------
+// Brands Section (Settings → Brands tab)
+// -------------------------------------------------------------------
+
+function BrandsSection() {
+  const [brands, setBrands] = useState<Brand[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [warning, setWarning] = useState<string | null>(null);
+  const [newName, setNewName] = useState("");
+  const [newNotes, setNewNotes] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+
+  async function refresh() {
+    setLoading(true);
+    try {
+      const data = await listBrands();
+      setBrands(data.brands || []);
+      setWarning(data.warning || null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load brands");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function handleCreate() {
+    if (!newName.trim()) return;
+    setCreating(true);
+    setError(null);
+    try {
+      await createBrand({
+        name: newName.trim(),
+        notes: newNotes.trim() || undefined,
+      });
+      setNewName("");
+      setNewNotes("");
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create brand");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function handleSaveEdit(brandId: string) {
+    if (!editName.trim()) return;
+    try {
+      await updateBrand(brandId, { name: editName.trim() });
+      setEditingId(null);
+      await refresh();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to update brand");
+    }
+  }
+
+  async function handleDelete(brand: Brand) {
+    if (!confirm(`Delete brand "${brand.name}"? Outlets that reference it will have the link cleared but keep the brand name for historical reports.`)) return;
+    try {
+      await deleteBrand(brand.id);
+      await refresh();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to delete brand");
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Brands</CardTitle>
+          <p className="text-[12px] text-muted-foreground">
+            Define the brands your organization operates. Outlets pick from
+            this list so reports and filters stay consistent.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {warning && (
+            <div className="rounded-md bg-amber-50 border border-amber-200 p-3 text-[12px] text-amber-900">
+              {warning}
+            </div>
+          )}
+
+          {/* Create form */}
+          <div className="border border-border rounded-lg p-4 space-y-3 bg-muted/30">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <Label className="text-[11px] text-muted-foreground">Brand name</Label>
+                <Input
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="e.g. Good Flippin' Burgers"
+                  disabled={creating}
+                />
+              </div>
+              <div>
+                <Label className="text-[11px] text-muted-foreground">Notes (optional)</Label>
+                <Input
+                  value={newNotes}
+                  onChange={(e) => setNewNotes(e.target.value)}
+                  placeholder="e.g. QSR · franchised model"
+                  disabled={creating}
+                />
+              </div>
+            </div>
+            {error && <p className="text-[11px] text-rose-600">{error}</p>}
+            <div className="flex justify-end">
+              <Button
+                size="sm"
+                onClick={handleCreate}
+                disabled={creating || !newName.trim()}
+              >
+                {creating ? "Creating…" : "Add brand"}
+              </Button>
+            </div>
+          </div>
+
+          {/* Brand list */}
+          {loading ? (
+            <div className="flex items-center gap-2 text-muted-foreground py-4">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span className="text-sm">Loading brands…</span>
+            </div>
+          ) : brands.length === 0 ? (
+            <div className="text-center text-[12px] text-muted-foreground py-6 border border-dashed border-border rounded-lg">
+              No brands yet. Create your first brand above — then every outlet
+              you add will pick from this curated list.
+            </div>
+          ) : (
+            <div className="border border-border rounded-lg overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-muted">
+                  <tr>
+                    <th className="text-left text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wide px-3 py-2">Name</th>
+                    <th className="text-left text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wide px-3 py-2">Notes</th>
+                    <th className="text-right text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wide px-3 py-2">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {brands.map((b) => (
+                    <tr key={b.id} className="border-t border-border">
+                      <td className="px-3 py-2.5 text-[12.5px] font-medium">
+                        {editingId === b.id ? (
+                          <Input
+                            value={editName}
+                            onChange={(e) => setEditName(e.target.value)}
+                            className="h-7 text-[12.5px]"
+                            autoFocus
+                          />
+                        ) : (
+                          b.name
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5 text-[11.5px] text-muted-foreground">
+                        {b.notes || "—"}
+                      </td>
+                      <td className="px-3 py-2.5 text-right space-x-1">
+                        {editingId === b.id ? (
+                          <>
+                            <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => setEditingId(null)}>Cancel</Button>
+                            <Button size="sm" className="h-7 text-[11px]" onClick={() => handleSaveEdit(b.id)}>Save</Button>
+                          </>
+                        ) : (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 text-[11px]"
+                              onClick={() => {
+                                setEditingId(b.id);
+                                setEditName(b.name);
+                              }}
+                            >
+                              Rename
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 text-[11px] text-rose-600 hover:text-rose-700"
+                              onClick={() => handleDelete(b)}
+                            >
+                              Delete
+                            </Button>
+                          </>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+
+// -------------------------------------------------------------------
+// Change Password Section (Settings → Account → Change Password)
+// -------------------------------------------------------------------
+
+function ChangePasswordSection({ isSuperAdmin }: { isSuperAdmin: boolean }) {
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const [resettingSuperAdmin, setResettingSuperAdmin] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setSuccess(false);
+    if (newPassword.length < 8) {
+      setError("Password must be at least 8 characters.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError("Passwords don't match.");
+      return;
+    }
+    setSaving(true);
+    try {
+      await changeOwnPassword(newPassword);
+      setSuccess(true);
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update password");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleSuperAdminReset() {
+    if (!confirm("Reset the Super Admin password back to the hardcoded default? Do this only if you lost access and need to recover.")) return;
+    setResettingSuperAdmin(true);
+    try {
+      const res = await resetSuperAdminPassword();
+      alert(res.message || "Super Admin password has been reset to the default.");
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Reset failed");
+    } finally {
+      setResettingSuperAdmin(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Change Password</CardTitle>
+        <p className="text-[12px] text-muted-foreground">
+          Update the password you use to sign in to GroSpace. You&apos;ll stay logged in after the change.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-3 max-w-md">
+          <div className="space-y-1.5">
+            <Label htmlFor="cp-new" className="text-[12px]">New password</Label>
+            <Input
+              id="cp-new"
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              placeholder="At least 8 characters"
+              disabled={saving}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="cp-confirm" className="text-[12px]">Confirm new password</Label>
+            <Input
+              id="cp-confirm"
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="Type it again"
+              disabled={saving}
+            />
+          </div>
+          {error && (
+            <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] text-rose-900">
+              {error}
+            </div>
+          )}
+          {success && (
+            <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-[12px] text-emerald-900">
+              Password updated successfully.
+            </div>
+          )}
+          <Button type="submit" size="sm" disabled={saving || !newPassword || !confirmPassword}>
+            {saving ? "Updating…" : "Update password"}
+          </Button>
+        </form>
+
+        {isSuperAdmin && (
+          <div className="mt-6 pt-6 border-t border-border">
+            <p className="text-[12px] font-semibold text-foreground mb-1">Super Admin recovery</p>
+            <p className="text-[11.5px] text-muted-foreground mb-3">
+              If you lose access to the Super Admin account, this button rotates
+              the password back to the hardcoded default so you can log in again.
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              className="text-[12px]"
+              onClick={handleSuperAdminReset}
+              disabled={resettingSuperAdmin}
+            >
+              {resettingSuperAdmin ? "Resetting…" : "Reset Super Admin to default"}
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+
+// -------------------------------------------------------------------
+// Platform Super Admin Section (Settings → Platform tab)
+// -------------------------------------------------------------------
+// Only rendered for role=platform_admin. Shows:
+//   - "Create New Organization" dialog with admin email + name + brand list
+//   - List of all existing orgs + their default admin + created date
+// Organization creation calls POST /api/admin/create-organization-with-admin
+// which returns the generated temp password ONCE — we surface it to the
+// Super Admin so they can hand it off manually if the email bounces.
+
+interface AllOrgRow {
+  id: string;
+  name: string;
+  created_at?: string;
+  default_admin_email?: string | null;
+  sheet_tab_name?: string | null;
+}
+
+function PlatformSuperAdminSection() {
+  const [orgs, setOrgs] = useState<AllOrgRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
+
+  // Org fields
+  const [newOrgName, setNewOrgName] = useState("");
+  const [newBusinessType, setNewBusinessType] = useState("");
+  const [newHqCity, setNewHqCity] = useState("");
+  const [newHqCountry, setNewHqCountry] = useState("IN");
+  const [newGstNumber, setNewGstNumber] = useState("");
+  const [newCompanyReg, setNewCompanyReg] = useState("");
+  const [newExpectedSize, setNewExpectedSize] = useState("");
+  const [newBillingEmail, setNewBillingEmail] = useState("");
+  const [newWebsite, setNewWebsite] = useState("");
+  const [newOrgNotes, setNewOrgNotes] = useState("");
+  // Admin fields
+  const [newAdminEmail, setNewAdminEmail] = useState("");
+  const [newAdminName, setNewAdminName] = useState("");
+  const [newAdminPhone, setNewAdminPhone] = useState("");
+  const [newAdminRoleTitle, setNewAdminRoleTitle] = useState("");
+  // Brands
+  const [newBrands, setNewBrands] = useState("");
+
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [createResult, setCreateResult] = useState<{
+    email: string;
+    password: string;
+    org_name: string;
+    email_sent: boolean;
+    brands_created?: string[];
+  } | null>(null);
+
+  async function refresh() {
+    setLoading(true);
+    try {
+      const data = await listOrganizations();
+      setOrgs(data.items || data.organizations || []);
+    } catch (err) {
+      console.error("Failed to load orgs", err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function resetCreateForm() {
+    setNewOrgName("");
+    setNewBusinessType("");
+    setNewHqCity("");
+    setNewHqCountry("IN");
+    setNewGstNumber("");
+    setNewCompanyReg("");
+    setNewExpectedSize("");
+    setNewBillingEmail("");
+    setNewWebsite("");
+    setNewOrgNotes("");
+    setNewAdminEmail("");
+    setNewAdminName("");
+    setNewAdminPhone("");
+    setNewAdminRoleTitle("");
+    setNewBrands("");
+    setCreateError(null);
+  }
+
+  async function handleCreate() {
+    setCreateError(null);
+    if (!newOrgName.trim() || !newAdminEmail.trim() || !newAdminName.trim()) {
+      setCreateError("Organization name, admin email, and admin full name are required.");
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newAdminEmail.trim())) {
+      setCreateError("Admin email is not a valid address.");
+      return;
+    }
+    setCreating(true);
+    try {
+      const brandList = newBrands
+        .split(",")
+        .map((b) => b.trim())
+        .filter(Boolean);
+      const res = await createOrganizationWithAdmin({
+        // Org
+        name: newOrgName.trim(),
+        business_type: newBusinessType || undefined,
+        hq_city: newHqCity.trim() || undefined,
+        hq_country: newHqCountry || undefined,
+        gst_number: newGstNumber.trim() || undefined,
+        company_registration: newCompanyReg.trim() || undefined,
+        expected_outlets_size: newExpectedSize || undefined,
+        billing_email: newBillingEmail.trim() || undefined,
+        website: newWebsite.trim() || undefined,
+        notes: newOrgNotes.trim() || undefined,
+        // Admin
+        admin_email: newAdminEmail.trim().toLowerCase(),
+        admin_full_name: newAdminName.trim(),
+        admin_phone: newAdminPhone.trim() || undefined,
+        admin_role_title: newAdminRoleTitle.trim() || undefined,
+        // Brands
+        brand_names: brandList.length > 0 ? brandList : undefined,
+      });
+      setCreateResult({
+        email: res.admin?.email || newAdminEmail,
+        password: res.admin?.temp_password || "",
+        org_name: res.organization?.name || newOrgName,
+        email_sent: !!res.email_sent,
+        brands_created: res.brands_created,
+      });
+      resetCreateForm();
+      setShowCreate(false);
+      refresh();
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : "Failed to create organization");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-base font-semibold">Platform Administration</h2>
+          <p className="text-[12px] text-muted-foreground mt-0.5">
+            Create organizations on behalf of customers. Each new org gets a
+            default admin user, brands, an invitation email, and its own
+            activity tab in the shared Google Sheet.
+          </p>
+        </div>
+        <Button size="sm" className="gap-1.5" onClick={() => { setCreateResult(null); setShowCreate(true); }}>
+          <Plus className="h-3.5 w-3.5" />
+          Create New Organization
+        </Button>
+      </div>
+
+      {/* Success banner with generated creds — stays until Super Admin dismisses */}
+      {createResult && (
+        <Card className="border-emerald-200 bg-emerald-50/30">
+          <CardContent className="p-5 space-y-3">
+            <div className="flex items-start gap-3">
+              <div className="h-8 w-8 rounded-full bg-emerald-500 flex items-center justify-center shrink-0">
+                <CheckCircle className="h-4 w-4 text-white" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[13.5px] font-semibold text-emerald-900">
+                  {createResult.org_name} created
+                </p>
+                <p className="text-[11.5px] text-emerald-800 mt-0.5">
+                  {createResult.email_sent
+                    ? `Invitation email sent to ${createResult.email}.`
+                    : `Invitation email FAILED — hand the credentials below to ${createResult.email} manually.`}
+                </p>
+                {createResult.brands_created && createResult.brands_created.length > 0 && (
+                  <p className="text-[11px] text-emerald-800 mt-1">
+                    Brands seeded: {createResult.brands_created.join(", ")}
+                  </p>
+                )}
+              </div>
+              <Button size="sm" variant="ghost" onClick={() => setCreateResult(null)} className="text-[11px]">
+                Dismiss
+              </Button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+              <div className="rounded-lg bg-white border border-emerald-200 px-3 py-2">
+                <p className="text-[9.5px] font-semibold uppercase tracking-wider text-emerald-700">Login email</p>
+                <p className="text-[12.5px] font-mono text-foreground mt-0.5 break-all">{createResult.email}</p>
+              </div>
+              <div className="rounded-lg bg-white border border-emerald-200 px-3 py-2">
+                <p className="text-[9.5px] font-semibold uppercase tracking-wider text-emerald-700">Temporary password</p>
+                <p className="text-[12.5px] font-mono text-foreground mt-0.5 break-all">{createResult.password}</p>
+              </div>
+            </div>
+            <p className="text-[10.5px] text-emerald-700 leading-relaxed">
+              <strong>Save this password.</strong> It won&apos;t be shown again. The user
+              will be forced to change it on first login.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Create dialog — 3 sections, scrollable */}
+      {showCreate && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl my-8 max-w-2xl w-full shadow-2xl">
+            {/* Header — sticky */}
+            <div className="sticky top-0 bg-white border-b border-border px-6 py-4 rounded-t-xl">
+              <h3 className="text-base font-semibold">Create New Organization</h3>
+              <p className="text-[11.5px] text-muted-foreground mt-0.5">
+                Fills the org, auth user, brands, Google Sheet tab, and sends the
+                onboarding email in one shot.
+              </p>
+            </div>
+
+            {/* Body */}
+            <div className="px-6 py-5 space-y-6">
+              {/* Section 1 — Organization */}
+              <section>
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="h-5 w-5 rounded-full bg-foreground text-background text-[10px] font-semibold flex items-center justify-center">1</div>
+                  <h4 className="text-[13px] font-semibold">Organization</h4>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="sm:col-span-2">
+                    <Label className="text-[11.5px]">Organization / Brand name *</Label>
+                    <Input
+                      value={newOrgName}
+                      onChange={(e) => setNewOrgName(e.target.value)}
+                      placeholder="e.g. ABC Foods Pvt Ltd"
+                      disabled={creating}
+                      autoFocus
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[11.5px]">Business type</Label>
+                    <Select
+                      value={newBusinessType}
+                      onValueChange={setNewBusinessType}
+                      disabled={creating}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="qsr">QSR / Fast Food</SelectItem>
+                        <SelectItem value="cafe">Cafe / Dine-in</SelectItem>
+                        <SelectItem value="cloud_kitchen">Cloud Kitchen</SelectItem>
+                        <SelectItem value="retail">Retail / Fashion</SelectItem>
+                        <SelectItem value="mall">Mall Operator</SelectItem>
+                        <SelectItem value="co_working">Co-working</SelectItem>
+                        <SelectItem value="hospitality">Hospitality / Hotel</SelectItem>
+                        <SelectItem value="other">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-[11.5px]">Expected outlets</Label>
+                    <Select
+                      value={newExpectedSize}
+                      onValueChange={setNewExpectedSize}
+                      disabled={creating}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Portfolio size" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="1-10">1 – 10</SelectItem>
+                        <SelectItem value="11-50">11 – 50</SelectItem>
+                        <SelectItem value="51-200">51 – 200</SelectItem>
+                        <SelectItem value="200+">200+</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-[11.5px]">HQ City</Label>
+                    <Input
+                      value={newHqCity}
+                      onChange={(e) => setNewHqCity(e.target.value)}
+                      placeholder="e.g. Gurugram"
+                      disabled={creating}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[11.5px]">HQ Country</Label>
+                    <Input
+                      value={newHqCountry}
+                      onChange={(e) => setNewHqCountry(e.target.value)}
+                      placeholder="IN"
+                      disabled={creating}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[11.5px]">GST number</Label>
+                    <Input
+                      value={newGstNumber}
+                      onChange={(e) => setNewGstNumber(e.target.value)}
+                      placeholder="22AAAAA0000A1Z5"
+                      disabled={creating}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[11.5px]">Company registration / CIN</Label>
+                    <Input
+                      value={newCompanyReg}
+                      onChange={(e) => setNewCompanyReg(e.target.value)}
+                      placeholder="U12345DL2020PTC123456"
+                      disabled={creating}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <Label className="text-[11.5px]">Billing email</Label>
+                    <Input
+                      type="email"
+                      value={newBillingEmail}
+                      onChange={(e) => setNewBillingEmail(e.target.value)}
+                      placeholder="billing@abcfoods.com"
+                      disabled={creating}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <Label className="text-[11.5px]">Website</Label>
+                    <Input
+                      value={newWebsite}
+                      onChange={(e) => setNewWebsite(e.target.value)}
+                      placeholder="https://abcfoods.com"
+                      disabled={creating}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <Label className="text-[11.5px]">Internal notes (optional)</Label>
+                    <Input
+                      value={newOrgNotes}
+                      onChange={(e) => setNewOrgNotes(e.target.value)}
+                      placeholder="e.g. Introduced via LinkedIn, closed May 2026"
+                      disabled={creating}
+                    />
+                  </div>
+                </div>
+              </section>
+
+              {/* Section 2 — Admin user */}
+              <section>
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="h-5 w-5 rounded-full bg-foreground text-background text-[10px] font-semibold flex items-center justify-center">2</div>
+                  <h4 className="text-[13px] font-semibold">Default Admin User</h4>
+                </div>
+                <p className="text-[11px] text-muted-foreground mb-3">
+                  The admin is created with a random temporary password and receives an
+                  onboarding email with their login credentials. They&apos;ll be forced
+                  to change the password on first login.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-[11.5px]">Admin full name *</Label>
+                    <Input
+                      value={newAdminName}
+                      onChange={(e) => setNewAdminName(e.target.value)}
+                      placeholder="Alice Founder"
+                      disabled={creating}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[11.5px]">Admin email *</Label>
+                    <Input
+                      type="email"
+                      value={newAdminEmail}
+                      onChange={(e) => setNewAdminEmail(e.target.value)}
+                      placeholder="alice@abcfoods.com"
+                      disabled={creating}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[11.5px]">Admin phone</Label>
+                    <Input
+                      value={newAdminPhone}
+                      onChange={(e) => setNewAdminPhone(e.target.value)}
+                      placeholder="+91 98765 43210"
+                      disabled={creating}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[11.5px]">Role title at org</Label>
+                    <Input
+                      value={newAdminRoleTitle}
+                      onChange={(e) => setNewAdminRoleTitle(e.target.value)}
+                      placeholder="CEO / Head of Real Estate"
+                      disabled={creating}
+                    />
+                  </div>
+                </div>
+              </section>
+
+              {/* Section 3 — Brands */}
+              <section>
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="h-5 w-5 rounded-full bg-foreground text-background text-[10px] font-semibold flex items-center justify-center">3</div>
+                  <h4 className="text-[13px] font-semibold">Initial Brands (optional)</h4>
+                </div>
+                <p className="text-[11px] text-muted-foreground mb-3">
+                  Seed the org with an initial list of brands. Comma-separated. The
+                  admin can add, rename, or delete brands anytime from Settings.
+                </p>
+                <Input
+                  value={newBrands}
+                  onChange={(e) => setNewBrands(e.target.value)}
+                  placeholder="ABC Original, ABC Express, ABC Drive-Thru"
+                  disabled={creating}
+                />
+              </section>
+
+              {createError && (
+                <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[11.5px] text-rose-900">
+                  {createError}
+                </div>
+              )}
+            </div>
+
+            {/* Footer — sticky */}
+            <div className="sticky bottom-0 bg-white border-t border-border px-6 py-4 rounded-b-xl flex justify-end gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => { setShowCreate(false); resetCreateForm(); }}
+                disabled={creating}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleCreate}
+                disabled={creating || !newOrgName.trim() || !newAdminEmail.trim() || !newAdminName.trim()}
+              >
+                {creating ? "Creating…" : "Create & send invitation"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Existing orgs list */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">All Organizations</CardTitle>
+          <p className="text-[11.5px] text-muted-foreground">
+            {loading ? "Loading…" : `${orgs.length} organization${orgs.length === 1 ? "" : "s"}`}
+          </p>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="flex items-center gap-2 text-muted-foreground py-4">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span className="text-sm">Loading organizations…</span>
+            </div>
+          ) : orgs.length === 0 ? (
+            <div className="text-center text-[12px] text-muted-foreground py-6 border border-dashed border-border rounded-lg">
+              No organizations yet. Click &quot;Create New Organization&quot; above.
+            </div>
+          ) : (
+            <div className="border border-border rounded-lg overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-muted">
+                  <tr>
+                    <th className="text-left text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wide px-3 py-2">Name</th>
+                    <th className="text-left text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wide px-3 py-2">Admin Email</th>
+                    <th className="text-left text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wide px-3 py-2">Sheet Tab</th>
+                    <th className="text-left text-[10.5px] font-semibold text-muted-foreground uppercase tracking-wide px-3 py-2">Created</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {orgs.map((o) => (
+                    <tr key={o.id} className="border-t border-border">
+                      <td className="px-3 py-2.5 text-[12.5px] font-medium">{o.name}</td>
+                      <td className="px-3 py-2.5 text-[11.5px] text-muted-foreground font-mono">
+                        {o.default_admin_email || "—"}
+                      </td>
+                      <td className="px-3 py-2.5 text-[11.5px] text-muted-foreground">
+                        {o.sheet_tab_name || "—"}
+                      </td>
+                      <td className="px-3 py-2.5 text-[11.5px] text-muted-foreground">
+                        {o.created_at ? new Date(o.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

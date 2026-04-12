@@ -2,21 +2,23 @@
 Alerts CRUD, notification, reminder endpoints.
 """
 
+import logging
 import uuid
 from typing import Optional
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 
-from core.config import supabase, log_activity
+from core.config import execute_supabase_query, supabase, log_activity
 from core.models import (
     CurrentUser, SnoozeRequest, AssignRequest,
     CreateReminderRequest, UpdateReminderRequest,
 )
-from core.dependencies import get_current_user, require_permission
+from core.dependencies import get_current_user, get_db_user_id, get_org_filter, require_permission
 from services.email_service import dispatch_notification
 
 router = APIRouter(prefix="/api", tags=["alerts"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("/alerts", dependencies=[Depends(require_permission("view_alerts"))])
@@ -25,15 +27,22 @@ def list_alerts(
     page_size: int = Query(50, ge=1, le=500),
     months_ahead: Optional[int] = Query(None, ge=1, le=24),
     deduplicate: bool = Query(False),
+    user: Optional[CurrentUser] = Depends(get_current_user),
 ):
     """List alerts (paginated). Optional: months_ahead limits future window, deduplicate removes dupes first."""
+    org_id = get_org_filter(user)
 
     # One-shot deduplication: remove rows with identical (agreement_id, type, trigger_date, reference_date)
+    # Scoped to user's org to prevent cross-tenant data deletion
     if deduplicate:
         try:
-            all_alerts = supabase.table("alerts").select(
-                "id, agreement_id, type, trigger_date, reference_date"
-            ).order("created_at").execute()
+            def _build_dedup_query():
+                query = supabase.table("alerts").select(
+                    "id, agreement_id, type, trigger_date, reference_date"
+                ).order("created_at")
+                return query.eq("org_id", org_id) if org_id else query
+
+            all_alerts = execute_supabase_query(_build_dedup_query)
             seen: set = set()
             dupe_ids: list = []
             for a in (all_alerts.data or []):
@@ -45,24 +54,28 @@ def list_alerts(
             if dupe_ids:
                 for i in range(0, len(dupe_ids), 50):
                     batch = dupe_ids[i:i+50]
-                    supabase.table("alerts").delete().in_("id", batch).execute()
-        except Exception:
-            pass  # Non-critical — proceed with listing
+                    execute_supabase_query(lambda batch=batch: supabase.table("alerts").delete().in_("id", batch))
+        except Exception as e:
+            logger.warning("Deduplication failed: %s", e)
 
     offset = (page - 1) * page_size
 
     # Build query with optional date window
     from_date = date.today().isoformat()
-    query = supabase.table("alerts").select(
-        "*, outlets(name, city), agreements(type, document_filename)", count="exact"
-    ).gte("trigger_date", from_date)
+    def _build_alert_query():
+        query = supabase.table("alerts").select(
+            "*, outlets(name, city, brand_name, company_name), agreements(type, document_filename)", count="exact"
+        ).gte("trigger_date", from_date)
 
-    if months_ahead:
-        to_date = (date.today() + timedelta(days=months_ahead * 30)).isoformat()
-        query = query.lte("trigger_date", to_date)
+        if org_id:
+            query = query.eq("org_id", org_id)
+        if months_ahead:
+            to_date = (date.today() + timedelta(days=months_ahead * 30)).isoformat()
+            query = query.lte("trigger_date", to_date)
 
-    query = query.order("trigger_date").range(offset, offset + page_size - 1)
-    result = query.execute()
+        return query.order("trigger_date").range(offset, offset + page_size - 1)
+
+    result = execute_supabase_query(_build_alert_query)
 
     return {"items": result.data or [], "total": result.count or 0, "page": page, "page_size": page_size}
 
@@ -75,10 +88,10 @@ def acknowledge_alert(
     """Mark an alert as acknowledged."""
     update_data: dict = {
         "status": "acknowledged",
-        "acknowledged_at": datetime.utcnow().isoformat(),
+        "acknowledged_at": datetime.now(timezone.utc).isoformat(),
     }
     if user:
-        update_data["acknowledged_by"] = user.user_id
+        update_data["acknowledged_by"] = get_db_user_id(user)
 
     result = supabase.table("alerts").update(update_data).eq("id", alert_id).execute()
     if not result.data:
@@ -127,7 +140,7 @@ def assign_alert(
 # CUSTOM REMINDERS CRUD
 # ============================================
 
-@router.post("/reminders", dependencies=[Depends(require_permission("view_alerts"))])
+@router.post("/reminders", dependencies=[Depends(require_permission("acknowledge_alerts"))])
 def create_reminder(
     req: CreateReminderRequest,
     user: Optional[CurrentUser] = Depends(get_current_user),
@@ -167,7 +180,8 @@ def create_reminder(
     if req.agreement_id:
         alert_data["agreement_id"] = req.agreement_id
 
-    result = supabase.table("alerts").insert(alert_data).execute()
+    clean = {k: v for k, v in alert_data.items() if v is not None}
+    result = supabase.table("alerts").insert(clean).execute()
 
     if result.data and org_id:
         try:
@@ -179,7 +193,7 @@ def create_reminder(
         reminder = result.data[0]
         entity_type = "outlet" if req.outlet_id else "agreement" if req.agreement_id else "organization"
         entity_id = req.outlet_id or req.agreement_id or org_id
-        log_activity(org_id, user.user_id if user else None, entity_type, entity_id, "reminder_created", {
+        log_activity(org_id, get_db_user_id(user), entity_type, entity_id, "reminder_created", {
             "reminder_id": reminder.get("id"),
             "title": req.title,
             "trigger_date": req.trigger_date,
@@ -188,7 +202,7 @@ def create_reminder(
     return {"reminder": result.data[0] if result.data else None}
 
 
-@router.patch("/reminders/{reminder_id}", dependencies=[Depends(require_permission("view_alerts"))])
+@router.patch("/reminders/{reminder_id}", dependencies=[Depends(require_permission("acknowledge_alerts"))])
 def update_reminder(reminder_id: str, req: UpdateReminderRequest):
     """Update a custom reminder. Only type='custom' alerts can be edited."""
     existing = supabase.table("alerts").select("type, org_id, outlet_id").eq("id", reminder_id).single().execute()
@@ -223,7 +237,7 @@ def update_reminder(reminder_id: str, req: UpdateReminderRequest):
     return {"reminder": result.data[0] if result.data else None}
 
 
-@router.delete("/reminders/{reminder_id}", dependencies=[Depends(require_permission("view_alerts"))])
+@router.delete("/reminders/{reminder_id}", dependencies=[Depends(require_permission("acknowledge_alerts"))])
 def delete_reminder(reminder_id: str):
     """Delete a custom reminder. Only type='custom' alerts can be deleted."""
     existing = supabase.table("alerts").select("type").eq("id", reminder_id).single().execute()
@@ -245,17 +259,36 @@ def get_activity_log(
     entity_type: str = Query(...),
     entity_id: str = Query(...),
     limit: int = Query(50, ge=1, le=200),
+    user: Optional[CurrentUser] = Depends(get_current_user),
 ):
     """Get activity log for a specific entity."""
-    result = supabase.table("activity_log").select(
-        "id, action, details, created_at, user_id, profiles(full_name, email)"
-    ).eq("entity_type", entity_type).eq("entity_id", entity_id).order(
-        "created_at", desc=True
-    ).limit(limit).execute()
+    org_id = get_org_filter(user)
+
+    def _build_activity_query():
+        query = supabase.table("activity_log").select(
+            "id, action, details, created_at, user_id"
+        ).eq("entity_type", entity_type).eq("entity_id", entity_id)
+        if org_id:
+            query = query.eq("org_id", org_id)
+        return query.order("created_at", desc=True).limit(limit)
+
+    result = execute_supabase_query(_build_activity_query)
+
+    rows = result.data or []
+    user_ids = sorted({row.get("user_id") for row in rows if row.get("user_id")})
+    profiles_by_id: dict[str, dict] = {}
+    if user_ids:
+        try:
+            profiles = execute_supabase_query(
+                lambda: supabase.table("profiles").select("id, full_name, email").in_("id", user_ids),
+            )
+            profiles_by_id = {profile["id"]: profile for profile in (profiles.data or [])}
+        except Exception as exc:
+            logger.warning("Failed to load activity log profiles: %s", exc)
 
     items = []
-    for row in result.data:
-        profile = row.get("profiles") or {}
+    for row in rows:
+        profile = profiles_by_id.get(row.get("user_id")) or {}
         items.append({
             "id": row["id"],
             "action": row["action"],

@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
-import { listExtractionJobs, markExtractionJobSeen } from "@/lib/api";
+import { listExtractionJobs, markExtractionJobSeen, cancelExtractionJob, deleteExtractionJob } from "@/lib/api";
 import { useUser } from "@/lib/hooks/use-user";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -16,21 +16,15 @@ import {
   ArrowRight,
   Cpu,
   RefreshCw,
-  Info,
 } from "lucide-react";
 
 interface ExtractionJob {
   id: string;
   filename: string;
-  status: "processing" | "completed" | "failed";
+  status: "processing" | "completed" | "failed" | "cancelled";
   created_at: string;
   updated_at?: string;
   seen?: boolean;
-  result?: {
-    processing_duration_seconds?: number;
-    extraction?: Record<string, unknown>;
-    document_type?: string;
-  };
   error?: string;
 }
 
@@ -45,20 +39,12 @@ function formatTimeAgo(dateStr: string): string {
   return `${days}d ago`;
 }
 
-function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${Math.round(seconds)}s`;
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.round(seconds % 60);
-  return `${mins}m ${secs}s`;
-}
-
 function estimateProcessingTime(filename: string): string {
-  // Estimate based on typical doc sizes
   const ext = filename.split(".").pop()?.toLowerCase();
   if (ext === "pdf") {
-    return "2-5 minutes (text PDF) or 5-15 minutes (scanned PDF)";
+    return "~2-4 min";
   }
-  return "1-3 minutes";
+  return "~1-2 min";
 }
 
 export default function ProcessingPage() {
@@ -83,12 +69,22 @@ export default function ProcessingPage() {
     fetchJobs();
   }, []);
 
-  // Only poll when there are active processing jobs
+  // Poll with exponential backoff when there are active processing jobs
+  const pollCountRef = useRef(0);
   useEffect(() => {
     const hasProcessing = jobs.some((j) => j.status === "processing");
-    if (!hasProcessing) return;
-    const interval = setInterval(fetchJobs, 5000);
-    return () => clearInterval(interval);
+    if (!hasProcessing) {
+      pollCountRef.current = 0;
+      return;
+    }
+    // Start at 5s, increase to 10s, 15s, cap at 30s
+    const delay = Math.min(5000 + pollCountRef.current * 5000, 30000);
+    const timeout = setTimeout(() => {
+      pollCountRef.current += 1;
+      fetchJobs();
+    }, delay);
+    return () => clearTimeout(timeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobs]);
 
   async function handleMarkSeen(jobId: string) {
@@ -102,7 +98,7 @@ export default function ProcessingPage() {
 
   const processingJobs = jobs.filter((j) => j.status === "processing");
   const completedJobs = jobs.filter((j) => j.status === "completed");
-  const failedJobs = jobs.filter((j) => j.status === "failed");
+  const failedJobs = jobs.filter((j) => j.status === "failed" || j.status === "cancelled");
 
   if (loading) {
     return (
@@ -139,25 +135,48 @@ export default function ProcessingPage() {
         </Link>
       </PageHeader>
 
-      {/* How it works — info card */}
-      <Card className="border-blue-200/60 bg-blue-50/30">
-        <CardContent className="p-4">
-          <div className="flex items-start gap-3">
-            <Info className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
-            <div className="text-sm text-blue-800 space-y-1">
-              <p className="font-medium">How document processing works</p>
-              <ul className="text-xs text-blue-700 space-y-0.5 list-disc list-inside">
-                <li>Upload your PDF and processing starts automatically in the background</li>
-                <li>You can close this page — extraction continues on the server</li>
-                <li><strong>Text PDFs:</strong> ~1-3 minutes (extracted directly)</li>
-                <li><strong>Scanned PDFs:</strong> ~5-15 minutes (OCR + AI extraction)</li>
-                <li><strong>50+ page complex docs:</strong> ~15-20 minutes</li>
-                <li>You&apos;ll see a notification banner when results are ready</li>
-              </ul>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Step pipeline — visual flow indicator */}
+      <div className="rounded-xl border border-border bg-card p-5">
+        <div className="flex items-center justify-between">
+          {[
+            { label: "Upload", icon: FileText, count: null as number | null, done: true },
+            { label: "Processing", icon: Loader2, count: processingJobs.length, done: false },
+            { label: "Review", icon: CheckCircle2, count: completedJobs.filter((j) => !j.seen).length, done: false },
+            { label: "Completed", icon: CheckCircle2, count: completedJobs.filter((j) => j.seen).length, done: true },
+          ].map((step, idx, arr) => {
+            const StepIcon = step.icon;
+            const isLast = idx === arr.length - 1;
+            const isActive = (step.count ?? 0) > 0;
+            return (
+              <div key={step.label} className="flex items-center flex-1">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div
+                    className={`flex h-9 w-9 items-center justify-center rounded-lg shrink-0 transition-colors ${
+                      isActive
+                        ? "bg-foreground text-background"
+                        : "bg-muted text-muted-foreground"
+                    }`}
+                  >
+                    <StepIcon
+                      className={`h-4 w-4 ${step.label === "Processing" && isActive ? "animate-spin" : ""}`}
+                      strokeWidth={2}
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[12px] font-semibold text-foreground leading-tight">{step.label}</p>
+                    <p className="text-[10.5px] text-muted-foreground tabular-nums leading-tight mt-0.5">
+                      {step.count === null ? "—" : `${step.count} ${step.count === 1 ? "item" : "items"}`}
+                    </p>
+                  </div>
+                </div>
+                {!isLast && (
+                  <div className="flex-1 mx-3 h-px bg-border" />
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
 
       {/* Currently Processing */}
       {processingJobs.length > 0 && (
@@ -183,9 +202,19 @@ export default function ProcessingPage() {
                         Started {formatTimeAgo(job.created_at)} &middot; Est. {estimateProcessingTime(job.filename)}
                       </p>
                     </div>
-                    <Badge variant="outline" className="text-amber-700 border-amber-200 bg-amber-50 text-[10px]">
-                      Processing
-                    </Badge>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-xs h-7 text-rose-600 border-rose-200 hover:bg-rose-50"
+                      onClick={async () => {
+                        try {
+                          await cancelExtractionJob(job.id);
+                          setJobs((prev) => prev.map((j) => j.id === job.id ? { ...j, status: "cancelled" as ExtractionJob["status"] } : j));
+                        } catch { /* ignore */ }
+                      }}
+                    >
+                      Cancel
+                    </Button>
                   </div>
                   {/* Progress bar animation */}
                   <div className="mt-3 h-1.5 w-full rounded-full bg-amber-100 overflow-hidden">
@@ -210,9 +239,6 @@ export default function ProcessingPage() {
           </h2>
           <div className="space-y-2">
             {completedJobs.map((job) => {
-              const duration = job.result?.processing_duration_seconds;
-              const sections = job.result?.extraction ? Object.keys(job.result.extraction).length : 0;
-              const docType = job.result?.document_type || "unknown";
               return (
                 <Card key={job.id} className={!job.seen ? "border-emerald-200/60 bg-emerald-50/20" : ""}>
                   <CardContent className="p-4">
@@ -224,9 +250,7 @@ export default function ProcessingPage() {
                         <p className="text-sm font-medium truncate">{job.filename}</p>
                         <p className="text-xs text-muted-foreground">
                           {formatTimeAgo(job.updated_at || job.created_at)}
-                          {duration ? ` · Processed in ${formatDuration(duration)}` : ""}
-                          {sections > 0 ? ` · ${sections} sections` : ""}
-                          {docType !== "unknown" ? ` · ${docType.replace(/_/g, " ")}` : ""}
+                          {" · Ready to review"}
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
@@ -273,11 +297,29 @@ export default function ProcessingPage() {
                         {formatTimeAgo(job.updated_at || job.created_at)}
                       </p>
                     </div>
-                    <Link href="/agreements/upload">
-                      <Button size="sm" variant="outline" className="gap-1 text-xs h-7">
-                        Retry
+                    <div className="flex items-center gap-1.5">
+                      <Link href="/agreements/upload">
+                        <Button size="sm" variant="outline" className="gap-1 text-xs h-7">
+                          Retry
+                        </Button>
+                      </Link>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-xs h-7 text-rose-600 hover:text-rose-700 hover:bg-rose-50"
+                        onClick={async () => {
+                          if (!confirm(`Permanently remove "${job.filename}" from the processing list?`)) return;
+                          try {
+                            await deleteExtractionJob(job.id);
+                            setJobs((prev) => prev.filter((j) => j.id !== job.id));
+                          } catch (e) {
+                            alert(e instanceof Error ? e.message : "Failed to delete");
+                          }
+                        }}
+                      >
+                        Delete
                       </Button>
-                    </Link>
+                    </div>
                   </div>
                 </CardContent>
               </Card>

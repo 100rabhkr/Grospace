@@ -17,15 +17,19 @@ export async function POST() {
     }
   }
 
-  // Always clear the demo session cookie
+  // Best-effort cleanup of any lingering demo-session cookies from the
+  // legacy auth flow. The real /api/auth/demo endpoint has been removed,
+  // but stale browser state can still have these cookies around.
   const response = NextResponse.json({ success: true });
-  response.cookies.set("grospace-demo-session", "", {
-    httpOnly: true,
-    path: "/",
-    maxAge: 0,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-  });
+  for (const name of ["grospace-demo-session", "grospace-demo-role", "grospace-demo-name"]) {
+    response.cookies.set(name, "", {
+      httpOnly: name === "grospace-demo-session",
+      path: "/",
+      maxAge: 0,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+    });
+  }
 
   return response;
 }

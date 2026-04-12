@@ -36,6 +36,10 @@ class ConfirmActivateRequest(BaseModel):
     confidence: dict = {}
     filename: str
     org_id: Optional[str] = None  # If None, use/create demo org
+    # When the upload was initiated from an existing outlet's page, this is
+    # set so the backend attaches the new agreement to that outlet instead
+    # of creating a fresh outlet from extraction data.
+    existing_outlet_id: Optional[str] = None
     document_text: Optional[str] = None  # Cached OCR/extracted text for Q&A
     document_url: Optional[str] = None  # URL to the uploaded document in storage
     file_hash: Optional[str] = None  # SHA256 hash for duplicate detection
@@ -92,9 +96,21 @@ class AlertPreferencesRequest(BaseModel):
 
 
 class UpdateOutletRequest(BaseModel):
+    name: Optional[str] = None
+    city: Optional[str] = None
+    address: Optional[str] = None
+    property_type: Optional[str] = None
+    floor: Optional[str] = None
+    unit_number: Optional[str] = None
     monthly_net_revenue: Optional[float] = None
     status: Optional[str] = None
     site_code: Optional[str] = None
+    business_category: Optional[str] = None
+    company_name: Optional[str] = None
+    super_area_sqft: Optional[float] = None
+    covered_area_sqft: Optional[float] = None
+    carpet_area_sqft: Optional[float] = None
+    notes: Optional[str] = None
 
 
 class CreateReminderRequest(BaseModel):
@@ -142,6 +158,8 @@ class UpdateShowcaseRequest(BaseModel):
 class SmartChatRequest(BaseModel):
     question: str
     org_id: Optional[str] = None
+    outlet_id: Optional[str] = None  # Focus context on specific outlet
+    session_history: Optional[list] = None  # Previous Q&A pairs for context
 
 
 class SaveDraftRequest(BaseModel):

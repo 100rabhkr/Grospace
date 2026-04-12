@@ -1,6 +1,7 @@
 FROM python:3.11-slim
 
 WORKDIR /app
+ENV PYTHONUNBUFFERED=1
 
 # Install system dependencies for PyMuPDF and pdf2image
 RUN apt-get update && apt-get install -y \
@@ -14,4 +15,4 @@ COPY . .
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 4 --timeout-keep-alive 120"]
+CMD ["python", "start_server.py"]

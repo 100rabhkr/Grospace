@@ -29,13 +29,17 @@ import {
   FileCheck,
   MapPin,
   Plus,
+  Download,
+  Sparkles,
+  Lightbulb,
+  ShieldCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
-import { confirmAndActivate, createDraft, getProcessingEstimate, getExtractionJob, uploadAndExtractAsync, listOutlets } from "@/lib/api";
+import { cancelExtractionJob, confirmAndActivate, createDraft, getProcessingEstimate, getExtractionJob, uploadAndExtractAsync, listOutlets } from "@/lib/api";
 import { EditableField } from "@/components/editable-field";
 
 import { PageHeader } from "@/components/page-header";
@@ -76,6 +80,7 @@ function formatFieldLabel(key: string): string {
 }
 
 const sectionConfig: Record<string, { title: string; icon: React.ElementType }> = {
+  document: { title: "Document Details", icon: FileText },
   parties: { title: "Parties & Entities", icon: Users },
   premises: { title: "Premises & Location", icon: Building2 },
   lease_term: { title: "Lease Term & Dates", icon: Calendar },
@@ -102,9 +107,53 @@ type ParsedField = {
   sourceQuote?: string;
 };
 
+function tryParseStructuredString(fieldVal: unknown): unknown {
+  if (typeof fieldVal !== "string") return fieldVal;
+  const trimmed = fieldVal.trim();
+  if (!trimmed) return fieldVal;
+  if (!trimmed.startsWith("[") && !trimmed.startsWith("{")) return fieldVal;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return fieldVal;
+  }
+}
+
+function unwrapFieldValue(fieldVal: unknown): unknown {
+  if (typeof fieldVal === "object" && fieldVal !== null && !Array.isArray(fieldVal) && "value" in (fieldVal as Record<string, unknown>)) {
+    return tryParseStructuredString((fieldVal as Record<string, unknown>).value);
+  }
+  return tryParseStructuredString(fieldVal);
+}
+
+function isFieldValueObject(value: unknown): boolean {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    "value" in (value as Record<string, unknown>)
+  );
+}
+
+function isExtractionSection(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value) && !isFieldValueObject(value);
+}
+
+function getFlatExtractionFields(extraction?: Record<string, unknown> | null): Record<string, unknown> {
+  if (!extraction) return {};
+  return Object.fromEntries(
+    Object.entries(extraction).filter(([, value]) => !isExtractionSection(value))
+  );
+}
+
 function parseField(fieldVal: unknown): ParsedField {
   if (fieldVal === null || fieldVal === undefined || fieldVal === "" || fieldVal === "not_found" || fieldVal === "N/A") {
     return { displayVal: "Not found", confidence: "not_found" };
+  }
+
+  const structuredString = tryParseStructuredString(fieldVal);
+  if (structuredString !== fieldVal) {
+    return parseField(structuredString);
   }
 
   // Handle { value, confidence, source_page, source_quote } objects from Gemini
@@ -114,7 +163,7 @@ function parseField(fieldVal: unknown): ParsedField {
       const conf = (typeof obj.confidence === "string" ? obj.confidence : "high") as Confidence;
       const sourcePage = typeof obj.source_page === "number" ? obj.source_page : undefined;
       const sourceQuote = typeof obj.source_quote === "string" ? obj.source_quote : undefined;
-      const val = obj.value;
+      const val = tryParseStructuredString(obj.value);
       if (val === null || val === undefined || val === "" || val === "not_found" || val === "N/A") {
         return { displayVal: "Not found", confidence: "not_found", sourcePage, sourceQuote };
       }
@@ -128,7 +177,7 @@ function parseField(fieldVal: unknown): ParsedField {
     return {
       displayVal: Object.entries(obj)
         .filter(([, v]) => v !== null && v !== undefined && v !== "")
-        .map(([k, v]) => `${k.replace(/_/g, " ")}: ${v}`)
+        .map(([k, v]) => `${k.replace(/_/g, " ")}: ${parseField(v).displayVal}`)
         .join(" | "),
       confidence: "high",
     };
@@ -179,7 +228,7 @@ function parseField(fieldVal: unknown): ParsedField {
 type ExtractionResult = {
   status: string;
   document_type: string;
-  extraction: Record<string, Record<string, unknown>>;
+  extraction: Record<string, unknown>;
   confidence: Record<string, string>;
   risk_flags: Array<{
     flag_id?: number;
@@ -214,6 +263,17 @@ const processingSteps = [
   { label: "Detecting risk flags", duration: 3000 },
 ];
 
+const EXTRACTION_TIPS = [
+  "Tip: Escalation clauses averaging 5-10% are standard in Indian retail leases.",
+  "Did you know? Security deposits typically range from 3 to 12 months of rent.",
+  "Tip: Always check for a force majeure clause — it protects against unforeseen events.",
+  "Fun fact: India has over 100+ malls with 500,000+ sqft of leasable area.",
+  "Tip: Lock-in periods of 3-5 years are common for commercial leases in India.",
+  "Did you know? CAM charges usually escalate at 5-8% annually.",
+  "Tip: Notice periods of 3-6 months give you enough time to negotiate renewals.",
+  "Pro tip: Keep track of lease expiry dates at least 180 days in advance.",
+];
+
 function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileName?: string }) {
   const steps = processingSteps;
   const [activeStep, setActiveStep] = useState(0);
@@ -244,38 +304,27 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
       .catch(() => {});
   }, []);
 
-  // Smart time estimation formula:
-  // - Base: 30s (model init + classification)
-  // - Text PDF: ~8s/page (Gemini 3.1 Pro text extraction)
-  // - Scanned PDF: ~15s/page (Gemini 3.1 Pro vision extraction)
-  // - Risk flags: 20s
-  // - Upload: 5s
-  // Detection: scanned if file > 500KB/page estimate
+  // Accurate time estimation
   const isImage = fileName ? /\.(png|jpe?g|webp|gif|bmp|tiff?)$/i.test(fileName) : false;
   const estimatedPages = fileSizeMB
     ? isImage ? 1
-      : fileSizeMB < 0.5 ? Math.max(1, Math.round(fileSizeMB * 8))  // text PDF ~60KB/page
-      : Math.max(1, Math.round(fileSizeMB * 1.5))  // scanned PDF ~700KB/page
-    : 3;
-  const isLikelyScanned = fileSizeMB ? fileSizeMB / Math.max(estimatedPages, 1) > 0.3 : false;
-  const perPageTime = isImage ? 15 : isLikelyScanned ? 15 : 8;
-  const fallbackEstimate = 30 + (estimatedPages * perPageTime) + 20 + 5;
-
+      : fileSizeMB < 0.5 ? Math.max(1, Math.round(fileSizeMB * 8))
+      : Math.max(1, Math.round(fileSizeMB * 1.5))
+    : 5;
+  const fallbackEstimate = 90 + (estimatedPages * 2);
   const estimatedTotalSec = backendEstimate ? Math.round(backendEstimate.avg) : fallbackEstimate;
-
-  // Use real min/max from backend or derive from estimate
   const estimatedRangeLow = backendEstimate
     ? Math.round(backendEstimate.min)
     : Math.max(10, Math.round(estimatedTotalSec * 0.6));
   const estimatedRangeHigh = backendEstimate
     ? Math.round(backendEstimate.max)
     : Math.round(estimatedTotalSec * 1.3);
+  const isLargeFile = (fileSizeMB ?? 0) > 3;
 
   useEffect(() => {
     let timeout: NodeJS.Timeout;
     function advance(index: number) {
       if (index >= steps.length) return;
-      // Scale step durations proportionally to total estimate
       const totalStepDuration = steps.reduce((s, st) => s + st.duration, 0);
       const scaledDuration = (steps[index].duration / totalStepDuration) * estimatedTotalSec * 1000;
       timeout = setTimeout(() => {
@@ -287,7 +336,6 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
     return () => clearTimeout(timeout);
   }, [steps, estimatedTotalSec]);
 
-  // Track elapsed time
   useEffect(() => {
     const interval = setInterval(() => {
       setElapsedMs((prev) => prev + 1000);
@@ -296,7 +344,6 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
   }, []);
 
   const elapsedSec = Math.floor(elapsedMs / 1000);
-  // After estimate is exceeded, show "Taking longer than expected" instead of negative
   const isOverEstimate = elapsedSec > estimatedTotalSec;
   const remainingSec = Math.max(0, estimatedTotalSec - elapsedSec);
   const progressPct = Math.min(
@@ -304,101 +351,271 @@ function ProcessingStep({ fileSizeMB, fileName }: { fileSizeMB?: number; fileNam
     99
   );
 
-  // Stage labels for the progress
-  const stageLabels = ["Uploading...", "Analyzing document type...", "Extracting data...", "Checking risk flags...", "Almost done..."];
-  const currentStageIdx = activeStep < 2 ? 0 : activeStep < 4 ? 1 : activeStep < 6 ? 2 : activeStep < 7 ? 3 : 4;
-  const currentStageLabel = stageLabels[currentStageIdx];
+  const [tipIndex, setTipIndex] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setTipIndex(i => (i + 1) % EXTRACTION_TIPS.length), 6000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Ring geometry — 56px radius, 352px circumference
+  const RING_R = 56;
+  const RING_C = 2 * Math.PI * RING_R;
+  const ringOffset = RING_C * (1 - progressPct / 100);
 
   return (
-    <Card className="max-w-lg mx-auto">
-      <CardContent className="pt-8 pb-10 flex flex-col items-center text-center">
-        <div className="mb-6">
-          <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center">
-            <Loader2 className="h-8 w-8 text-foreground animate-spin" />
-          </div>
-        </div>
+    <div className="max-w-[1100px] mx-auto animate-fade-in">
+      {/* ── 2-pane layout — page-level stepper is rendered above this block ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] gap-5">
+        {/* ═════════════ LEFT (60%) — Main processing experience ═════════════ */}
+        <div className="space-y-5">
+          {/* Hero processing card with animated ring */}
+          <Card variant="default" className="p-8">
+            <div className="flex flex-col items-center text-center">
+              {/* Large animated progress ring */}
+              <div className="relative w-[140px] h-[140px] mb-6">
+                <svg viewBox="0 0 140 140" className="w-full h-full -rotate-90">
+                  <circle
+                    cx="70" cy="70" r={RING_R}
+                    fill="none"
+                    stroke="hsl(var(--muted))"
+                    strokeWidth="6"
+                  />
+                  <circle
+                    cx="70" cy="70" r={RING_R}
+                    fill="none"
+                    stroke="hsl(var(--foreground))"
+                    strokeWidth="6"
+                    strokeLinecap="round"
+                    strokeDasharray={RING_C}
+                    strokeDashoffset={ringOffset}
+                    style={{ transition: "stroke-dashoffset 0.8s cubic-bezier(0.22, 1, 0.36, 1)" }}
+                  />
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="text-[28px] font-semibold tracking-tight text-foreground leading-none tabular-nums">
+                    {Math.round(progressPct)}%
+                  </span>
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mt-1">
+                    {elapsedSec}s elapsed
+                  </span>
+                </div>
+              </div>
 
-        <h2 className="text-lg font-semibold mb-1">
-          {currentStageLabel}
-        </h2>
-        <p className="text-sm text-muted-foreground mb-1">
-          Powered by Gro AI
-        </p>
+              <h2 className="text-[18px] font-semibold tracking-tight text-foreground">
+                Processing your lease with Gro AI
+              </h2>
+              <p className="text-[13px] text-muted-foreground mt-1.5 max-w-sm">
+                Extracting key terms, financials, and risks from{" "}
+                <span className="font-semibold text-foreground">{fileName || "your document"}</span>
+              </p>
 
-        {/* Offline banner */}
-        {isOffline && (
-          <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs mb-2 w-full max-w-sm">
-            <span className="h-2 w-2 rounded-full bg-amber-500 animate-pulse flex-shrink-0" />
-            <span>You&apos;re offline. Processing continues on server — results will appear when you&apos;re back online.</span>
-          </div>
-        )}
+              {/* Time chips */}
+              <div className="flex items-center gap-2 mt-5">
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground bg-muted px-3 py-1.5 rounded-full">
+                  <Clock className="h-3 w-3" strokeWidth={2} />
+                  Estimated: {estimatedRangeLow}–{estimatedRangeHigh}s
+                </span>
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold tabular-nums text-background bg-foreground px-3 py-1.5 rounded-full">
+                  {isOverEstimate
+                    ? "Taking a bit longer…"
+                    : remainingSec > 0
+                      ? `~${Math.ceil(remainingSec / 5) * 5}s remaining`
+                      : "Almost done"}
+                </span>
+              </div>
 
-        {/* Processing time estimate & live timer (Task 43) */}
-        <div className="flex items-center gap-3 mb-4">
-          <span className="text-xs text-[#6b7280] bg-muted px-3 py-1.5 rounded-full">
-            Estimated: {estimatedRangeLow}-{estimatedRangeHigh} seconds
-          </span>
-          <span className="text-xs font-semibold tabular-nums bg-foreground text-white px-3 py-1.5 rounded-full">
-            {elapsedSec}s elapsed
-          </span>
-        </div>
-
-        {/* Remaining time hint */}
-        <p className="text-xs text-[#9ca3af] mb-3">
-          {isOverEstimate
-            ? "Taking longer than expected, please wait..."
-            : remainingSec > 0
-              ? `~${Math.ceil(remainingSec / 5) * 5}s remaining`
-              : "Almost done..."}
-        </p>
-
-        {/* Progress bar with percentage */}
-        <div className="w-full max-w-xs mb-5">
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-xs font-medium text-foreground">{currentStageLabel}</span>
-            <span className="text-xs font-semibold tabular-nums">{Math.round(progressPct)}%</span>
-          </div>
-          <div className="h-2 bg-muted rounded-full overflow-hidden">
-            <div
-              className="h-full bg-foreground rounded-full transition-all duration-700 ease-out"
-              style={{ width: `${progressPct}%` }}
-            />
-          </div>
-        </div>
-
-        <div className="text-left w-full max-w-xs space-y-3">
-          {steps.map((item, i) => (
-            <div
-              key={item.label}
-              className={`flex items-center gap-2.5 text-sm transition-all duration-300 ${
-                i < activeStep
-                  ? "text-foreground"
-                  : i === activeStep
-                  ? "text-foreground"
-                  : "text-muted-foreground opacity-40"
-              }`}
-            >
-              {i < activeStep ? (
-                <Check className="h-4 w-4 text-emerald-600 flex-shrink-0" />
-              ) : i === activeStep ? (
-                <Loader2 className="h-4 w-4 text-foreground animate-spin flex-shrink-0" />
-              ) : (
-                <div className="h-4 w-4 rounded-full border border-slate-300 flex-shrink-0" />
+              {/* Large file reassurance */}
+              {isLargeFile && !isOverEstimate && (
+                <p className="text-[11px] text-muted-foreground mt-3 max-w-sm">
+                  Large file detected — this may take slightly longer than usual.
+                </p>
               )}
-              <span className={i < activeStep ? "font-medium" : ""}>{item.label}</span>
+
+              {/* Offline banner */}
+              {isOffline && (
+                <div className="flex items-start gap-2 px-4 py-2.5 rounded-md bg-warning/10 border border-warning/30 text-[11.5px] text-foreground mt-4 max-w-sm">
+                  <span className="h-1.5 w-1.5 rounded-full bg-warning animate-pulse flex-shrink-0 mt-1.5" />
+                  <span className="text-left">
+                    You&apos;re offline. Processing continues on the server — results will appear when you&apos;re back online.
+                  </span>
+                </div>
+              )}
             </div>
-          ))}
+          </Card>
+
+          {/* Live step tracker */}
+          <Card variant="default" className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <p className="text-micro mb-1">Live Activity</p>
+                <h3 className="text-[14px] font-semibold text-foreground">AI is working</h3>
+              </div>
+              <span className="text-[11px] font-semibold tabular-nums text-muted-foreground">
+                Step {Math.min(activeStep + 1, steps.length)} of {steps.length}
+              </span>
+            </div>
+            <ul className="space-y-2.5">
+              {steps.map((item, i) => {
+                const isDone = i < activeStep;
+                const isActive = i === activeStep;
+                return (
+                  <li
+                    key={item.label}
+                    className={`flex items-center gap-3 text-[13px] transition-all duration-300 ${
+                      isDone ? "text-foreground" : isActive ? "text-foreground" : "text-muted-foreground/60"
+                    }`}
+                  >
+                    {isDone ? (
+                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-success/15 text-success shrink-0">
+                        <Check className="h-3 w-3" strokeWidth={2.5} />
+                      </span>
+                    ) : isActive ? (
+                      <span className="relative flex h-5 w-5 items-center justify-center shrink-0">
+                        <span className="absolute inset-0 rounded-full bg-foreground/20 animate-ping" />
+                        <span className="relative flex h-3 w-3 items-center justify-center rounded-full bg-foreground">
+                          <Loader2 className="h-2.5 w-2.5 text-background animate-spin" />
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="flex h-5 w-5 items-center justify-center shrink-0">
+                        <span className="h-2 w-2 rounded-full border border-muted-foreground/40" />
+                      </span>
+                    )}
+                    <span className={isDone ? "font-medium" : isActive ? "font-semibold" : ""}>
+                      {item.label}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </Card>
         </div>
 
-        <div className="mt-6 w-full max-w-xs">
-          <p className="text-xs text-muted-foreground">
-            Step {Math.min(activeStep + 1, steps.length)} of {steps.length}
-          </p>
+        {/* ═════════════ RIGHT (40%) — File metadata, pipeline stages, tips ═════════════ */}
+        <div className="space-y-5">
+          {/* File snapshot — shows ACTUAL file info, never fabricated data */}
+          <Card variant="default" className="p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="flex h-7 w-7 items-center justify-center rounded-md bg-foreground text-background">
+                <FileText className="h-3.5 w-3.5" strokeWidth={2} />
+              </div>
+              <div>
+                <h3 className="text-[13px] font-semibold text-foreground leading-none">Document</h3>
+                <p className="text-[10.5px] text-muted-foreground leading-none mt-1">Currently processing</p>
+              </div>
+            </div>
+            <ul className="divide-y divide-border -mx-2">
+              <li className="flex items-center justify-between px-2 py-3 gap-3">
+                <span className="text-[11.5px] text-muted-foreground shrink-0">File</span>
+                <span className="text-[12px] font-semibold text-foreground truncate text-right min-w-0">
+                  {fileName || "—"}
+                </span>
+              </li>
+              <li className="flex items-center justify-between px-2 py-3">
+                <span className="text-[11.5px] text-muted-foreground">Size</span>
+                <span className="text-[12px] font-semibold text-foreground tabular-nums">
+                  {fileSizeMB != null ? `${fileSizeMB.toFixed(2)} MB` : "—"}
+                </span>
+              </li>
+              <li className="flex items-center justify-between px-2 py-3">
+                <span className="text-[11.5px] text-muted-foreground">Type</span>
+                <span className="text-[12px] font-semibold text-foreground">
+                  {isImage ? "Image / scan" : "PDF"}
+                </span>
+              </li>
+              <li className="flex items-center justify-between px-2 py-3">
+                <span className="text-[11.5px] text-muted-foreground">Elapsed</span>
+                <span className="text-[12px] font-semibold text-foreground tabular-nums">
+                  {elapsedSec}s
+                </span>
+              </li>
+              <li className="flex items-center justify-between px-2 py-3">
+                <span className="text-[11.5px] text-muted-foreground">Est. total</span>
+                <span className="text-[12px] font-semibold text-foreground tabular-nums">
+                  {estimatedRangeLow}–{estimatedRangeHigh}s
+                </span>
+              </li>
+            </ul>
+          </Card>
+
+          {/* Pipeline stages — the SAME 7 processing steps, shown as a condensed
+           * status panel on the right. This is a faithful mirror of the live
+           * step tracker on the left, no fabricated progress numbers. */}
+          <Card variant="default" className="p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="flex h-7 w-7 items-center justify-center rounded-md bg-foreground text-background">
+                <Sparkles className="h-3.5 w-3.5" strokeWidth={2} />
+              </div>
+              <div>
+                <h3 className="text-[13px] font-semibold text-foreground leading-none">Gro AI pipeline</h3>
+                <p className="text-[10.5px] text-muted-foreground leading-none mt-1">
+                  {activeStep < steps.length ? `Step ${activeStep + 1} of ${steps.length}` : "Finalizing"}
+                </p>
+              </div>
+            </div>
+            <ul className="divide-y divide-border -mx-2">
+              {steps.map((s, i) => {
+                const isDone = i < activeStep;
+                const isActive = i === activeStep;
+                return (
+                  <li key={s.label} className="flex items-center gap-2 px-2 py-2">
+                    <span
+                      className={`h-1.5 w-1.5 rounded-full shrink-0 ${
+                        isDone ? "bg-success" : isActive ? "bg-foreground animate-pulse" : "bg-muted-foreground/30"
+                      }`}
+                    />
+                    <span
+                      className={`text-[11.5px] truncate ${
+                        isDone ? "text-foreground/80" : isActive ? "text-foreground font-semibold" : "text-muted-foreground/60"
+                      }`}
+                    >
+                      {s.label}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </Card>
+
+          {/* Smart Tip box — rotating */}
+          <Card variant="default" className="p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="flex h-6 w-6 items-center justify-center rounded-md bg-muted text-foreground">
+                <Lightbulb className="h-3 w-3" strokeWidth={2} />
+              </div>
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Smart Tip
+              </span>
+            </div>
+            <p
+              key={tipIndex}
+              className="text-[12.5px] text-foreground leading-relaxed animate-fade-in"
+            >
+              {EXTRACTION_TIPS[tipIndex]}
+            </p>
+          </Card>
+
+          {/* Trust signal */}
+          <div className="px-5 py-4 rounded-xl border border-border bg-muted/30">
+            <div className="flex items-start gap-3">
+              <ShieldCheck className="h-4 w-4 text-foreground mt-0.5 shrink-0" strokeWidth={2} />
+              <div>
+                <p className="text-[12px] font-semibold text-foreground">Private & secure</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
+                  Your document is processed on encrypted infrastructure. Nothing is stored outside your organization.
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
+
+/* The page-level step indicator in UploadAgreementPage handles the
+ * Upload / Processing / Review / Activated state — ProcessingStep does not
+ * render its own top stepper. Keep this file lean. */
 
 export default function UploadAgreementPage() {
   const router = useRouter();
@@ -410,6 +627,17 @@ export default function UploadAgreementPage() {
       return params.get("outlet_id") || null;
     }
     return null;
+  });
+
+  // Draft review mode — enabled via ?draft=true in the URL (the Pipeline
+  // "Upload Draft LOI" button routes here). Per the locked flow:
+  // "Draft Lease / LOI → Upload → OCR + review → Risk analysis → NO outlet creation".
+  // Declared here (before sessionStorage effects) so the wizardContext
+  // can discriminate draft vs upload entry points.
+  const [isDraftMode] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const params = new URLSearchParams(window.location.search);
+    return params.get("draft") === "true";
   });
 
   const [step, setStep] = useState(1);
@@ -435,14 +663,9 @@ export default function UploadAgreementPage() {
   const [customNotes, setCustomNotes] = useState("");
 
   const handleSourceClick = (sourcePage?: number, sourceQuote?: string) => {
-    // Clear first to force React re-render even if same value
-    setPdfHighlightPage(undefined);
-    setPdfHighlightQuote(undefined);
-    // Set in next tick to ensure state change is detected
-    setTimeout(() => {
-      setPdfHighlightPage(sourcePage);
-      setPdfHighlightQuote(sourceQuote);
-    }, 50);
+    // Append timestamp to force React to detect change even for same quote
+    setPdfHighlightPage(sourcePage);
+    setPdfHighlightQuote(sourceQuote ? `${sourceQuote}__t${Date.now()}` : undefined);
   };
 
   // Section-by-section stepper state
@@ -450,20 +673,85 @@ export default function UploadAgreementPage() {
   const [verifiedSections, setVerifiedSections] = useState<Set<string>>(new Set());
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
 
+  // Persist wizard state to sessionStorage to survive browser refresh.
+  // The context key combines outlet_id AND draft mode so:
+  //   /agreements/upload                  → "none:upload"
+  //   /agreements/upload?outlet_id=abc    → "abc:upload"
+  //   /agreements/upload?draft=true       → "none:draft"
+  //   /agreements/upload?outlet_id=abc&draft=true → "abc:draft"
+  // Any mismatch between saved context and current URL context discards
+  // the stale state so a fresh entry point never shows a previous lease.
+  const WIZARD_KEY = "grospace_upload_wizard";
+  const currentWizardContext = `${outletIdFromUrl || "none"}:${isDraftMode ? "draft" : "upload"}`;
+
+  useEffect(() => {
+    if (step > 1 && result) {
+      try {
+        sessionStorage.setItem(WIZARD_KEY, JSON.stringify({
+          step, result, selectedDocType, customFields, customNotes,
+          verifiedSections: Array.from(verifiedSections),
+          wizardContext: currentWizardContext,
+        }));
+      } catch { /* quota */ }
+    }
+  }, [step, result, selectedDocType, customFields, customNotes, verifiedSections, currentWizardContext]);
+
+  // Rehydrate from sessionStorage on mount — but only if the saved wizard
+  // belongs to the EXACT SAME entry point (same outlet_id AND same draft
+  // mode). Any mismatch means the user explicitly navigated to a new
+  // starting point and should see a clean upload form, not a ghost of
+  // their last session.
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem(WIZARD_KEY);
+      if (!saved) return;
+      const parsed = JSON.parse(saved);
+      // Support both the new combined key and the legacy outlet-only key
+      // for a window where users still have old state in sessionStorage.
+      const savedCtx: string =
+        parsed.wizardContext
+        ?? `${parsed.outletContext || "none"}:upload`;
+      if (savedCtx !== currentWizardContext) {
+        // Stale state from a different entry point — discard it.
+        sessionStorage.removeItem(WIZARD_KEY);
+        return;
+      }
+      if (parsed.result && parsed.step > 1) {
+        setStep(parsed.step);
+        setResult(parsed.result);
+        setSelectedDocType(parsed.selectedDocType || "");
+        setCustomFields(parsed.customFields || []);
+        setCustomNotes(parsed.customNotes || "");
+        setVerifiedSections(new Set(parsed.verifiedSections || []));
+      }
+    } catch { /* ignore */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Get ordered section keys from extraction result
   const sectionKeys = useMemo(() => {
     if (!result?.extraction) return [];
-    const preferred = ["parties", "premises", "lease_term", "rent", "charges", "deposits", "legal"];
-    const keys = Object.keys(result.extraction).filter(
-      (k) => typeof result.extraction[k] === "object" && result.extraction[k] !== null
-    );
+    const preferred = ["document", "parties", "premises", "lease_term", "rent", "charges", "deposits", "legal"];
+    const flatFields = getFlatExtractionFields(result.extraction);
+    const keys = Object.keys(result.extraction).filter((k) => {
+      const section = result.extraction[k];
+      if (!isExtractionSection(section)) return false;
+      // Only include sections that have at least one field with actual data
+      return Object.values(section).some(
+        (val) => parseField(val).displayVal !== "Not found"
+      );
+    });
+    if (Object.values(flatFields).some((val) => parseField(val).displayVal !== "Not found")) {
+      keys.unshift("document");
+    }
     return preferred.filter((k) => keys.includes(k)).concat(keys.filter((k) => !preferred.includes(k)));
   }, [result?.extraction]);
 
   const allSectionsVerified = sectionKeys.length > 0 && sectionKeys.every((k) => {
     // Auto-verify sections with no visible fields (all "Not found")
-    if (result?.extraction?.[k] && typeof result.extraction[k] === "object") {
-      const hasVisibleFields = Object.values(result.extraction[k] as Record<string, unknown>).some(
+    const sectionData = getDisplaySectionData(k);
+    if (sectionData) {
+      const hasVisibleFields = Object.values(sectionData).some(
         (val) => parseField(val).displayVal !== "Not found"
       );
       if (!hasVisibleFields) return true;
@@ -488,8 +776,9 @@ export default function UploadAgreementPage() {
   // Upload help section expanded state
   const [showUploadHelp, setShowUploadHelp] = useState(false);
 
-  // Draft review mode state
-  const [isDraftMode, setIsDraftMode] = useState(false);
+  // isDraftMode is declared above (near outletIdFromUrl) so the
+  // sessionStorage wizardContext can reference it. This comment is a
+  // breadcrumb for the old location.
 
   // Address matching — suggest linking to existing outlet (#89)
   const [matchedOutlet, setMatchedOutlet] = useState<{ id: string; name: string; city: string } | null>(null);
@@ -499,13 +788,17 @@ export default function UploadAgreementPage() {
   useEffect(() => {
     if (!result?.extraction) return;
     const extracted = result.extraction;
-    const premises = extracted?.premises || {};
-    const extractedCity = String(premises?.city || "").toLowerCase().trim();
-    const extractedAddress = String(premises?.full_address || premises?.property_name || "").toLowerCase().trim();
+    const premises = isExtractionSection(extracted?.premises) ? extracted.premises : {};
+    const extractedCity = String(unwrapFieldValue(premises?.city) || "").toLowerCase().trim();
+    const extractedAddress = String(unwrapFieldValue(premises?.full_address) || unwrapFieldValue(premises?.property_name) || "").toLowerCase().trim();
+    setMatchedOutlet(null);
+    setOutletLinked(false);
     if (!extractedCity && !extractedAddress) return;
 
     listOutlets({ page: 1, page_size: 200 }).then((res) => {
-      const outlets = (res as { outlets?: { id: string; name: string; city?: string; address?: string }[] })?.outlets || [];
+      const outlets = (res as { items?: { id: string; name: string; city?: string; address?: string }[]; outlets?: { id: string; name: string; city?: string; address?: string }[] })?.items
+        || (res as { outlets?: { id: string; name: string; city?: string; address?: string }[] })?.outlets
+        || [];
       for (const outlet of outlets) {
         const outletCity = (outlet.city || "").toLowerCase().trim();
         const outletAddr = (outlet.address || outlet.name || "").toLowerCase().trim();
@@ -547,7 +840,7 @@ export default function UploadAgreementPage() {
     // For bulk upload results, use the document_url from the extraction result
     if (result?.document_url) return result.document_url;
     return null;
-  }, [selectedFile, result]);
+  }, [selectedFile, result?.document_url]);
 
   // Cleanup object URL on unmount or file change
   useEffect(() => {
@@ -601,12 +894,23 @@ export default function UploadAgreementPage() {
   }[]>([]);
   const [currentBulkJobId, setCurrentBulkJobId] = useState<string | null>(null);
   const [bulkNotification, setBulkNotification] = useState<string | null>(null);
+  const [currentSingleJobId, setCurrentSingleJobId] = useState<string | null>(null);
+  const singleJobPollerRef = useRef<number | null>(null);
 
   // Poll bulk jobs — use ref to avoid recreating interval on every state change
   const bulkJobsRef = useRef(bulkJobs);
   bulkJobsRef.current = bulkJobs;
 
   const hasProcessing = bulkJobs.some((j) => j.status === "processing");
+
+  useEffect(() => {
+    return () => {
+      if (singleJobPollerRef.current != null) {
+        window.clearInterval(singleJobPollerRef.current);
+        singleJobPollerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!hasProcessing) return;
@@ -642,7 +946,43 @@ export default function UploadAgreementPage() {
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [hasProcessing]);
+  }, [hasProcessing, step]);
+
+  function getDisplaySectionData(sectionKey: string): Record<string, unknown> | null {
+    if (!result?.extraction) return null;
+    if (sectionKey === "document") {
+      const flatFields = getFlatExtractionFields(result.extraction);
+      return Object.keys(flatFields).length > 0 ? flatFields : null;
+    }
+    const section = result.extraction[sectionKey];
+    return isExtractionSection(section) ? section : null;
+  }
+
+  function getDisplayFieldValue(sectionKey: string, fieldKey: string): unknown {
+    return getDisplaySectionData(sectionKey)?.[fieldKey];
+  }
+
+  function updateExtractionFieldValue(sectionKey: string, fieldKey: string, nextValue: unknown) {
+    setResult((prev) => {
+      if (!prev) return prev;
+      const updated = { ...prev, extraction: { ...prev.extraction } };
+      if (sectionKey === "document") {
+        const existing = updated.extraction[fieldKey];
+        updated.extraction[fieldKey] = isFieldValueObject(existing)
+          ? { ...(existing as Record<string, unknown>), value: nextValue }
+          : nextValue;
+        return updated;
+      }
+
+      const section = { ...(updated.extraction[sectionKey] as Record<string, unknown>) };
+      const existing = section[fieldKey];
+      section[fieldKey] = isFieldValueObject(existing)
+        ? { ...(existing as Record<string, unknown>), value: nextValue }
+        : nextValue;
+      updated.extraction[sectionKey] = section;
+      return updated;
+    });
+  }
 
   async function handleBulkUpload(files: FileList) {
     const totalFiles = Array.from(files);
@@ -687,7 +1027,20 @@ export default function UploadAgreementPage() {
 
       try {
         const data = await uploadAndExtractAsync(file);
+        if (data.status === "duplicate") {
+          setBulkJobs((prev) =>
+            prev.map((j) =>
+              j.id === tempId
+                ? { ...j, status: "completed", result: data as ExtractionResult }
+                : j
+            )
+          );
+          continue;
+        }
         // Mark as processing (server accepted, AI working)
+        if (!data.job_id) {
+          throw new Error(data.message || "Failed to start processing job");
+        }
         setBulkJobs((prev) =>
           prev.map((j) =>
             j.id === tempId
@@ -758,6 +1111,13 @@ export default function UploadAgreementPage() {
       return;
     }
     setDuplicateWarning(null);
+    // Starting a brand-new upload — wipe any stale wizard state so we never
+    // accidentally show the previous session's review screen for this file.
+    try { sessionStorage.removeItem(WIZARD_KEY); } catch { /* quota */ }
+    setResult(null);
+    setCustomFields([]);
+    setCustomNotes("");
+    setVerifiedSections(new Set());
 
     // Check for duplicate if outlet_id is known
     if (outletIdFromUrl && selectedFile.name) {
@@ -791,14 +1151,23 @@ export default function UploadAgreementPage() {
         }
         throw new Error("Failed to start processing job");
       }
+      setCurrentSingleJobId(job.job_id);
 
       // Poll for completion every 3 seconds
-      const pollInterval = setInterval(async () => {
+      if (singleJobPollerRef.current != null) {
+        window.clearInterval(singleJobPollerRef.current);
+      }
+
+      singleJobPollerRef.current = window.setInterval(async () => { // Poll every 5s
         try {
           const status = await getExtractionJob(job.job_id);
 
           if (status.status === "completed" && status.result) {
-            clearInterval(pollInterval);
+            if (singleJobPollerRef.current != null) {
+              window.clearInterval(singleJobPollerRef.current);
+              singleJobPollerRef.current = null;
+            }
+            setCurrentSingleJobId(null);
             const data = status.result;
             if (selectedDocType) {
               data.document_type = selectedDocType;
@@ -818,7 +1187,11 @@ export default function UploadAgreementPage() {
               }
             }
           } else if (status.status === "failed") {
-            clearInterval(pollInterval);
+            if (singleJobPollerRef.current != null) {
+              window.clearInterval(singleJobPollerRef.current);
+              singleJobPollerRef.current = null;
+            }
+            setCurrentSingleJobId(null);
             setError(status.error || "Extraction failed. Please try again.");
             setStep(1);
           }
@@ -827,10 +1200,7 @@ export default function UploadAgreementPage() {
           // Network error during poll — don't stop, keep trying
           // Processing continues on server regardless
         }
-      }, 3000);
-
-      // Store interval ID so we can clean up if component unmounts
-      return () => clearInterval(pollInterval);
+      }, 5000);
 
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start extraction. Please try again.");
@@ -847,21 +1217,24 @@ export default function UploadAgreementPage() {
   // Count stats from extraction
   const stats = result
     ? (() => {
-        let total = 0;
+        let extracted = 0;
         let highConf = 0;
         let medConf = 0;
         let lowConf = 0;
-        Object.values(result.extraction).forEach((section) => {
-          if (typeof section !== "object" || section === null) return;
-          Object.entries(section as Record<string, unknown>).forEach(([, val]) => {
-            const { confidence } = parseField(val);
-            total++;
+        sectionKeys.forEach((sectionKey) => {
+          const section = getDisplaySectionData(sectionKey);
+          if (!section) return;
+          Object.entries(section).forEach(([, val]) => {
+            const { displayVal, confidence } = parseField(val);
+            // Only count fields that have actual data (not "Not found")
+            if (displayVal === "Not found" || confidence === "not_found") return;
+            extracted++;
             if (confidence === "high") highConf++;
             else if (confidence === "medium") medConf++;
             else if (confidence === "low") lowConf++;
           });
         });
-        return { total, highConf, medConf, lowConf };
+        return { total: extracted, highConf, medConf, lowConf };
       })()
     : null;
 
@@ -932,22 +1305,13 @@ export default function UploadAgreementPage() {
         </div>
       )}
 
-      {/* Upload Mode Toggle: Draft Review vs Full Upload */}
+      {/* Upload type (Full Upload only — Draft/LOI toggle removed per review feedback) */}
       {step === 1 && (
         <div className="flex flex-col gap-3">
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => setIsDraftMode(false)}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${!isDraftMode ? "bg-foreground text-white" : "bg-muted text-[#4a5568] hover:bg-muted"}`}
-            >
-              Full Upload
-            </button>
-            <button
-              onClick={() => { setIsDraftMode(true); setSelectedDocType("lease_loi"); }}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${isDraftMode ? "bg-foreground text-white" : "bg-muted text-[#4a5568] hover:bg-muted"}`}
-            >
-              Draft Review
-            </button>
+            <span className="px-3 py-1.5 text-xs font-medium rounded-md bg-foreground text-white">
+              Upload Document
+            </span>
           </div>
           {isDraftMode && (
             <div className="flex items-center gap-2 p-3 rounded-lg border border-amber-200 bg-amber-50/50 text-amber-800 text-xs">
@@ -1313,7 +1677,34 @@ export default function UploadAgreementPage() {
       )}
 
       {/* Step 2: Processing */}
-      {step === 2 && <ProcessingStep fileSizeMB={selectedFile ? selectedFile.size / (1024 * 1024) : undefined} fileName={selectedFile?.name} />}
+      {step === 2 && (
+        <div className="space-y-4">
+          <ProcessingStep fileSizeMB={selectedFile ? selectedFile.size / (1024 * 1024) : undefined} fileName={selectedFile?.name} />
+          <div className="text-center">
+            <Button variant="outline" size="sm" className="text-xs text-muted-foreground" onClick={async () => {
+              if (singleJobPollerRef.current != null) {
+                window.clearInterval(singleJobPollerRef.current);
+                singleJobPollerRef.current = null;
+              }
+              const jobId = currentSingleJobId;
+              setCurrentSingleJobId(null);
+              setStep(1);
+              if (jobId) {
+                try {
+                  await cancelExtractionJob(jobId);
+                  setError("Extraction cancelled.");
+                } catch {
+                  setError("Stopped polling this upload. The server may still finish the job in the background.");
+                }
+              } else {
+                setError(null);
+              }
+            }}>
+              Cancel Extraction
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Step 3: Review — Split-Screen Layout */}
       {step === 3 && result && (
@@ -1388,20 +1779,24 @@ export default function UploadAgreementPage() {
           {stats && (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="text-center p-3 rounded-lg border bg-card">
-                <p className="text-2xl font-semibold font-mono tracking-tighter">{stats.total}</p>
-                <p className="text-[11px] text-muted-foreground">Fields Extracted</p>
+                <p className="text-2xl font-semibold font-mono tracking-tight">{stats.total}</p>
+                <p className="text-[11px] font-medium text-muted-foreground">Fields Extracted</p>
+                <p className="text-[9px] text-muted-foreground/60">Data points found in document</p>
               </div>
               <div className="text-center p-3 rounded-lg border bg-card">
-                <p className="text-2xl font-bold text-emerald-600">{stats.highConf}</p>
-                <p className="text-[11px] text-muted-foreground">High Confidence</p>
+                <p className="text-2xl font-semibold font-mono tracking-tight text-emerald-600">{stats.highConf}</p>
+                <p className="text-[11px] font-medium text-muted-foreground">High Confidence</p>
+                <p className="text-[9px] text-muted-foreground/60">Gro AI is confident these are correct</p>
               </div>
               <div className="text-center p-3 rounded-lg border bg-card">
-                <p className="text-2xl font-bold text-amber-600">{stats.medConf + stats.lowConf}</p>
-                <p className="text-[11px] text-muted-foreground">Needs Review</p>
+                <p className="text-2xl font-semibold font-mono tracking-tight text-amber-600">{stats.medConf + stats.lowConf}</p>
+                <p className="text-[11px] font-medium text-muted-foreground">Needs Review</p>
+                <p className="text-[9px] text-muted-foreground/60">Please verify these values manually</p>
               </div>
               <div className="text-center p-3 rounded-lg border bg-card">
-                <p className="text-2xl font-bold text-rose-600">{result.risk_flags.length}</p>
-                <p className="text-[11px] text-muted-foreground">Risk Flags</p>
+                <p className="text-2xl font-semibold font-mono tracking-tight text-rose-600">{result.risk_flags.length}</p>
+                <p className="text-[11px] font-medium text-muted-foreground">Risk Flags</p>
+                <p className="text-[9px] text-muted-foreground/60">Potential issues found in the lease</p>
               </div>
             </div>
           )}
@@ -1409,7 +1804,7 @@ export default function UploadAgreementPage() {
           {/* Section Stepper Navigation */}
           <div className="p-3 rounded-xl border bg-card space-y-3">
             {/* Section progress dots */}
-            <div className="flex items-center gap-1 justify-center flex-wrap">
+            <div className="flex items-center gap-1 overflow-x-auto pb-1 scrollbar-hide">
               {/* Risk flags dot (if any) */}
               {result.risk_flags.length > 0 && (
                 <button
@@ -1429,9 +1824,9 @@ export default function UploadAgreementPage() {
                 const dataSectionOffset = result.risk_flags.length > 0 ? 1 : 0;
                 const stepIdx = idx + dataSectionOffset;
                 const isActive = stepIdx === activeSectionIndex;
-                const sectionData = result.extraction[key];
-                const hasVisibleFields = sectionData && typeof sectionData === "object"
-                  ? Object.values(sectionData as Record<string, unknown>).some(v => parseField(v).displayVal !== "Not found")
+                const sectionData = getDisplaySectionData(key);
+                const hasVisibleFields = sectionData
+                  ? Object.values(sectionData).some(v => parseField(v).displayVal !== "Not found")
                   : false;
                 const isVerified = verifiedSections.has(key) || !hasVisibleFields;
                 const conf = sectionConfig[key] || { title: formatFieldLabel(key), icon: FileText };
@@ -1502,7 +1897,7 @@ export default function UploadAgreementPage() {
                     )}
                   </div>
                 </div>
-                <div style={{ height: "calc(100vh - 320px)", minHeight: "400px" }} className="relative">
+                <div style={{ height: "calc(100vh - 200px)", minHeight: "500px" }} className="relative">
                   {(fileUrl || result?.document_url) && (selectedFile?.type === "application/pdf" || (!selectedFile && result?.filename?.toLowerCase().endsWith(".pdf"))) ? (
                     <PdfViewer
                       url={fileUrl || result?.document_url || ""}
@@ -1617,9 +2012,9 @@ export default function UploadAgreementPage() {
                     {/* Current Data Section */}
                     {isOnDataSection && currentSectionKey && (() => {
                       const sectionKey = currentSectionKey;
-                      const sectionData = result.extraction[sectionKey];
-                      if (typeof sectionData !== "object" || sectionData === null) return null;
-                      const allFields = Object.entries(sectionData as Record<string, unknown>);
+                      const sectionData = getDisplaySectionData(sectionKey);
+                      if (!sectionData) return null;
+                      const allFields = Object.entries(sectionData);
                       const fields = allFields.filter(([, val]) => {
                         const { displayVal } = parseField(val);
                         return displayVal !== "Not found";
@@ -1673,7 +2068,7 @@ export default function UploadAgreementPage() {
                           </div>
                           <CardContent className="pt-3 pb-3">
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-3">
-                              {fields.map(([fieldKey, fieldVal]) => {
+                              {fields.filter(([, fv]) => parseField(fv).displayVal !== "Not found").map(([fieldKey, fieldVal]) => {
                                 const { displayVal, confidence } = parseField(fieldVal);
                                 const isNotFound = displayVal === "Not found";
                                 const isCurrency = /rent|deposit|cam_monthly|outflow|amount|revenue/.test(fieldKey);
@@ -1682,6 +2077,14 @@ export default function UploadAgreementPage() {
                                 const isDate = /date|commencement|expiry/.test(fieldKey);
                                 const isBool = displayVal === "Yes" || displayVal === "No";
                                 const isMultiLine = displayVal.includes("\n");
+                                const structuredFieldValue = unwrapFieldValue(fieldVal);
+                                const rentScheduleRows =
+                                  fieldKey === "rent_schedule" &&
+                                  Array.isArray(structuredFieldValue) &&
+                                  structuredFieldValue.length > 0 &&
+                                  typeof structuredFieldValue[0] === "object"
+                                    ? (structuredFieldValue as Record<string, unknown>[])
+                                    : null;
 
                                 let formattedVal = displayVal;
                                 if (!isNotFound && isCurrency && !isNaN(Number(displayVal.replace(/,/g, "")))) {
@@ -1728,51 +2131,74 @@ export default function UploadAgreementPage() {
                                     </div>
                                     {isNotFound ? (
                                       <EditableField value="" displayValue="Not found in document" isNotFound={true} onChange={(newVal) => {
-                                        setResult((prev) => {
-                                          if (!prev) return prev;
-                                          const updated = { ...prev, extraction: { ...prev.extraction } };
-                                          const section = { ...(updated.extraction[sectionKey] as Record<string, unknown>) };
-                                          const existing = section[fieldKey];
-                                          if (typeof existing === "object" && existing !== null && "value" in (existing as Record<string, unknown>)) {
-                                            section[fieldKey] = { ...(existing as Record<string, unknown>), value: newVal };
-                                          } else { section[fieldKey] = newVal; }
-                                          updated.extraction[sectionKey] = section;
-                                          return updated;
-                                        });
+                                        updateExtractionFieldValue(sectionKey, fieldKey, newVal);
                                       }} />
                                     ) : isBool ? (
                                       <div className="pl-4">
                                         <button type="button" onClick={() => {
                                           const newVal = displayVal === "Yes" ? "No" : "Yes";
-                                          setResult((prev) => {
-                                            if (!prev) return prev;
-                                            const updated = { ...prev, extraction: { ...prev.extraction } };
-                                            const section = { ...(updated.extraction[sectionKey] as Record<string, unknown>) };
-                                            const existing = section[fieldKey];
-                                            if (typeof existing === "object" && existing !== null && "value" in (existing as Record<string, unknown>)) {
-                                              section[fieldKey] = { ...(existing as Record<string, unknown>), value: newVal === "Yes" };
-                                            } else { section[fieldKey] = newVal === "Yes"; }
-                                            updated.extraction[sectionKey] = section;
-                                            return updated;
-                                          });
+                                          updateExtractionFieldValue(sectionKey, fieldKey, newVal === "Yes");
                                         }} className="cursor-pointer hover:opacity-80 transition-opacity" title="Click to toggle">
                                           <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${displayVal === "Yes" ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-700"}`}>
                                             {displayVal === "Yes" ? "✓" : "✗"} {displayVal}
                                           </span>
                                         </button>
                                       </div>
+                                    ) : rentScheduleRows ? (
+                                      <div className="pl-4 mt-1 sm:col-span-2">
+                                        {(() => {
+                                          const allKeys = Array.from(
+                                            new Set(
+                                              rentScheduleRows.flatMap((row) =>
+                                                Object.keys(row).filter(
+                                                  (key) =>
+                                                    key !== "confidence" &&
+                                                    key !== "source_page" &&
+                                                    key !== "source_quote"
+                                                )
+                                              )
+                                            )
+                                          );
+                                          return (
+                                            <div className="overflow-x-auto rounded-lg border bg-card">
+                                              <table className="w-full min-w-[420px] text-xs">
+                                                <thead>
+                                                  <tr className="bg-muted">
+                                                    {allKeys.map((key) => (
+                                                      <th
+                                                        key={key}
+                                                        className="px-2 py-1.5 text-left font-semibold text-muted-foreground uppercase tracking-wide text-[10px]"
+                                                      >
+                                                        {formatFieldLabel(key)}
+                                                      </th>
+                                                    ))}
+                                                  </tr>
+                                                </thead>
+                                                <tbody>
+                                                  {rentScheduleRows.map((row, rowIndex) => (
+                                                    <tr key={rowIndex} className="border-t hover:bg-muted/40">
+                                                      {allKeys.map((key) => {
+                                                        const cell = parseField(row[key]).displayVal;
+                                                        return (
+                                                          <td key={key} className="px-2 py-1.5 align-top text-sm text-foreground">
+                                                            {cell === "Not found" ? "--" : cell}
+                                                          </td>
+                                                        );
+                                                      })}
+                                                    </tr>
+                                                  ))}
+                                                </tbody>
+                                              </table>
+                                            </div>
+                                          );
+                                        })()}
+                                      </div>
                                     ) : isMultiLine && Array.isArray((() => {
-                                      const sec = result.extraction[sectionKey] as Record<string, unknown>;
-                                      const raw = sec[fieldKey];
-                                      if (typeof raw === "object" && raw !== null && "value" in (raw as Record<string, unknown>)) return (raw as Record<string, unknown>).value;
-                                      return raw;
+                                      return unwrapFieldValue(getDisplayFieldValue(sectionKey, fieldKey));
                                     })()) ? (
                                       <div className="pl-4 mt-1">
                                         {(() => {
-                                          const sec = result.extraction[sectionKey] as Record<string, unknown>;
-                                          const raw = sec[fieldKey];
-                                          const arrVal = (typeof raw === "object" && raw !== null && "value" in (raw as Record<string, unknown>))
-                                            ? (raw as Record<string, unknown>).value as unknown[] : raw as unknown[];
+                                          const arrVal = unwrapFieldValue(getDisplayFieldValue(sectionKey, fieldKey)) as unknown[];
                                           if (fieldKey === "rent_schedule" && arrVal.length > 0 && typeof arrVal[0] === "object") {
                                             const items = arrVal as Record<string, unknown>[];
                                             const allKeys = Array.from(new Set(items.flatMap(o => Object.keys(o)))).filter(k => k !== "confidence" && k !== "source_page" && k !== "source_quote");
@@ -1791,19 +2217,9 @@ export default function UploadAgreementPage() {
                                               <div key={idx} className="flex items-start gap-2">
                                                 <span className="w-1.5 h-1.5 rounded-full bg-foreground mt-1.5 flex-shrink-0" />
                                                 <EditableField value={itemDisplay} isNotFound={false} onChange={(newVal) => {
-                                                  setResult((prev) => {
-                                                    if (!prev) return prev;
-                                                    const updated = { ...prev, extraction: { ...prev.extraction } };
-                                                    const section = { ...(updated.extraction[sectionKey] as Record<string, unknown>) };
-                                                    const existing = section[fieldKey];
-                                                    let arr: unknown[];
-                                                    if (typeof existing === "object" && existing !== null && "value" in (existing as Record<string, unknown>)) {
-                                                      arr = [...((existing as Record<string, unknown>).value as unknown[])]; arr[idx] = newVal;
-                                                      section[fieldKey] = { ...(existing as Record<string, unknown>), value: arr };
-                                                    } else { arr = [...(existing as unknown[])]; arr[idx] = newVal; section[fieldKey] = arr; }
-                                                    updated.extraction[sectionKey] = section;
-                                                    return updated;
-                                                  });
+                                                  const nextArr = [...arrVal];
+                                                  nextArr[idx] = newVal;
+                                                  updateExtractionFieldValue(sectionKey, fieldKey, nextArr);
                                                 }} />
                                               </div>
                                             );
@@ -1812,31 +2228,11 @@ export default function UploadAgreementPage() {
                                       </div>
                                     ) : isMultiLine ? (
                                       <EditableField value={displayVal} isNotFound={false} multiline onChange={(newVal) => {
-                                        setResult((prev) => {
-                                          if (!prev) return prev;
-                                          const updated = { ...prev, extraction: { ...prev.extraction } };
-                                          const section = { ...(updated.extraction[sectionKey] as Record<string, unknown>) };
-                                          const existing = section[fieldKey];
-                                          if (typeof existing === "object" && existing !== null && "value" in (existing as Record<string, unknown>)) {
-                                            section[fieldKey] = { ...(existing as Record<string, unknown>), value: newVal };
-                                          } else { section[fieldKey] = newVal; }
-                                          updated.extraction[sectionKey] = section;
-                                          return updated;
-                                        });
+                                        updateExtractionFieldValue(sectionKey, fieldKey, newVal);
                                       }} />
                                     ) : (
                                       <EditableField value={displayVal} displayValue={formattedVal !== displayVal ? formattedVal : undefined} isNotFound={false} onChange={(newVal) => {
-                                        setResult((prev) => {
-                                          if (!prev) return prev;
-                                          const updated = { ...prev, extraction: { ...prev.extraction } };
-                                          const section = { ...(updated.extraction[sectionKey] as Record<string, unknown>) };
-                                          const existing = section[fieldKey];
-                                          if (typeof existing === "object" && existing !== null && "value" in (existing as Record<string, unknown>)) {
-                                            section[fieldKey] = { ...(existing as Record<string, unknown>), value: newVal };
-                                          } else { section[fieldKey] = newVal; }
-                                          updated.extraction[sectionKey] = section;
-                                          return updated;
-                                        });
+                                        updateExtractionFieldValue(sectionKey, fieldKey, newVal);
                                       }} />
                                     )}
                                   </div>
@@ -1977,6 +2373,35 @@ export default function UploadAgreementPage() {
               {bulkJobs.length > 0 ? `Back to Queue (${bulkJobs.filter(j => j.status === "completed" && j.result).length} ready)` : "Upload Another"}
             </Button>
             <div className="flex items-center gap-3">
+              {/* Download Extracted Data */}
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 text-xs"
+                onClick={() => {
+                  if (!result) return;
+                  const rows: string[] = ["Section,Field,Value,Confidence,Source Page"];
+                  for (const [sectionKey, sectionData] of Object.entries(result.extraction)) {
+                    if (typeof sectionData !== "object" || sectionData === null) continue;
+                    for (const [fieldKey, fieldVal] of Object.entries(sectionData as Record<string, unknown>)) {
+                      const { displayVal, confidence, sourcePage } = parseField(fieldVal);
+                      const escapedVal = `"${String(displayVal).replace(/"/g, '""')}"`;
+                      rows.push(`${sectionKey},${fieldKey},${escapedVal},${confidence},${sourcePage || ""}`);
+                    }
+                  }
+                  const csv = rows.join("\n");
+                  const blob = new Blob([csv], { type: "text/csv" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = `${result.filename?.replace(/\.[^.]+$/, "") || "extraction"}_data.csv`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+              >
+                <Download className="h-3.5 w-3.5" />
+                Download CSV
+              </Button>
               <Button
                 disabled={isConfirming || !allSectionsVerified}
                 onClick={async () => {
@@ -2056,6 +2481,10 @@ export default function UploadAgreementPage() {
                         risk_flags: result.risk_flags,
                         confidence: result.confidence,
                         filename: result.filename,
+                        // When the upload was initiated from an outlet's
+                        // detail page, attach the agreement to that outlet
+                        // instead of creating a fresh one.
+                        existing_outlet_id: outletIdFromUrl || undefined,
                         document_text: result.document_text,
                         document_url: result.document_url,
                         file_hash: result.file_hash,
@@ -2065,6 +2494,8 @@ export default function UploadAgreementPage() {
                           : undefined,
                       });
                       setActivationResult(res);
+                      // Clear saved wizard state on successful activation
+                      try { sessionStorage.removeItem(WIZARD_KEY); } catch {}
                       // Remove activated job from bulk queue
                       if (currentBulkJobId) {
                         setBulkJobs(prev => prev.filter(j => j.id !== currentBulkJobId));
@@ -2113,7 +2544,7 @@ export default function UploadAgreementPage() {
               </div>
             </div>
 
-            <h2 className="text-2xl font-bold mb-2">{isDraftMode ? "Draft Saved!" : "Agreement Activated!"}</h2>
+            <h2 className="text-2xl font-semibold mb-2">{isDraftMode ? "Draft Saved!" : "Agreement Activated!"}</h2>
             <p className="text-sm text-muted-foreground mb-8">
               {isDraftMode
                 ? "Your draft has been saved. You can find it in Agreements with 'Draft' status."

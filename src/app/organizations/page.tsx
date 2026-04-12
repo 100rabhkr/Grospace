@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { listOrganizations, createOrganization } from "@/lib/api";
+import { useUser } from "@/lib/hooks/use-user";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,6 +16,7 @@ import {
   ChevronRight,
   Loader2,
   AlertTriangle,
+  Shield,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 
@@ -46,6 +48,7 @@ function formatDate(dateStr: string): string {
 // ---------------------------------------------------------------------------
 
 export default function OrganizationsPage() {
+  const { user, loading: userLoading } = useUser();
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -55,6 +58,8 @@ export default function OrganizationsPage() {
   const [newOrgName, setNewOrgName] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+
+  const isSuperAdmin = user?.role === "platform_admin";
 
   async function fetchOrganizations() {
     try {
@@ -70,8 +75,36 @@ export default function OrganizationsPage() {
   }
 
   useEffect(() => {
-    fetchOrganizations();
-  }, []);
+    if (!userLoading && isSuperAdmin) {
+      fetchOrganizations();
+    } else if (!userLoading) {
+      setLoading(false);
+    }
+  }, [userLoading, isSuperAdmin]);
+
+  // Client-side role guard — backend endpoints are also gated, but
+  // rendering the full UI to a non-super-admin and letting the API
+  // calls 403 is a bad UX. Show a clean "access denied" screen instead.
+  if (!userLoading && !isSuperAdmin) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[60vh] space-y-4">
+        <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
+          <Shield className="h-6 w-6 text-muted-foreground" />
+        </div>
+        <div className="text-center">
+          <h2 className="text-base font-semibold">Platform admin only</h2>
+          <p className="text-sm text-muted-foreground mt-1 max-w-md">
+            The Organizations page is only visible to GroSpace platform
+            administrators. If you were trying to manage your own organization,
+            go to <Link href="/settings" className="underline">Settings</Link> instead.
+          </p>
+        </div>
+        <Link href="/">
+          <Button variant="outline" size="sm">Back to dashboard</Button>
+        </Link>
+      </div>
+    );
+  }
 
   const filteredOrgs = organizations.filter((org) =>
     org.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -255,6 +288,11 @@ export default function OrganizationsPage() {
           </Card>
         )}
 
+        {/* Explanation banner */}
+        <div className="rounded-lg border border-blue-100 bg-blue-50/50 p-3 text-xs text-blue-700">
+          <strong>Company & Brand Structure:</strong> Each organization represents a company entity. Within each company, you can manage multiple brands and their outlets. Use the outlet detail page to assign <strong>Brand Name</strong> and <strong>Company Name</strong> to each outlet for proper hierarchy tracking.
+        </div>
+
         {/* ----------------------------------------------------------------- */}
         {/* Organization Grid                                                  */}
         {/* ----------------------------------------------------------------- */}
@@ -272,12 +310,12 @@ export default function OrganizationsPage() {
                     {/* Org Identity */}
                     <div className="flex items-center gap-3 mb-4">
                       <div className="w-11 h-11 rounded-full bg-foreground flex items-center justify-center shrink-0">
-                        <span className="text-white text-lg font-bold">
+                        <span className="text-white text-lg font-semibold">
                           {initial}
                         </span>
                       </div>
                       <div className="min-w-0">
-                        <h3 className="text-lg font-bold text-foreground leading-tight truncate">
+                        <h3 className="text-lg font-semibold text-foreground leading-tight truncate">
                           {org.name}
                         </h3>
                         <div className="flex items-center gap-1.5 mt-1 text-xs text-muted-foreground">

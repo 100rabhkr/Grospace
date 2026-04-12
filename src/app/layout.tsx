@@ -1,23 +1,29 @@
 import type { Metadata } from "next";
-import localFont from "next/font/local";
+import { Inter, Inter_Tight } from "next/font/google";
 import "./globals.css";
 import { AppShell } from "@/components/app-shell";
 
-const geistSans = localFont({
-  src: "./fonts/GeistVF.woff",
-  variable: "--font-geist-sans",
-  weight: "100 900",
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-inter",
+  weight: ["300", "400", "500", "600", "700", "800", "900"],
+  display: "swap",
 });
 
-const geistMono = localFont({
-  src: "./fonts/GeistMonoVF.woff",
-  variable: "--font-geist-mono",
-  weight: "100 900",
+const interTight = Inter_Tight({
+  subsets: ["latin"],
+  variable: "--font-inter-tight",
+  weight: ["400", "500", "600", "700", "800", "900"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
   title: "GroSpace",
   description: "AI-Native Real Estate Intelligence Platform",
+  icons: {
+    icon: "/logo.svg",
+    shortcut: "/logo.svg",
+  },
 };
 
 export default function RootLayout({
@@ -27,7 +33,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased bg-background text-foreground`}>
+      <body className={`${inter.variable} ${interTight.variable} font-sans antialiased bg-background text-foreground`}>
         <AppShell>{children}</AppShell>
       </body>
     </html>

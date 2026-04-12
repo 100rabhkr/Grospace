@@ -7,14 +7,9 @@ import { useUser } from "@/lib/hooks/use-user";
 import dynamic from "next/dynamic";
 
 const IndiaMap = dynamic(() => import("@/components/india-map"), { ssr: false });
-import { Badge } from "@/components/ui/badge";
 import {
-  Store,
-  FileCheck,
   IndianRupee,
-  Bell,
   MapPin,
-  Activity,
   CalendarClock,
   ShieldAlert,
   TrendingDown,
@@ -77,6 +72,10 @@ export default function MapViewPage() {
     count: number;
     outlets: { name: string; status: string; rent?: number; id?: string }[];
   } | null>(null);
+  const [cityFilter, setCityFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [brandFilter, setBrandFilter] = useState("all");
+  const [uniqueBrands, setUniqueBrands] = useState<string[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -91,21 +90,42 @@ export default function MapViewPage() {
         if (!cancelled) setLoading(false);
       }
     }
+    // Fetch outlets for brand filter
+    async function fetchBrands() {
+      try {
+        const { listOutlets } = await import("@/lib/api");
+        const data = await listOutlets({ page: 1, page_size: 500 });
+        if (!cancelled && data.items) {
+          const brands = Array.from(new Set((data.items as Record<string, unknown>[]).map(o => o.brand_name as string).filter(Boolean))).sort();
+          setUniqueBrands(brands);
+        }
+      } catch { /* silent */ }
+    }
     fetchStats();
+    fetchBrands();
     return () => { cancelled = true; };
   }, []);
 
-  const outletsByCity = stats
+  const allOutletsByCity = stats
     ? Object.entries(stats.outlets_by_city)
         .map(([city, count]) => ({ city, count }))
         .sort((a, b) => b.count - a.count)
     : [];
 
-  const outletsByStatus = stats
+  // Apply filters
+  const outletsByCity = cityFilter === "all"
+    ? allOutletsByCity
+    : allOutletsByCity.filter(c => c.city === cityFilter);
+
+  const allOutletsByStatus = stats
     ? Object.entries(stats.outlets_by_status)
         .map(([status, count]) => ({ status, count }))
         .sort((a, b) => b.count - a.count)
     : [];
+
+  const outletsByStatus = statusFilter === "all"
+    ? allOutletsByStatus
+    : allOutletsByStatus.filter(s => s.status === statusFilter);
 
   const totalOutlets = stats?.total_outlets ?? 0;
   const totalCities = outletsByCity.length;
@@ -116,6 +136,17 @@ export default function MapViewPage() {
   const operationalPct = totalOutlets > 0 ? Math.round((operationalCount / totalOutlets) * 100) : 0;
   const avgRentPerOutlet = totalOutlets > 0 ? (stats?.total_monthly_rent ?? 0) / totalOutlets : 0;
   const topCity = outletsByCity[0];
+
+  // Insights — highest-rent city + most-risky city (based on outlet_details_by_city)
+  const citiesWithDetails = stats?.outlet_details_by_city
+    ? Object.entries(stats.outlet_details_by_city).map(([city, outlets]) => {
+        const totalRent = (outlets || []).reduce((sum, o) => sum + (o.rent || 0), 0);
+        const nonOperational = (outlets || []).filter((o) => o.status !== "operational").length;
+        return { city, totalRent, nonOperational, count: outlets.length };
+      })
+    : [];
+  const highestRentCity = [...citiesWithDetails].sort((a, b) => b.totalRent - a.totalRent)[0];
+  const mostRiskyCity = [...citiesWithDetails].sort((a, b) => b.nonOperational - a.nonOperational)[0];
 
   if (loading) {
     return (
@@ -129,67 +160,160 @@ export default function MapViewPage() {
   }
 
   return (
-    <div className="flex h-full overflow-hidden animate-fade-in">
-      {/* ─── Always-Visible Left Panel ─── */}
-      <div className="w-[340px] xl:w-[380px] shrink-0 border-r border-border bg-card overflow-y-auto">
+    <div className="flex h-full overflow-hidden">
+      {/* ─── Slim Left Panel ─── */}
+      <div className="w-[300px] shrink-0 border-r border-border bg-background overflow-y-auto">
         {/* Panel Header */}
-        <div className="bg-card border-b border-border px-5 pt-4 pb-4">
-          <div className="flex items-center gap-2.5 mb-4">
-            <div className="w-9 h-9 rounded-xl bg-foreground flex items-center justify-center">
-              <MapPin className="h-4 w-4 text-white" />
+        <div className="px-5 pt-5 pb-4">
+          <p className="text-micro mb-1">Geography</p>
+          <h1 className="text-h3 text-foreground">Map View</h1>
+          <p className="text-[12px] text-muted-foreground mt-1">
+            {totalOutlets} outlets across {totalCities} {totalCities === 1 ? "city" : "cities"}
+          </p>
+
+          {/* Primary Stats — divider style, no cells */}
+          <div className="grid grid-cols-2 divide-x divide-border border-y border-border mt-5 -mx-5">
+            <div className="px-5 py-4">
+              <p className="text-micro mb-1.5">Outlets</p>
+              <p className="text-[20px] font-semibold text-foreground tabular-nums leading-none">{totalOutlets}</p>
             </div>
-            <div>
-              <h1 className="text-base font-semibold tracking-tight text-foreground">Map View</h1>
-              <p className="text-[11px] text-muted-foreground">
-                {totalOutlets} outlets across {totalCities} {totalCities === 1 ? "city" : "cities"}
+            <div className="px-5 py-4">
+              <p className="text-micro mb-1.5">Agreements</p>
+              <p className="text-[20px] font-semibold text-foreground tabular-nums leading-none">
+                {stats?.active_agreements ?? 0}
+              </p>
+              <p className="text-[10px] text-muted-foreground mt-1">of {stats?.total_agreements ?? 0}</p>
+            </div>
+            <div className="px-5 py-4">
+              <p className="text-micro mb-1.5">Monthly Rent</p>
+              <p className="text-[14px] font-semibold text-foreground tabular-nums leading-tight">
+                {formatINR(stats?.total_monthly_rent ?? 0)}
               </p>
             </div>
-            <Badge
-              variant="outline"
-              className="ml-auto text-[10px] gap-1 text-emerald-700 border-emerald-200 bg-emerald-50"
-            >
-              <Activity className="h-3 w-3 text-emerald-500" />
-              Live
-            </Badge>
-          </div>
-
-          {/* Primary Stats — 2x2 grid */}
-          <div className="grid grid-cols-2 gap-2.5">
-            <div className="rounded-xl bg-muted border border-border p-3">
-              <div className="flex items-center gap-1.5 mb-1">
-                <Store className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="text-[10px] text-muted-foreground font-medium">Total Outlets</span>
-              </div>
-              <p className="text-2xl font-bold text-foreground tabular-nums">{totalOutlets}</p>
-            </div>
-            <div className="rounded-xl bg-muted border border-border p-3">
-              <div className="flex items-center gap-1.5 mb-1">
-                <FileCheck className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="text-[10px] text-muted-foreground font-medium">Agreements</span>
-              </div>
-              <p className="text-2xl font-bold text-foreground tabular-nums">{stats?.active_agreements ?? 0}</p>
-              <p className="text-[9px] text-muted-foreground">of {stats?.total_agreements ?? 0} total</p>
-            </div>
-            <div className="rounded-xl bg-muted border border-border p-3">
-              <div className="flex items-center gap-1.5 mb-1">
-                <IndianRupee className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="text-[10px] text-muted-foreground font-medium">Monthly Rent</span>
-              </div>
-              <p className="text-lg font-bold text-foreground tabular-nums font-mono">{formatINR(stats?.total_monthly_rent ?? 0)}</p>
-            </div>
-            <div className="rounded-xl bg-muted border border-border p-3">
-              <div className="flex items-center gap-1.5 mb-1">
-                <Bell className={`h-3.5 w-3.5 ${(stats?.pending_alerts ?? 0) > 0 ? "text-amber-500" : "text-muted-foreground"}`} />
-                <span className="text-[10px] text-muted-foreground font-medium">Reminders</span>
-              </div>
-              <p className={`text-2xl font-bold tabular-nums ${(stats?.pending_alerts ?? 0) > 0 ? "text-amber-600" : "text-foreground"}`}>
+            <div className="px-5 py-4">
+              <p className="text-micro mb-1.5">Reminders</p>
+              <p className={`text-[20px] font-semibold tabular-nums leading-none ${
+                (stats?.pending_alerts ?? 0) > 0 ? "text-warning" : "text-foreground"
+              }`}>
                 {stats?.pending_alerts ?? 0}
               </p>
             </div>
           </div>
         </div>
 
-        <div className="px-5 py-4 space-y-5">
+        {/* Filters */}
+        <div className="px-5 py-3 border-b border-border bg-muted/30 flex flex-wrap gap-2">
+          <select
+            value={cityFilter}
+            onChange={(e) => setCityFilter(e.target.value)}
+            className="flex-1 min-w-[90px] h-8 text-xs rounded-md border border-slate-200 bg-white px-2"
+          >
+            <option value="all">All Cities</option>
+            {allOutletsByCity.map((c) => (
+              <option key={c.city} value={c.city}>{c.city} ({c.count})</option>
+            ))}
+          </select>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="flex-1 min-w-[90px] h-8 text-xs rounded-md border border-slate-200 bg-white px-2"
+          >
+            <option value="all">All Statuses</option>
+            {allOutletsByStatus.map((s) => (
+              <option key={s.status} value={s.status}>{s.status.replace(/_/g, " ")} ({s.count})</option>
+            ))}
+          </select>
+          {uniqueBrands.length > 1 && (
+            <select
+              value={brandFilter}
+              onChange={(e) => setBrandFilter(e.target.value)}
+              className="flex-1 min-w-[90px] h-8 text-xs rounded-md border border-slate-200 bg-white px-2"
+            >
+              <option value="all">All Brands</option>
+              {uniqueBrands.map((b) => (
+                <option key={b} value={b}>{b}</option>
+              ))}
+            </select>
+          )}
+        </div>
+
+        {/* Scrollable outlet list */}
+        {stats?.outlet_details_by_city && (
+          <div className="px-5 py-3 border-b border-border">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">All Outlets</p>
+            <div className="max-h-[200px] overflow-y-auto space-y-1">
+              {Object.entries(stats.outlet_details_by_city).flatMap(([city, outlets]) =>
+                (outlets as { id?: string; name: string; status: string; rent?: number }[])
+                  .filter(() => cityFilter === "all" || city === cityFilter)
+                  .filter((o) => statusFilter === "all" || o.status === statusFilter)
+                  .map((o) => (
+                    <a
+                      key={o.id || o.name}
+                      href={o.id ? `/outlets/${o.id}` : "#"}
+                      className="flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-muted text-xs transition-colors"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                          o.status === "operational" ? "bg-emerald-500" : o.status === "fit_out" ? "bg-amber-500" : "bg-slate-400"
+                        }`} />
+                        <span className="font-medium truncate">{o.name}</span>
+                        <span className="text-muted-foreground">{city}</span>
+                      </div>
+                      {o.rent && o.rent > 0 && (
+                        <span className="text-muted-foreground tabular-nums flex-shrink-0">
+                          {new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(o.rent)}/mo
+                        </span>
+                      )}
+                    </a>
+                  ))
+              )}
+            </div>
+          </div>
+        )}
+
+        <div className="px-5 py-4 space-y-4">
+          {/* ── Insights panel (Top City / Highest Rent / Most Risky) ── */}
+          <div>
+            <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+              Insights
+            </h3>
+            <div className="rounded-xl border border-border bg-card divide-y divide-border">
+              {topCity && (
+                <div className="flex items-center justify-between px-3 py-2.5">
+                  <div className="min-w-0">
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Top City</p>
+                    <p className="text-[13px] font-semibold text-foreground truncate mt-0.5">{topCity.city}</p>
+                  </div>
+                  <span className="text-[11px] font-semibold tabular-nums text-muted-foreground shrink-0">
+                    {topCity.count} outlets
+                  </span>
+                </div>
+              )}
+              {highestRentCity && highestRentCity.totalRent > 0 && (
+                <div className="flex items-center justify-between px-3 py-2.5">
+                  <div className="min-w-0">
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Highest Rent</p>
+                    <p className="text-[13px] font-semibold text-foreground truncate mt-0.5">{highestRentCity.city}</p>
+                  </div>
+                  <span className="text-[11px] font-semibold tabular-nums text-muted-foreground shrink-0">
+                    {formatINR(highestRentCity.totalRent)}
+                  </span>
+                </div>
+              )}
+              {mostRiskyCity && mostRiskyCity.nonOperational > 0 && (
+                <div className="flex items-center justify-between px-3 py-2.5">
+                  <div className="min-w-0">
+                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Most Risky</p>
+                    <p className="text-[13px] font-semibold text-foreground truncate mt-0.5">{mostRiskyCity.city}</p>
+                  </div>
+                  <span className="text-[11px] font-semibold tabular-nums text-destructive shrink-0">
+                    {mostRiskyCity.nonOperational} non-operational
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* ── Quick Insights ── */}
           <div>
             <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">
@@ -202,7 +326,7 @@ export default function MapViewPage() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-[11px] text-muted-foreground font-medium">Operational Rate</p>
-                  <p className="text-lg font-bold text-emerald-700">{operationalPct}%</p>
+                  <p className="text-lg font-semibold text-emerald-700">{operationalPct}%</p>
                 </div>
                 <span className="text-[10px] text-emerald-600 font-medium">{operationalCount}/{totalOutlets}</span>
               </div>
@@ -212,7 +336,7 @@ export default function MapViewPage() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-[11px] text-muted-foreground font-medium">Avg Rent / Outlet</p>
-                  <p className="text-lg font-bold text-foreground font-mono">{formatINR(avgRentPerOutlet)}</p>
+                  <p className="text-lg font-semibold text-foreground font-mono">{formatINR(avgRentPerOutlet)}</p>
                 </div>
               </div>
               {topCity && (
@@ -222,9 +346,9 @@ export default function MapViewPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-[11px] text-muted-foreground font-medium">Top City</p>
-                    <p className="text-sm font-bold text-foreground">{topCity.city}</p>
+                    <p className="text-sm font-semibold text-foreground">{topCity.city}</p>
                   </div>
-                  <span className="text-xs font-bold text-foreground tabular-nums">{topCity.count} outlets</span>
+                  <span className="text-xs font-semibold text-foreground tabular-nums">{topCity.count} outlets</span>
                 </div>
               )}
               <div className="flex items-center gap-3 p-3 rounded-xl bg-muted border border-border">
@@ -233,7 +357,7 @@ export default function MapViewPage() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-[11px] text-muted-foreground font-medium">Total Outflow</p>
-                  <p className="text-lg font-bold text-foreground font-mono">{formatINR(stats?.total_monthly_outflow ?? 0)}</p>
+                  <p className="text-lg font-semibold text-foreground font-mono">{formatINR(stats?.total_monthly_outflow ?? 0)}</p>
                 </div>
                 <span className="text-[9px] text-muted-foreground font-medium">per month</span>
               </div>
@@ -258,7 +382,7 @@ export default function MapViewPage() {
                   }`}
                 >
                   <item.icon className={`h-4 w-4 mx-auto mb-1 ${item.danger ? "text-rose-500" : "text-muted-foreground"}`} />
-                  <p className={`text-xl font-bold tabular-nums ${item.danger ? "text-rose-700" : "text-foreground"}`}>
+                  <p className={`text-xl font-semibold tabular-nums ${item.danger ? "text-rose-700" : "text-foreground"}`}>
                     {item.value}
                   </p>
                   <p className="text-[8px] text-muted-foreground font-semibold uppercase tracking-wider">{item.label}</p>
@@ -364,7 +488,7 @@ export default function MapViewPage() {
                       className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
                       style={{ backgroundColor: `${color}15`, border: `1px solid ${color}30` }}
                     >
-                      <span className="text-sm font-bold" style={{ color }}>{count}</span>
+                      <span className="text-sm font-semibold" style={{ color }}>{count}</span>
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between mb-0.5">

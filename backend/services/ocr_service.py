@@ -9,14 +9,22 @@ Credentials are resolved in this order:
 
 import os
 import json
+from functools import lru_cache
 from io import BytesIO
-from google.cloud import vision as cloud_vision
-from google.oauth2.service_account import Credentials
 from PIL import Image, ImageEnhance, ImageFilter, ImageStat
 
 
-def _build_vision_client() -> cloud_vision.ImageAnnotatorClient:
+@lru_cache(maxsize=1)
+def _vision_modules():
+    from google.cloud import vision as cloud_vision
+    from google.oauth2.service_account import Credentials
+
+    return cloud_vision, Credentials
+
+
+def _build_vision_client():
     """Build a Vision client, preferring an explicit JSON credentials env var."""
+    cloud_vision, Credentials = _vision_modules()
     creds_json = os.getenv("GOOGLE_CLOUD_CREDENTIALS_JSON")
     if creds_json:
         info = json.loads(creds_json)
@@ -65,6 +73,7 @@ def extract_text_cloud_vision(images: list, preprocess: bool = True) -> str:
         - DOCUMENT_TEXT_DETECTION for better accuracy on forms and tables
     """
     try:
+        cloud_vision, _ = _vision_modules()
         client = _build_vision_client()
         full_text = ""
 
@@ -116,6 +125,7 @@ def extract_text_with_bboxes(images: list, preprocess: bool = True) -> dict:
     """
     result = {"text": "", "pages": []}
     try:
+        cloud_vision, _ = _vision_modules()
         client = _build_vision_client()
         image_context = cloud_vision.ImageContext(language_hints=["en", "hi"])
 

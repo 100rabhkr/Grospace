@@ -30,6 +30,15 @@ DELETION_HEADERS = [
     "Deleted By", "Org ID",
 ]
 
+# Unified deletion audit trail that covers every entity type (outlet,
+# agreement, extraction_job) and distinguishes soft-delete from
+# permanent "delete forever".
+DELETION_AUDIT_HEADERS = [
+    "Timestamp", "Action", "Entity Type", "Entity ID", "Title",
+    "Related Outlet ID", "Related Outlet Name", "Brand", "Status Before",
+    "Deleted By", "Org ID", "Notes",
+]
+
 
 def _get_spreadsheet():
     """Connect to Google Sheets spreadsheet. Fresh connection each time."""
@@ -71,14 +80,23 @@ def _get_spreadsheet():
 
 
 def _format_sheet_headers(sheet):
-    """Apply professional formatting to the header row."""
+    """Apply professional dark-header formatting to row 1.
+
+    Dark charcoal background (#292929) with white bold text, frozen so
+    headers stay visible when scrolling. Matches the format the user
+    approved on their existing Sheet1 tab.
+    """
     try:
-        # Bold + gray background for header row
         sheet.format("1:1", {
-            "textFormat": {"bold": True},
-            "backgroundColor": {"red": 0.95, "green": 0.96, "blue": 0.97},
+            "backgroundColor": {"red": 0.16, "green": 0.16, "blue": 0.16},
+            "textFormat": {
+                "bold": True,
+                "foregroundColor": {"red": 1, "green": 1, "blue": 1},
+                "fontSize": 10,
+            },
+            "horizontalAlignment": "LEFT",
+            "verticalAlignment": "MIDDLE",
         })
-        # Freeze header row
         sheet.freeze(rows=1)
     except Exception as e:
         logger.warning(f"Failed to format sheet headers: {e}")
@@ -341,4 +359,182 @@ def write_changelog_to_sheet(
         return True
     except Exception as e:
         logger.error(f"Failed to write changelog: {e}")
+        return False
+
+
+# ============================================================================
+# Unified Deletion Audit Tab
+# ============================================================================
+# Single sheet tab that captures every delete / restore / permanent-delete
+# operation across outlets, agreements, and extraction jobs. Fed by the
+# delete/restore endpoints via write_deletion_audit_row().
+
+def _get_deletion_audit_sheet():
+    """Get or create the Deletion Audit sheet tab."""
+    spreadsheet = _get_spreadsheet()
+    if not spreadsheet:
+        return None
+    try:
+        sheet = spreadsheet.worksheet("Deletion Audit")
+    except Exception:
+        sheet = spreadsheet.add_worksheet(
+            title="Deletion Audit",
+            rows=5000,
+            cols=len(DELETION_AUDIT_HEADERS),
+        )
+        sheet.insert_row(DELETION_AUDIT_HEADERS, 1)
+        _format_sheet_headers(sheet)
+        return sheet
+    try:
+        first_row = sheet.row_values(1)
+        if not first_row or first_row[0] != DELETION_AUDIT_HEADERS[0]:
+            sheet.insert_row(DELETION_AUDIT_HEADERS, 1)
+            _format_sheet_headers(sheet)
+    except Exception:
+        sheet.insert_row(DELETION_AUDIT_HEADERS, 1)
+    return sheet
+
+
+def write_deletion_audit_row(
+    *,
+    action: str,           # "soft_delete" | "restore" | "delete_forever"
+    entity_type: str,      # "outlet" | "agreement" | "extraction_job"
+    entity_id: str,
+    title: str = "",
+    outlet_id: str = "",
+    outlet_name: str = "",
+    brand: str = "",
+    status_before: str = "",
+    deleted_by: str = "",
+    org_id: str = "",
+    notes: str = "",
+) -> bool:
+    """Append a unified deletion / restore / permanent-delete audit row."""
+    sheet = _get_deletion_audit_sheet()
+    if sheet is None:
+        return False
+    try:
+        row = [
+            datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+            action,
+            entity_type,
+            entity_id,
+            title or "--",
+            outlet_id or "--",
+            outlet_name or "--",
+            brand or "--",
+            status_before or "--",
+            deleted_by or "--",
+            org_id or "--",
+            notes or "--",
+        ]
+        sheet.append_row(row, value_input_option="USER_ENTERED")
+        logger.info(
+            "Deletion audit: %s %s %s by %s",
+            action, entity_type, entity_id, deleted_by,
+        )
+        return True
+    except Exception as e:
+        logger.error(f"Failed to write deletion audit row: {e}")
+        return False
+
+
+# ============================================================================
+# Per-org Activity Tab
+# ============================================================================
+# Every organization gets its own sheet tab named "<BrandName> (<last-4>)".
+# Every activity_log entry for that org is mirrored here so Super Admin can
+# audit exactly what's happening inside each customer's workspace.
+
+ORG_ACTIVITY_HEADERS = [
+    "Timestamp", "Action", "Actor", "Entity Type", "Entity ID", "Details",
+]
+
+
+def get_or_create_org_activity_tab(org_id: str, tab_name: str):
+    """
+    Get or create the per-org activity tab. Idempotent — safe to call on
+    every write. Returns the worksheet object or None if Sheets is not
+    configured.
+    """
+    spreadsheet = _get_spreadsheet()
+    if not spreadsheet:
+        return None
+    safe_name = (tab_name or f"org_{org_id[-8:]}")[:100]  # Google Sheets tab limit
+    try:
+        sheet = spreadsheet.worksheet(safe_name)
+    except Exception:
+        try:
+            sheet = spreadsheet.add_worksheet(
+                title=safe_name,
+                rows=5000,
+                cols=len(ORG_ACTIVITY_HEADERS),
+            )
+            sheet.insert_row(ORG_ACTIVITY_HEADERS, 1)
+            _format_sheet_headers(sheet)
+        except Exception as e:
+            logger.error(f"Failed to create org activity tab '{safe_name}': {e}")
+            return None
+    # Ensure header row exists (survives manual edits)
+    try:
+        first_row = sheet.row_values(1)
+        if not first_row or first_row[0] != ORG_ACTIVITY_HEADERS[0]:
+            sheet.insert_row(ORG_ACTIVITY_HEADERS, 1)
+            _format_sheet_headers(sheet)
+    except Exception:
+        pass
+    return sheet
+
+
+def write_org_activity(
+    *,
+    org_id: str,
+    sheet_tab_name: Optional[str] = None,
+    action: str,
+    actor: str = "",
+    entity_type: str = "",
+    entity_id: str = "",
+    details: Optional[dict] = None,
+) -> bool:
+    """
+    Append a row to the org's activity tab. Non-blocking — returns False
+    if the Sheet write fails (never raises).
+    """
+    # Resolve the tab name if not given — read from organizations.sheet_tab_name
+    if not sheet_tab_name:
+        try:
+            from core.config import supabase
+            r = supabase.table("organizations").select(
+                "name, sheet_tab_name"
+            ).eq("id", org_id).single().execute()
+            if r.data:
+                sheet_tab_name = r.data.get("sheet_tab_name") or f"{r.data.get('name', 'Org')} ({org_id[-4:]})"
+        except Exception:
+            pass
+    if not sheet_tab_name:
+        sheet_tab_name = f"Org {org_id[-4:]}"
+
+    sheet = get_or_create_org_activity_tab(org_id, sheet_tab_name)
+    if sheet is None:
+        return False
+
+    try:
+        import json as _json
+        details_str = _json.dumps(details or {}, separators=(",", ":"), default=str)[:500]
+    except Exception:
+        details_str = str(details or "")[:500]
+
+    try:
+        row = [
+            datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+            action or "",
+            actor or "",
+            entity_type or "",
+            entity_id or "",
+            details_str,
+        ]
+        sheet.append_row(row, value_input_option="USER_ENTERED")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to write org activity row to '{sheet_tab_name}': {e}")
         return False

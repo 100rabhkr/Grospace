@@ -8,10 +8,12 @@ import {
   FileText,
   ChevronRight,
   AlertTriangle,
+  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { StatusBadge, statusTone } from "@/components/status-badge";
 import {
   Table,
   TableBody,
@@ -33,7 +35,9 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { listAgreements } from "@/lib/api";
+import { listAgreements, deleteAgreement } from "@/lib/api";
+import { useUser } from "@/lib/hooks/use-user";
+import { canWrite, type UserRole } from "@/components/navigation-config";
 import { Pagination } from "@/components/pagination";
 import { PageHeader } from "@/components/page-header";
 
@@ -98,24 +102,6 @@ const extractionLabels: Record<string, string> = {
   failed: "Failed",
 };
 
-function statusColor(status: string): string {
-  if (!status) return "bg-muted text-[#4a5568]";
-  const map: Record<string, string> = {
-    active: "bg-emerald-50 text-emerald-700",
-    expiring: "bg-amber-50 text-amber-700",
-    expired: "bg-rose-50 text-rose-700",
-    terminated: "bg-rose-50 text-rose-700",
-    draft: "bg-blue-100 text-blue-700",
-    renewed: "bg-emerald-50 text-emerald-700",
-    confirmed: "bg-emerald-50 text-emerald-700",
-    review: "bg-amber-50 text-amber-700",
-    processing: "bg-muted text-foreground",
-    pending: "bg-muted text-[#4a5568]",
-    failed: "bg-rose-50 text-rose-700",
-  };
-  return map[status] || "bg-muted text-[#4a5568]";
-}
-
 function statusLabel(status: string): string {
   if (!status) return "Unknown";
   return status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -179,6 +165,7 @@ function TableSkeleton() {
 // --- Page ---
 
 export default function AgreementsPage() {
+  const { user } = useUser();
   const [agreements, setAgreements] = useState<Agreement[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -252,12 +239,6 @@ export default function AgreementsPage() {
     });
   }, [agreements, searchQuery, typeFilter, statusFilter, extractionFilter]);
 
-  function riskDotColor(count: number, flags: RiskFlag[]) {
-    if (count === 0) return "bg-slate-300";
-    const hasHigh = flags.some((f) => f.severity === "high");
-    return hasHigh ? "bg-rose-500" : "bg-amber-500";
-  }
-
   return (
     <TooltipProvider>
       <div className="space-y-6 animate-fade-in">
@@ -268,12 +249,14 @@ export default function AgreementsPage() {
               {total}
             </Badge>
           )}
-          <Link href="/agreements/upload">
-            <Button className="gap-2">
-              <Upload className="h-4 w-4" />
-              Upload Documents
-            </Button>
-          </Link>
+          {canWrite(user?.role as UserRole | undefined) && (
+            <Link href="/agreements/upload">
+              <Button className="gap-2">
+                <Upload className="h-4 w-4" />
+                Upload Documents
+              </Button>
+            </Link>
+          )}
         </PageHeader>
 
         {/* Error State */}
@@ -374,20 +357,20 @@ export default function AgreementsPage() {
           </div>
         )}
 
-        {/* Table */}
+        {/* Table — premium row layout */}
         {!loading && !error && agreements.length > 0 && (
-          <div className="rounded-lg border bg-card">
+          <div className="rounded-xl border border-border bg-card overflow-hidden elevation-1">
             <Table>
               <TableHeader>
-                <TableRow className="bg-muted hover:bg-muted">
-                  <TableHead className="w-[220px]">Document</TableHead>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="w-[240px]">Document</TableHead>
                   <TableHead>Outlet</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Lessor</TableHead>
-                  <TableHead>Lease Expiry</TableHead>
+                  <TableHead>Expiry</TableHead>
                   <TableHead className="text-right">Monthly Rent</TableHead>
-                  <TableHead className="text-center">Risk Flags</TableHead>
+                  <TableHead className="text-right">Risks</TableHead>
                   <TableHead>Extraction</TableHead>
                   <TableHead className="w-[40px]" />
                 </TableRow>
@@ -395,10 +378,7 @@ export default function AgreementsPage() {
               <TableBody>
                 {filtered.length === 0 ? (
                   <TableRow>
-                    <TableCell
-                      colSpan={10}
-                      className="h-32 text-center text-muted-foreground"
-                    >
+                    <TableCell colSpan={10} className="h-32 text-center text-muted-foreground">
                       No agreements match your filters.
                     </TableCell>
                   </TableRow>
@@ -408,14 +388,14 @@ export default function AgreementsPage() {
                     const riskFlags = agr.risk_flags || [];
 
                     return (
-                      <TableRow key={agr.id} className="group">
+                      <TableRow key={agr.id} className="group h-12 cursor-pointer">
                         <TableCell>
                           <Link
                             href={`/agreements/${agr.id}`}
-                            className="flex items-center gap-2 font-medium text-foreground hover:underline"
+                            className="flex items-center gap-2.5 group-hover:underline"
                           >
-                            <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                            <span className="truncate max-w-[180px]">
+                            <FileText className="h-3.5 w-3.5 text-muted-foreground/60 flex-shrink-0" strokeWidth={1.75} />
+                            <span className="truncate max-w-[180px] text-[13px] font-semibold text-foreground">
                               {agr.document_filename}
                             </span>
                           </Link>
@@ -423,70 +403,62 @@ export default function AgreementsPage() {
                         <TableCell>
                           <Link
                             href={`/agreements/${agr.id}`}
-                            className="text-sm hover:underline"
+                            className="text-[13px] text-muted-foreground hover:text-foreground hover:underline truncate block max-w-[160px]"
                           >
                             {outletName}
                           </Link>
                         </TableCell>
                         <TableCell>
-                          <Badge
-                            variant="outline"
-                            className="text-xs font-medium whitespace-nowrap"
-                          >
+                          <Badge variant="secondary" className="whitespace-nowrap">
                             {typeLabels[agr.type] || statusLabel(agr.type)}
                           </Badge>
                         </TableCell>
                         <TableCell>
-                          <Badge
-                            className={`${statusColor(agr.status)} border-0 text-xs font-medium`}
-                          >
+                          <StatusBadge tone={statusTone(agr.status)}>
                             {statusLabel(agr.status)}
-                          </Badge>
+                          </StatusBadge>
                         </TableCell>
-                        <TableCell className="text-sm">
-                          {agr.lessor_name || "--"}
+                        <TableCell className="text-[13px] text-muted-foreground truncate max-w-[160px]">
+                          {agr.lessor_name || "—"}
                         </TableCell>
-                        <TableCell className="text-sm whitespace-nowrap">
+                        <TableCell className="text-[13px] text-muted-foreground tabular-nums whitespace-nowrap">
                           {formatDate(agr.lease_expiry_date)}
                         </TableCell>
-                        <TableCell className="text-sm text-right whitespace-nowrap">
+                        <TableCell className="text-right text-[13px] font-semibold text-foreground tabular-nums whitespace-nowrap">
                           {agr.monthly_rent && agr.monthly_rent > 0
                             ? formatCurrency(agr.monthly_rent)
-                            : "--"}
+                            : "—"}
                         </TableCell>
-                        <TableCell className="text-center">
+                        <TableCell className="text-right">
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <div className="inline-flex items-center gap-1.5 cursor-default">
                                 <span
-                                  className={`inline-block h-2 w-2 rounded-full ${riskDotColor(
-                                    riskFlags.length,
-                                    riskFlags
-                                  )}`}
+                                  className={`inline-block h-1.5 w-1.5 rounded-full ${
+                                    riskFlags.length === 0
+                                      ? "bg-foreground/20"
+                                      : riskFlags.some((f) => f.severity === "high")
+                                      ? "bg-destructive"
+                                      : "bg-warning"
+                                  }`}
                                 />
-                                <span className="text-sm font-medium">
+                                <span className="text-[13px] font-semibold tabular-nums">
                                   {riskFlags.length}
                                 </span>
                               </div>
                             </TooltipTrigger>
-                            <TooltipContent
-                              side="top"
-                              className="max-w-[260px]"
-                            >
+                            <TooltipContent side="top" className="max-w-[260px]">
                               {riskFlags.length === 0 ? (
                                 <p>No risk flags detected</p>
                               ) : (
                                 <div className="space-y-1">
                                   {riskFlags.map((flag, idx) => (
-                                    <p
-                                      key={flag.id || flag.flag_id || idx}
-                                      className="text-xs"
-                                    >
+                                    <p key={flag.id || flag.flag_id || idx} className="text-xs">
                                       <span
                                         className={`inline-block h-1.5 w-1.5 rounded-full mr-1 ${
                                           flag.severity === "high"
-                                            ? "bg-rose-500"
-                                            : "bg-amber-500"
+                                            ? "bg-destructive"
+                                            : "bg-warning"
                                         }`}
                                       />
                                       {flag.name}
@@ -498,17 +470,40 @@ export default function AgreementsPage() {
                           </Tooltip>
                         </TableCell>
                         <TableCell>
-                          <Badge
-                            className={`${statusColor(agr.extraction_status)} border-0 text-xs font-medium`}
-                          >
+                          <StatusBadge tone={statusTone(agr.extraction_status)}>
                             {extractionLabels[agr.extraction_status] ||
                               statusLabel(agr.extraction_status)}
-                          </Badge>
+                          </StatusBadge>
                         </TableCell>
                         <TableCell>
-                          <Link href={`/agreements/${agr.id}`}>
-                            <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                          </Link>
+                          <div className="flex items-center gap-1">
+                            {/* Delete button is org_admin+ only. org_member and
+                                finance_viewer see no trash icon. Backend is
+                                also gated — this is UX defence in depth. */}
+                            {canWrite(user?.role as UserRole | undefined) && (
+                              <button
+                                type="button"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                  if (!confirm(`Move "${agr.document_filename}" to the recycle bin? You can restore it later from Settings → Recycle Bin.`)) return;
+                                  try {
+                                    await deleteAgreement(agr.id);
+                                    setAgreements((prev) => prev.filter((a) => a.id !== agr.id));
+                                  } catch (err) {
+                                    alert(err instanceof Error ? err.message : "Failed to delete");
+                                  }
+                                }}
+                                className="p-1 rounded text-rose-600 hover:bg-rose-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                                title="Delete (move to recycle bin)"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                            <Link href={`/agreements/${agr.id}`}>
+                              <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                            </Link>
+                          </div>
                         </TableCell>
                       </TableRow>
                     );

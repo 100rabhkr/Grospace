@@ -52,15 +52,26 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // For authenticated users, check if they are approved (have org_id or are platform_admin)
-  if (user && !isPendingPage && !request.nextUrl.pathname.startsWith("/api/auth")) {
+  // For authenticated users, check if they are approved + whether they
+  // need to force-reset their password (set by the invitation flow).
+  const isResetPage = request.nextUrl.pathname === "/auth/reset-password";
+  if (user && !isPendingPage && !isResetPage && !request.nextUrl.pathname.startsWith("/api/auth")) {
     const { data: profile } = await supabase
       .from("profiles")
-      .select("role, org_id")
+      .select("role, org_id, must_reset_password")
       .eq("id", user.id)
       .single();
 
     const isApproved = profile?.org_id || profile?.role === "platform_admin";
+
+    // Force reset before anything else — freshly-invited users must set
+    // a new password before they can use the app.
+    if (profile?.must_reset_password) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/auth/reset-password";
+      url.search = "?force=1";
+      return NextResponse.redirect(url);
+    }
 
     if (!isApproved) {
       const url = request.nextUrl.clone();

@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { listAlerts, acknowledgeAlert, snoozeAlert, createReminder, updateReminder, deleteReminder } from "@/lib/api";
 import { Pagination } from "@/components/pagination";
+import { cn } from "@/lib/utils";
 import {
   Dialog,
   DialogContent,
@@ -12,6 +13,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { StatusBadge, statusTone } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -67,7 +69,7 @@ type AlertType =
   | "renewal_window"
   | "custom";
 
-type AlertSeverity = "high" | "medium" | "low" | "info";
+type AlertSeverity = "critical" | "high" | "medium" | "low" | "info";
 
 type AlertStatus = "pending" | "sent" | "acknowledged" | "snoozed";
 
@@ -85,7 +87,8 @@ type Alert = {
   reference_date: string;
   status: AlertStatus;
   assigned_to?: string | null;
-  outlets: { name: string; city: string } | null;
+  source_event_id?: string | null;
+  outlets: { name: string; city: string; brand_name?: string; company_name?: string } | null;
   agreements: { type: string; document_filename: string } | null;
 };
 
@@ -103,6 +106,7 @@ const alertTypeOptions: { value: AlertType; label: string }[] = [
 ];
 
 const severityOptions: { value: AlertSeverity; label: string }[] = [
+  { value: "critical", label: "Critical" },
   { value: "high", label: "High" },
   { value: "medium", label: "Medium" },
   { value: "low", label: "Low" },
@@ -120,6 +124,8 @@ const statusOptions: { value: AlertStatus; label: string }[] = [
 
 function severityDotColor(severity: AlertSeverity): string {
   switch (severity) {
+    case "critical":
+      return "bg-rose-700";
     case "high":
       return "bg-rose-500";
     case "medium":
@@ -160,21 +166,47 @@ function formatDate(dateStr: string): string {
 }
 
 /**
- * Group alerts by trigger_date (YYYY-MM-DD).
- * Returns entries sorted ascending by date.
+ * Bucket alerts by urgency: Today / This Week / Later / No Date.
+ * Within each bucket, sort by trigger_date ascending.
  */
 function groupByTriggerDate(
   alerts: Alert[]
-): { date: string; alerts: Alert[] }[] {
-  const map = new Map<string, Alert[]>();
+): { date: string; label: string; alerts: Alert[] }[] {
+  const buckets: Record<string, Alert[]> = {
+    overdue: [],
+    today: [],
+    week: [],
+    later: [],
+    unknown: [],
+  };
+
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
+  const weekEnd = new Date(todayStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+
   for (const alert of alerts) {
-    const key = alert.trigger_date || "unknown";
-    if (!map.has(key)) map.set(key, []);
-    map.get(key)!.push(alert);
+    if (!alert.trigger_date) {
+      buckets.unknown.push(alert);
+      continue;
+    }
+    const d = new Date(alert.trigger_date);
+    if (d < todayStart) buckets.overdue.push(alert);
+    else if (d < todayEnd) buckets.today.push(alert);
+    else if (d < weekEnd) buckets.week.push(alert);
+    else buckets.later.push(alert);
   }
-  return Array.from(map.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, alerts]) => ({ date, alerts }));
+
+  const sortByDate = (a: Alert, b: Alert) =>
+    (a.trigger_date || "").localeCompare(b.trigger_date || "");
+
+  const groups: { date: string; label: string; alerts: Alert[] }[] = [];
+  if (buckets.overdue.length > 0) groups.push({ date: "overdue", label: "Overdue", alerts: buckets.overdue.sort(sortByDate) });
+  if (buckets.today.length > 0) groups.push({ date: "today", label: "Today", alerts: buckets.today.sort(sortByDate) });
+  if (buckets.week.length > 0) groups.push({ date: "week", label: "This Week", alerts: buckets.week.sort(sortByDate) });
+  if (buckets.later.length > 0) groups.push({ date: "later", label: "Later", alerts: buckets.later.sort(sortByDate) });
+  if (buckets.unknown.length > 0) groups.push({ date: "unknown", label: "No Date", alerts: buckets.unknown });
+  return groups;
 }
 
 // ---------- Snooze localStorage helpers ----------
@@ -322,9 +354,10 @@ export default function AlertsPage() {
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [severityFilter, setSeverityFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [timeFilter, setTimeFilter] = useState<string>("3");  // months ahead — default 3
+  const [timeFilter, setTimeFilter] = useState<string>("all");  // default: show all upcoming reminders
   const [outletFilter, setOutletFilter] = useState<string>("all");
   const [cityFilter, setCityFilter] = useState<string>("all");
+  const [brandFilter, setBrandFilter] = useState<string>("all");
 
   // Local status overrides (for acknowledge / snooze)
   const [alertStates, setAlertStates] = useState<Record<string, AlertStatus>>(
@@ -434,13 +467,17 @@ export default function AlertsPage() {
       const alertCity = alert.outlets?.city || "";
       if (cityFilter !== "all" && alertCity !== cityFilter) return false;
 
+      // Brand filter
+      const alertBrand = alert.outlets?.brand_name || "";
+      if (brandFilter !== "all" && alertBrand !== brandFilter) return false;
+
       // Snoozed reminders: still include but will be dimmed (not filtered out)
       // unless status filter explicitly excludes snoozed
       void isSnoozed;
 
       return true;
     });
-  }, [alerts, searchQuery, typeFilter, severityFilter, statusFilter, timeFilter, outletFilter, cityFilter, alertStates, completedIds, snoozeMap, activeTab]);
+  }, [alerts, searchQuery, typeFilter, severityFilter, statusFilter, outletFilter, cityFilter, brandFilter, alertStates, completedIds, snoozeMap, activeTab]);
 
   // Count for tabs
   const activeCount = useMemo(() => alerts.filter((a) => !completedIds.has(a.id)).length, [alerts, completedIds]);
@@ -588,6 +625,10 @@ export default function AlertsPage() {
     setTypeFilter("all");
     setSeverityFilter("all");
     setStatusFilter("all");
+    setOutletFilter("all");
+    setCityFilter("all");
+    setBrandFilter("all");
+    setTimeFilter("3");
   }
 
   const hasActiveFilters =
@@ -595,9 +636,10 @@ export default function AlertsPage() {
     typeFilter !== "all" ||
     severityFilter !== "all" ||
     statusFilter !== "all" ||
-    timeFilter !== "6" ||
+    timeFilter !== "3" ||
     outletFilter !== "all" ||
-    cityFilter !== "all";
+    cityFilter !== "all" ||
+    brandFilter !== "all";
 
   // ---------- Calendar helpers ----------
 
@@ -874,6 +916,25 @@ export default function AlertsPage() {
                 </Select>
               );
             })()}
+
+            {/* Brand Filter */}
+            {(() => {
+              const brands = Array.from(new Set(alerts.map((a) => a.outlets?.brand_name).filter(Boolean))).sort();
+              if (brands.length <= 1) return null;
+              return (
+                <Select value={brandFilter} onValueChange={setBrandFilter}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Brand" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Brands</SelectItem>
+                    {brands.map((brand) => (
+                      <SelectItem key={brand} value={brand!}>{brand}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              );
+            })()}
           </div>
 
           {hasActiveFilters && (
@@ -1137,18 +1198,20 @@ export default function AlertsPage() {
       {!loading &&
         !error &&
         viewMode === "list" &&
-        groupedAlerts.map((group) => (
-          <div key={group.date} className="space-y-3">
-            {/* Date group header */}
-            <div className="flex items-center gap-2 pt-2">
-              <CalendarDays className="h-4 w-4 text-muted-foreground" />
-              <h2 className="text-sm font-semibold text-foreground">
-                {group.date === "unknown"
-                  ? "No Date"
-                  : formatDate(group.date)}
+        groupedAlerts.map((group) => {
+          const groupTone =
+            group.date === "overdue" ? "text-destructive"
+            : group.date === "today" ? "text-foreground"
+            : "text-foreground";
+          return (
+          <div key={group.date} className="space-y-2.5">
+            {/* Bucket header */}
+            <div className="flex items-baseline gap-2 pt-1">
+              <h2 className={cn("text-[13px] font-semibold tracking-tight", groupTone)}>
+                {group.label}
               </h2>
-              <span className="text-xs text-muted-foreground">
-                ({group.alerts.length})
+              <span className="text-[11px] font-medium text-muted-foreground tabular-nums">
+                · {group.alerts.length}
               </span>
             </div>
 
@@ -1161,70 +1224,59 @@ export default function AlertsPage() {
               const isDone = completedIds.has(alert.id);
               const isSnoozed = isCurrentlySnoozed(alert.id, snoozeMap);
 
+              // Left accent color follows severity
+              const accentColor =
+                alert.severity === "critical" || alert.severity === "high"
+                  ? "border-l-destructive"
+                  : alert.severity === "medium"
+                  ? "border-l-warning"
+                  : "border-l-foreground/30";
+
               return (
                 <Card
                   key={alert.id}
-                  className={`transition-opacity ${
-                    isDone || isSnoozed ||
-                    effectiveStatus === "acknowledged" ||
-                    effectiveStatus === "snoozed"
-                      ? "opacity-60"
-                      : ""
-                  }`}
+                  variant="default"
+                  className={cn(
+                    "border-l-[3px] transition-all duration-base ease-out-quint",
+                    accentColor,
+                    "hover:border-border-strong hover:elevation-1",
+                    (isDone || isSnoozed ||
+                      effectiveStatus === "acknowledged" ||
+                      effectiveStatus === "snoozed") && "opacity-60"
+                  )}
                 >
                   <CardContent className="py-4 px-5">
                     <div className="flex items-start gap-4">
-                      {/* Severity Indicator */}
-                      <div className="flex flex-col items-center gap-1 pt-1">
-                        <div
-                          className={`h-3 w-3 rounded-full ${severityDotColor(
-                            alert.severity
-                          )}`}
-                        />
-                        <span className="text-[10px] font-medium text-muted-foreground uppercase">
-                          {alert.severity}
-                        </span>
-                      </div>
-
-                      {/* Content */}
+                      {/* Content — left accent replaces the severity dot column */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-start justify-between gap-3">
-                          <div className="space-y-1">
+                          <div className="space-y-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <h3 className="font-semibold text-sm text-foreground">
+                              <h3 className="text-[14px] font-semibold text-foreground">
                                 {alert.title}
                               </h3>
-                              <Badge
-                                variant="outline"
-                                className="text-[11px] font-normal"
-                              >
+                              <Badge variant="secondary" className="whitespace-nowrap">
                                 {statusLabel(alert.type)}
                               </Badge>
                             </div>
-                            <p className="text-xs text-muted-foreground">
+                            <p className="text-[12px] text-muted-foreground">
                               {outletName}
                               {outletCity && (
                                 <>
-                                  <span className="mx-1.5 text-neutral-300">
-                                    |
-                                  </span>
+                                  <span className="mx-1.5 text-muted-foreground/40">·</span>
                                   {outletCity}
                                 </>
                               )}
                             </p>
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
-                            <Badge
-                              className={`${statusColor(
-                                effectiveStatus
-                              )} border-0 text-[11px]`}
-                            >
+                            <StatusBadge tone={statusTone(effectiveStatus)}>
                               {statusLabel(effectiveStatus)}
-                            </Badge>
+                            </StatusBadge>
                           </div>
                         </div>
 
-                        <p className="text-sm text-foreground mt-2">
+                        <p className="text-[13px] text-foreground/80 mt-2 leading-relaxed">
                           {alert.message}
                         </p>
 
@@ -1384,7 +1436,8 @@ export default function AlertsPage() {
               );
             })}
           </div>
-        ))}
+          );
+        })}
 
       {/* Pagination (list view only) */}
       {!loading && !error && viewMode === "list" && (

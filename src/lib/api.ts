@@ -7,18 +7,39 @@ import { createClient } from "@/lib/supabase/client";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+let _cachedToken: string | null = null;
+let _tokenExpiry = 0;
+
 async function getAuthToken(): Promise<string | null> {
+  // Cache token for 60s to avoid redundant session lookups on every API call
+  const now = Date.now();
+  if (_cachedToken && now < _tokenExpiry) return _cachedToken;
+
   try {
     const supabase = createClient();
     const { data: { session } } = await supabase.auth.getSession();
-    return session?.access_token || null;
+    if (session?.access_token) {
+      _cachedToken = session.access_token;
+      _tokenExpiry = now + 60_000; // 1 minute cache
+      return _cachedToken;
+    }
   } catch {
-    return null;
+    // No session — return null so the caller hits the login redirect.
   }
+
+  _cachedToken = null;
+  return null;
+}
+
+/** Force the next API call to re-read the auth token (e.g. after login/logout). */
+export function resetAuthTokenCache(): void {
+  _cachedToken = null;
+  _tokenExpiry = 0;
 }
 
 // Endpoints that involve AI processing need longer timeouts
 const LONG_TIMEOUT_PATTERNS = [
+  "/api/upload-and-extract-async",
   "/api/upload-and-extract",
   "/api/extract",
   "/api/qa",
@@ -31,12 +52,16 @@ const LONG_TIMEOUT_PATTERNS = [
   "/api/cron",
 ];
 
+const STANDARD_TIMEOUT_MS = 25000;
+const LONG_RUNNING_TIMEOUT_MS = 600000;
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function apiFetch(endpoint: string, options: RequestInit = {}, retryCount = 0): Promise<any> {
   const token = await getAuthToken();
   const isFormData = options.body instanceof FormData;
+  const hasBody = options.body != null;
   const headers: Record<string, string> = {
-    ...(isFormData ? {} : { "Content-Type": "application/json" }),
+    ...(!isFormData && hasBody ? { "Content-Type": "application/json" } : {}),
     ...(options.headers as Record<string, string>),
   };
   if (token) {
@@ -44,9 +69,13 @@ async function apiFetch(endpoint: string, options: RequestInit = {}, retryCount 
   }
 
   const isLongRunning = LONG_TIMEOUT_PATTERNS.some((p) => endpoint.startsWith(p));
-  // 120s for normal calls (Railway cold start can take 90s), 10min for AI processing
+  // Fail fast for normal UI calls so the app doesn't sit on skeletons forever.
+  // Keep long AI/document tasks generous.
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), isLongRunning ? 600000 : 120000);
+  const timeoutId = setTimeout(
+    () => controller.abort(),
+    isLongRunning ? LONG_RUNNING_TIMEOUT_MS : STANDARD_TIMEOUT_MS
+  );
 
   let response: Response;
   try {
@@ -149,6 +178,9 @@ export async function confirmAndActivate(data: {
   risk_flags: unknown[];
   confidence: Record<string, string>;
   filename: string;
+  /** If set, attach the new agreement to this existing outlet instead of
+   *  creating a new one from extraction data. */
+  existing_outlet_id?: string;
   document_text?: string | null;
   document_url?: string | null;
   file_hash?: string | null;
@@ -173,6 +205,36 @@ export async function listAgreements(params?: { page?: number; page_size?: numbe
 /** Get a single agreement with obligations and alerts */
 export async function getAgreement(id: string) {
   return apiFetch(`/api/agreements/${id}`);
+}
+
+/** Soft-delete an agreement (sends it to the recycle bin) */
+export async function deleteAgreement(id: string) {
+  return apiFetch(`/api/agreements/${id}`, { method: "DELETE" });
+}
+
+/** Restore a soft-deleted agreement from the recycle bin */
+export async function restoreAgreement(id: string) {
+  return apiFetch(`/api/agreements/${id}/restore`, { method: "PATCH" });
+}
+
+/** Permanently delete an agreement (only works if already in recycle bin) */
+export async function deleteAgreementForever(id: string) {
+  return apiFetch(`/api/agreements/${id}/forever`, { method: "DELETE" });
+}
+
+/** List agreements in the recycle bin (org-scoped) */
+export async function listDeletedAgreements() {
+  return apiFetch("/api/agreements/deleted");
+}
+
+/** Permanently delete an outlet (only works if already in recycle bin) */
+export async function deleteOutletForever(id: string) {
+  return apiFetch(`/api/outlets/${id}/forever`, { method: "DELETE" });
+}
+
+/** Permanently remove an extraction job from the processing list */
+export async function deleteExtractionJob(jobId: string) {
+  return apiFetch(`/api/extraction-jobs/${jobId}`, { method: "DELETE" });
 }
 
 /** List outlets (paginated) */
@@ -201,19 +263,17 @@ export async function listAlerts(params?: { page?: number; page_size?: number; m
 }
 
 /** List pending/completed extraction jobs for the current user */
-export async function listExtractionJobs(params?: { status?: string }) {
+export async function listExtractionJobs(params?: { status?: string; seen?: boolean; limit?: number }) {
   const sp = new URLSearchParams();
   if (params?.status) sp.set("status", params.status);
+  if (params?.seen != null) sp.set("seen", String(params.seen));
+  if (params?.limit != null) sp.set("limit", String(params.limit));
   const qs = sp.toString();
   return apiFetch(`/api/extraction-jobs${qs ? `?${qs}` : ""}`);
 }
 
 /** Update an outlet (revenue, status, site_code) */
-export async function updateOutlet(outletId: string, data: {
-  monthly_net_revenue?: number;
-  status?: string;
-  site_code?: string;
-}) {
+export async function updateOutlet(outletId: string, data: Record<string, unknown>) {
   return apiFetch(`/api/outlets/${outletId}`, {
     method: "PATCH",
     body: JSON.stringify(data),
@@ -241,6 +301,123 @@ export async function createOrganization(name: string) {
   formData.append("name", name);
 
   return apiFetch("/api/organizations", {
+    method: "POST",
+    body: formData,
+  });
+}
+
+/**
+ * Super Admin: create a brand-new organization with its default admin user.
+ * Returns the generated temporary password ONCE in the response so the
+ * Super Admin can hand it off manually if the invitation email bounces.
+ */
+export async function createOrganizationWithAdmin(data: {
+  // Org
+  name: string;
+  business_type?: string;
+  hq_city?: string;
+  hq_country?: string;
+  gst_number?: string;
+  company_registration?: string;
+  expected_outlets_size?: string;
+  billing_email?: string;
+  website?: string;
+  notes?: string;
+  // Admin
+  admin_email: string;
+  admin_full_name: string;
+  admin_phone?: string;
+  admin_role_title?: string;
+  // Brands
+  brand_names?: string[];
+}) {
+  return apiFetch("/api/admin/create-organization-with-admin", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+/**
+ * Super Admin: attach a default admin to an orphaned organization (one
+ * created without admin details). Creates the auth user, pins the profile,
+ * sends the invitation email. Returns the temp password ONCE.
+ */
+export async function assignOrgAdmin(orgId: string, data: {
+  admin_email: string;
+  admin_full_name: string;
+  admin_phone?: string;
+  admin_role_title?: string;
+}) {
+  return apiFetch(`/api/organizations/${orgId}/assign-admin`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+/** Super Admin: rotate Super Admin password back to the hardcoded default. */
+export async function resetSuperAdminPassword() {
+  return apiFetch("/api/admin/reset-super-admin-password", { method: "POST" });
+}
+
+/**
+ * Super Admin: cross-org activity feed. Optionally scoped to a single org.
+ * Returns up to `limit` activity_log entries with enriched org names +
+ * actor display names.
+ */
+export async function getPlatformActivity(params?: {
+  org_id?: string;
+  limit?: number;
+  offset?: number;
+}) {
+  const sp = new URLSearchParams();
+  if (params?.org_id) sp.set("org_id", params.org_id);
+  if (params?.limit != null) sp.set("limit", String(params.limit));
+  if (params?.offset != null) sp.set("offset", String(params.offset));
+  const qs = sp.toString();
+  return apiFetch(`/api/admin/platform-activity${qs ? `?${qs}` : ""}`);
+}
+
+/**
+ * Super Admin: rotate an org admin's password + resend the invitation email.
+ * Returns the new temp password ONCE so Super Admin can relay manually.
+ */
+export async function resendOrgInvitation(orgId: string) {
+  return apiFetch(`/api/organizations/${orgId}/resend-invitation`, {
+    method: "POST",
+  });
+}
+
+/**
+ * Super Admin: permanently delete an organization and cascade-remove all
+ * of its data. Orphans the members' profiles but leaves auth.users alive
+ * so the emails can be re-invited later.
+ */
+export async function deleteOrganization(orgId: string) {
+  return apiFetch(`/api/organizations/${orgId}`, { method: "DELETE" });
+}
+
+/**
+ * Change the current user's own password. Used by:
+ *   - The force-reset flow when must_reset_password=true on first login
+ *   - The Settings → Account → Change Password button (any user)
+ */
+export async function changeOwnPassword(newPassword: string) {
+  return apiFetch("/api/auth/reset-password", {
+    method: "POST",
+    body: JSON.stringify({ new_password: newPassword }),
+  });
+}
+
+/**
+ * Self-serve org creation for a brand-new user who isn't yet a member of
+ * any organization. Auto-promotes the caller to org_admin of the new org.
+ * Used by the pending-approval page "Create Your Own Organization" flow.
+ */
+export async function selfServeCreateOrganization(name: string) {
+  const formData = new FormData();
+  formData.append("name", name);
+
+  return apiFetch("/api/organizations/self-serve", {
     method: "POST",
     body: formData,
   });
@@ -568,10 +745,20 @@ export async function updatePipelineDeal(outletId: string, data: { deal_priority
 // ============================================
 
 /** Ask the AI assistant a question about your portfolio */
-export async function smartChat(question: string, orgId?: string) {
+export async function smartChat(
+  question: string,
+  orgId?: string,
+  outletId?: string,
+  sessionHistory?: { role: string; message: string }[]
+) {
   return apiFetch("/api/smart-chat", {
     method: "POST",
-    body: JSON.stringify({ question, org_id: orgId }),
+    body: JSON.stringify({
+      question,
+      org_id: orgId,
+      outlet_id: outletId,
+      session_history: sessionHistory,
+    }),
   });
 }
 
@@ -594,10 +781,17 @@ export async function listOutletDocuments(outletId: string) {
 }
 
 /** Upload a document to an outlet */
-export async function uploadOutletDocument(outletId: string, file: File, category: string = "other") {
+export async function uploadOutletDocument(
+  outletId: string,
+  file: File,
+  category: string = "other",
+  options?: { expiryDate?: string; licenseNumber?: string },
+) {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("category", category);
+  if (options?.expiryDate) formData.append("expiry_date", options.expiryDate);
+  if (options?.licenseNumber) formData.append("license_number", options.licenseNumber);
 
   return apiFetch(`/api/outlets/${outletId}/documents`, {
     method: "POST",
@@ -666,6 +860,58 @@ export async function createDraft(data: {
     method: "POST",
     body: JSON.stringify(data),
   });
+}
+
+/** List pre-sign lease drafts (Pipeline → Drafts tab) */
+export async function listLeaseDrafts(status: string = "draft") {
+  return apiFetch(`/api/lease-drafts?status=${encodeURIComponent(status)}`);
+}
+
+/** Discard a pre-sign lease draft */
+export async function deleteLeaseDraft(draftId: string) {
+  return apiFetch(`/api/lease-drafts/${draftId}`, { method: "DELETE" });
+}
+
+// ============================================
+// BRANDS
+// ============================================
+
+export interface Brand {
+  id: string;
+  org_id: string;
+  name: string;
+  logo_url?: string | null;
+  notes?: string | null;
+  created_at?: string;
+}
+
+/** List all brands for the caller's org */
+export async function listBrands(): Promise<{ brands: Brand[]; warning?: string }> {
+  return apiFetch("/api/brands");
+}
+
+/** Create a new brand */
+export async function createBrand(data: { name: string; logo_url?: string; notes?: string }) {
+  return apiFetch("/api/brands", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+/** Update a brand */
+export async function updateBrand(
+  brandId: string,
+  data: { name?: string; logo_url?: string; notes?: string },
+) {
+  return apiFetch(`/api/brands/${brandId}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+/** Delete a brand */
+export async function deleteBrand(brandId: string) {
+  return apiFetch(`/api/brands/${brandId}`, { method: "DELETE" });
 }
 
 // ============================================
@@ -852,12 +1098,10 @@ export async function uploadOrgLogo(orgId: string, file: File) {
 }
 
 // ============================================
-// AGREEMENT DELETE + DUPLICATE CHECK
+// AGREEMENT DUPLICATE CHECK
 // ============================================
-
-export async function deleteAgreement(agreementId: string) {
-  return apiFetch(`/api/agreements/${agreementId}`, { method: "DELETE" });
-}
+// Note: deleteAgreement / restoreAgreement / deleteAgreementForever /
+// listDeletedAgreements are defined in the Agreements block above.
 
 export async function checkDuplicateAgreement(outletId: string, filename: string) {
   // Check if an agreement with similar filename already exists for this outlet
@@ -1218,7 +1462,11 @@ export async function markExtractionJobSeen(jobId: string) {
   return apiFetch(`/api/extraction-jobs/${jobId}/seen`, { method: "PATCH" });
 }
 
-/** Create a critical date / event for an outlet */
+export async function cancelExtractionJob(jobId: string) {
+  return apiFetch(`/api/extraction-jobs/${jobId}/cancel`, { method: "PATCH" });
+}
+
+/** Create an event for an outlet — auto-creates linked reminder + optional payment */
 export async function createCriticalDate(data: {
   outlet_id: string;
   agreement_id?: string;
@@ -1227,7 +1475,12 @@ export async function createCriticalDate(data: {
   date_value: string;
   priority?: string;
   description?: string;
-}) {
+  amount?: number;
+  is_financial?: boolean;
+  is_recurring?: boolean;
+  recurrence_frequency?: string;
+  assigned_to?: string;
+}): Promise<{ event: Record<string, unknown>; reminder_created: boolean; payment_created: boolean }> {
   return apiFetch("/api/critical-dates", {
     method: "POST",
     body: JSON.stringify(data),
