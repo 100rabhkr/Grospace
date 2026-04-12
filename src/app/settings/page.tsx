@@ -291,9 +291,15 @@ function SettingsPageInner() {
   const orgId = user?.orgId;
   const [orgLogoUrl, setOrgLogoUrl] = useState<string | null>(null);
 
-  // Fetch organization details
+  // Fetch organization details. Super Admin (platform_admin) has no org_id
+  // so we must clear loading states immediately to avoid infinite spinners.
   useEffect(() => {
-    if (!orgId) return;
+    if (!orgId) {
+      setLoadingOrg(false);
+      setLoadingMembers(false);
+      setLoadingPrefs(false);
+      return;
+    }
     setLoadingOrg(true);
     getOrganization(orgId)
       .then((data) => {
@@ -310,7 +316,7 @@ function SettingsPageInner() {
 
   // Fetch team members
   useEffect(() => {
-    if (!orgId) return;
+    if (!orgId) { setLoadingMembers(false); return; }
     setLoadingMembers(true);
     getOrgMembers(orgId)
       .then((data) => setTeamMembers(data.items || data.members || []))
@@ -320,7 +326,7 @@ function SettingsPageInner() {
 
   // Fetch alert preferences
   useEffect(() => {
-    if (!orgId) return;
+    if (!orgId) { setLoadingPrefs(false); return; }
     setLoadingPrefs(true);
     getAlertPreferences(orgId)
       .then((data) => {
@@ -799,24 +805,30 @@ function SettingsPageInner() {
               Platform
             </TabsTrigger>
           )}
-          <TabsTrigger
-            value="organization"
-            className="relative h-10 rounded-none bg-transparent px-0 text-[13px] font-semibold text-muted-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:bottom-[-1px] data-[state=active]:after:h-[2px] data-[state=active]:after:bg-foreground"
-          >
-            Organization
-          </TabsTrigger>
-          <TabsTrigger
-            value="brands"
-            className="relative h-10 rounded-none bg-transparent px-0 text-[13px] font-semibold text-muted-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:bottom-[-1px] data-[state=active]:after:h-[2px] data-[state=active]:after:bg-foreground"
-          >
-            Brands
-          </TabsTrigger>
-          <TabsTrigger
-            value="team"
-            className="relative h-10 rounded-none bg-transparent px-0 text-[13px] font-semibold text-muted-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:bottom-[-1px] data-[state=active]:after:h-[2px] data-[state=active]:after:bg-foreground"
-          >
-            Team & Roles
-          </TabsTrigger>
+          {/* Org-scoped tabs: hidden for Super Admin (who has no org_id).
+              Super Admin manages orgs from Platform tab + /organizations/{id}. */}
+          {user?.role !== "platform_admin" && (
+            <>
+              <TabsTrigger
+                value="organization"
+                className="relative h-10 rounded-none bg-transparent px-0 text-[13px] font-semibold text-muted-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:bottom-[-1px] data-[state=active]:after:h-[2px] data-[state=active]:after:bg-foreground"
+              >
+                Organization
+              </TabsTrigger>
+              <TabsTrigger
+                value="brands"
+                className="relative h-10 rounded-none bg-transparent px-0 text-[13px] font-semibold text-muted-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:bottom-[-1px] data-[state=active]:after:h-[2px] data-[state=active]:after:bg-foreground"
+              >
+                Brands
+              </TabsTrigger>
+              <TabsTrigger
+                value="team"
+                className="relative h-10 rounded-none bg-transparent px-0 text-[13px] font-semibold text-muted-foreground data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none data-[state=active]:after:absolute data-[state=active]:after:inset-x-0 data-[state=active]:after:bottom-[-1px] data-[state=active]:after:h-[2px] data-[state=active]:after:bg-foreground"
+              >
+                Team & Roles
+              </TabsTrigger>
+            </>
+          )}
           {/* Approvals — legacy signup-request flow, only Super Admin sees it */}
           {user?.role === "platform_admin" && (
             <TabsTrigger
