@@ -80,14 +80,23 @@ def _get_spreadsheet():
 
 
 def _format_sheet_headers(sheet):
-    """Apply professional formatting to the header row."""
+    """Apply professional dark-header formatting to row 1.
+
+    Dark charcoal background (#292929) with white bold text, frozen so
+    headers stay visible when scrolling. Matches the format the user
+    approved on their existing Sheet1 tab.
+    """
     try:
-        # Bold + gray background for header row
         sheet.format("1:1", {
-            "textFormat": {"bold": True},
-            "backgroundColor": {"red": 0.95, "green": 0.96, "blue": 0.97},
+            "backgroundColor": {"red": 0.16, "green": 0.16, "blue": 0.16},
+            "textFormat": {
+                "bold": True,
+                "foregroundColor": {"red": 1, "green": 1, "blue": 1},
+                "fontSize": 10,
+            },
+            "horizontalAlignment": "LEFT",
+            "verticalAlignment": "MIDDLE",
         })
-        # Freeze header row
         sheet.freeze(rows=1)
     except Exception as e:
         logger.warning(f"Failed to format sheet headers: {e}")
