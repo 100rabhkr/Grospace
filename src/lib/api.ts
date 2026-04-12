@@ -360,6 +360,24 @@ export async function resetSuperAdminPassword() {
 }
 
 /**
+ * Super Admin: cross-org activity feed. Optionally scoped to a single org.
+ * Returns up to `limit` activity_log entries with enriched org names +
+ * actor display names.
+ */
+export async function getPlatformActivity(params?: {
+  org_id?: string;
+  limit?: number;
+  offset?: number;
+}) {
+  const sp = new URLSearchParams();
+  if (params?.org_id) sp.set("org_id", params.org_id);
+  if (params?.limit != null) sp.set("limit", String(params.limit));
+  if (params?.offset != null) sp.set("offset", String(params.offset));
+  const qs = sp.toString();
+  return apiFetch(`/api/admin/platform-activity${qs ? `?${qs}` : ""}`);
+}
+
+/**
  * Super Admin: rotate an org admin's password + resend the invitation email.
  * Returns the new temp password ONCE so Super Admin can relay manually.
  */

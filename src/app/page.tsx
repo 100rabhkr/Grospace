@@ -4,7 +4,10 @@ import { useEffect, useState, useRef, useMemo } from "react";
 import Link from "next/link";
 import { getDashboardStats, smartChat, listOutlets, listPayments, updatePayment, listAgreements, getOrgMembers, logUsage, listUpcomingEvents, listOrganizations } from "@/lib/api";
 import { useUser } from "@/lib/hooks/use-user";
-import { HealthScoreGauge } from "@/components/health-score-gauge";
+// HealthScoreGauge was the duplicate "Portfolio Health" circle that
+// overlapped with the inline "Lease Health" gauge in Zone 2. Removed
+// per user-reported UI bug. The inline SVG gauge at Zone 2 is the
+// single source of truth for the health score now.
 import { OnboardingChecklist } from "@/components/onboarding-checklist";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -43,7 +46,6 @@ import {
   ExternalLink,
   CheckCircle2,
   Calendar,
-  Heart,
   Bot,
   Plus,
   Building2,
@@ -1311,79 +1313,47 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* Portfolio Health / Snapshot */}
-        {avgHealthScore !== null ? (
-          <Card className="rounded-2xl border-border/10 bg-card shadow-card">
-            <CardContent className="p-6">
-              <div className="flex items-center gap-4 mb-6">
-                <div className="relative">
-                  <HealthScoreGauge score={avgHealthScore} size="md" />
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="text-lg font-semibold">{avgHealthScore}</span>
-                  </div>
-                </div>
-                <div>
-                  <h3 className="text-sm font-semibold text-foreground">Portfolio Health</h3>
-                  <p className="text-[11px] text-muted-foreground font-medium">
-                    Based on {stats?.total_agreements ?? 0} active agreements
-                  </p>
-                </div>
-              </div>
-
-              <div className={cn(
-                "p-4 rounded-2xl border flex items-start gap-3",
-                avgHealthScore >= 70 ? "bg-emerald-50/50 border-emerald-100/50" : "bg-amber-50/50 border-amber-100/50"
-              )}>
-                <Heart className={cn("h-4 w-4 shrink-0 mt-0.5", avgHealthScore >= 70 ? "text-emerald-500" : "text-amber-500")} />
-                <p className={cn("text-[13px] font-medium leading-relaxed", avgHealthScore >= 70 ? "text-emerald-900" : "text-amber-900")}>
-                  {avgHealthScore >= 70
-                    ? "Your portfolio is in excellent shape. No major renewal or compliance risks detected."
-                    : avgHealthScore >= 40
-                      ? "A few agreements require immediate attention to maintain compliance metrics."
-                      : "Multiple high-risk flags identified. Urgent review of portfolio is recommended."}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="bg-white p-6 rounded-2xl shadow-card border border-border/10">
-            <h3 className="text-[15px] font-semibold tracking-tight text-foreground mb-6">Portfolio Snapshot</h3>
-            <div className="grid grid-cols-2 gap-4">
-              {/* Risk Flags */}
-              <div className="p-4 rounded-2xl bg-rose-50/60 border border-rose-100">
-                <ShieldAlert className="h-5 w-5 text-destructive mb-2" strokeWidth={2} />
-                <p className="text-[26px] font-semibold text-destructive tracking-tight leading-none">
-                  {String(stats?.total_risk_flags ?? 0).padStart(2, "0")}
-                </p>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-rose-700 mt-1">Risk Flags</p>
-              </div>
-              {/* Expiring */}
-              <div className="p-4 rounded-2xl bg-amber-50/60 border border-amber-100">
-                <CalendarClock className="h-5 w-5 text-amber-600 mb-2" strokeWidth={2} />
-                <p className="text-[26px] font-semibold text-amber-700 tracking-tight leading-none">
-                  {String(stats?.expiring_leases_90d ?? 0).padStart(2, "0")}
-                </p>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-700 mt-1">Expiring</p>
-              </div>
-              {/* Pending Alerts */}
-              <div className="p-4 rounded-2xl bg-accent/60 border border-accent">
-                <Bell className="h-5 w-5 text-primary mb-2" strokeWidth={2} />
-                <p className="text-[26px] font-semibold text-primary tracking-tight leading-none">
-                  {String(stats?.pending_alerts ?? 0).padStart(2, "0")}
-                </p>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-primary mt-1">Pending Alerts</p>
-              </div>
-              {/* Overdue */}
-              <div className="p-4 rounded-2xl bg-emerald-50/60 border border-emerald-100">
-                <IndianRupee className="h-5 w-5 text-emerald-700 mb-2" strokeWidth={2} />
-                <p className="text-[26px] font-semibold text-emerald-700 tracking-tight leading-none">
-                  {String(stats?.overdue_payments_count ?? 0).padStart(2, "0")}
-                </p>
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700 mt-1">Overdue</p>
-              </div>
+        {/* Portfolio Snapshot — risk / expiring / pending / overdue stats.
+            The main health gauge lives in Zone 2's "Lease Health" section
+            above. This duplicate "Portfolio Health" gauge has been removed
+            to fix the overlapping-circle UI bug. */}
+        <div className="bg-white p-6 rounded-2xl shadow-card border border-border/10">
+          <h3 className="text-[15px] font-semibold tracking-tight text-foreground mb-6">Portfolio Snapshot</h3>
+          <div className="grid grid-cols-2 gap-4">
+            {/* Risk Flags */}
+            <div className="p-4 rounded-2xl bg-rose-50/60 border border-rose-100">
+              <ShieldAlert className="h-5 w-5 text-destructive mb-2" strokeWidth={2} />
+              <p className="text-[26px] font-semibold text-destructive tracking-tight leading-none">
+                {String(stats?.total_risk_flags ?? 0).padStart(2, "0")}
+              </p>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-rose-700 mt-1">Risk Flags</p>
+            </div>
+            {/* Expiring */}
+            <div className="p-4 rounded-2xl bg-amber-50/60 border border-amber-100">
+              <CalendarClock className="h-5 w-5 text-amber-600 mb-2" strokeWidth={2} />
+              <p className="text-[26px] font-semibold text-amber-700 tracking-tight leading-none">
+                {String(stats?.expiring_leases_90d ?? 0).padStart(2, "0")}
+              </p>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-700 mt-1">Expiring</p>
+            </div>
+            {/* Pending Alerts */}
+            <div className="p-4 rounded-2xl bg-accent/60 border border-accent">
+              <Bell className="h-5 w-5 text-primary mb-2" strokeWidth={2} />
+              <p className="text-[26px] font-semibold text-primary tracking-tight leading-none">
+                {String(stats?.pending_alerts ?? 0).padStart(2, "0")}
+              </p>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-primary mt-1">Pending Alerts</p>
+            </div>
+            {/* Overdue */}
+            <div className="p-4 rounded-2xl bg-emerald-50/60 border border-emerald-100">
+              <IndianRupee className="h-5 w-5 text-emerald-700 mb-2" strokeWidth={2} />
+              <p className="text-[26px] font-semibold text-emerald-700 tracking-tight leading-none">
+                {String(stats?.overdue_payments_count ?? 0).padStart(2, "0")}
+              </p>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700 mt-1">Overdue</p>
             </div>
           </div>
-        )}
+        </div>
       </div>
 
       {/* -------------------------------------------------------------- */}

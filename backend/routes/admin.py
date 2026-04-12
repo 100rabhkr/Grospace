@@ -1347,6 +1347,68 @@ def invite_org_member(
     }
 
 
+@router.get("/admin/platform-activity", dependencies=[Depends(require_permission("*"))])
+def get_platform_activity(
+    org_id: Optional[str] = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    user: Optional[CurrentUser] = Depends(get_current_user),
+):
+    """
+    Super Admin: cross-org activity feed. Optionally scoped to a single
+    org via ?org_id=... Returns the most recent entries with org names
+    and actor display names joined from profiles.
+    """
+    if not user or user.role != "platform_admin":
+        raise HTTPException(status_code=403, detail="Super Admin only")
+
+    query = supabase.table("activity_log").select(
+        "id, org_id, user_id, entity_type, entity_id, action, details, created_at"
+    ).order("created_at", desc=True).range(offset, offset + limit - 1)
+
+    if org_id:
+        query = query.eq("org_id", org_id)
+
+    result = query.execute()
+    rows = result.data or []
+
+    # Enrich with org names + actor display names (batch lookup)
+    org_ids = sorted({r.get("org_id") for r in rows if r.get("org_id")})
+    user_ids = sorted({r.get("user_id") for r in rows if r.get("user_id")})
+
+    org_map: dict = {}
+    if org_ids:
+        try:
+            orgs = supabase.table("organizations").select("id, name").in_("id", org_ids).execute()
+            org_map = {o["id"]: o["name"] for o in (orgs.data or [])}
+        except Exception:
+            pass
+
+    user_map: dict = {}
+    if user_ids:
+        try:
+            profiles = supabase.table("profiles").select("id, full_name, email").in_("id", user_ids).execute()
+            user_map = {p["id"]: p.get("full_name") or p.get("email") or p["id"] for p in (profiles.data or [])}
+        except Exception:
+            pass
+
+    items = []
+    for row in rows:
+        items.append({
+            "id": row["id"],
+            "org_id": row.get("org_id"),
+            "org_name": org_map.get(row.get("org_id") or "", "—"),
+            "action": row.get("action"),
+            "entity_type": row.get("entity_type"),
+            "entity_id": row.get("entity_id"),
+            "details": row.get("details") or {},
+            "created_at": row.get("created_at"),
+            "actor": user_map.get(row.get("user_id") or "", "System"),
+        })
+
+    return {"items": items, "total": len(items)}
+
+
 @router.delete("/organizations/{org_id}/members/{user_id}", dependencies=[Depends(require_permission("manage_org_members"))])
 def remove_org_member(org_id: str, user_id: str):
     """Remove a member from the organization."""

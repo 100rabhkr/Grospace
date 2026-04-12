@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { getOutlet, updateOutlet, getActivityLog, listShowcases, createShowcase, updateShowcase, uploadOutletDocument, deleteDocument, listOutletContacts, addOutletContact, updateContact, deleteContact, uploadRevenueCSV } from "@/lib/api";
+import { getOutlet, updateOutlet, getActivityLog, listShowcases, createShowcase, updateShowcase, uploadOutletDocument, deleteDocument, listOutletContacts, addOutletContact, updateContact, deleteContact, uploadRevenueCSV, uploadAndExtractAsync, getExtractionJob, confirmAndActivate } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -363,6 +363,7 @@ export default function OutletDetailPage() {
   // Reminder creation state
   const [showCreateReminder, setShowCreateReminder] = useState(false);
   const [showCreateEvent, setShowCreateEvent] = useState(false);
+  const [showUploadLease, setShowUploadLease] = useState(false);
   const [eventForm, setEventForm] = useState({
     title: "", event_type: "custom", date_value: "", priority: "medium",
     description: "", amount: "", is_financial: false, is_recurring: false,
@@ -776,12 +777,10 @@ export default function OutletDetailPage() {
         {/* Action buttons — 2 rows */}
         <div className="flex flex-col gap-2 items-end">
           <div className="flex items-center gap-2">
-            <Link href={`/agreements/upload?outlet_id=${outlet.id}`}>
-              <Button size="sm" className="gap-1.5 bg-foreground hover:bg-foreground/90">
-                <Upload className="h-3.5 w-3.5" />
-                Upload Lease
-              </Button>
-            </Link>
+            <Button size="sm" className="gap-1.5 bg-foreground hover:bg-foreground/90" onClick={() => setShowUploadLease(true)}>
+              <Upload className="h-3.5 w-3.5" />
+              Upload Lease
+            </Button>
             {agreements.length > 0 && (
               <Link href={`/agreements/${agreements[0].id}`}>
                 <Button variant="outline" size="sm" className="gap-1.5">
@@ -1124,12 +1123,10 @@ export default function OutletDetailPage() {
             <Upload className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
             <p className="text-sm font-medium text-muted-foreground mb-1">No lease document uploaded yet</p>
             <p className="text-xs text-muted-foreground/60 mb-3">Upload a lease agreement to see rent model, events, payments, and financial details.</p>
-            <Link href={`/agreements/upload?outlet_id=${outlet.id}`}>
-              <Button size="sm" className="gap-1.5">
-                <Upload className="h-3.5 w-3.5" />
-                Upload Lease Document
-              </Button>
-            </Link>
+            <Button size="sm" className="gap-1.5" onClick={() => setShowUploadLease(true)}>
+              <Upload className="h-3.5 w-3.5" />
+              Upload Lease Document
+            </Button>
           </CardContent>
         </Card>
       )}
@@ -2560,6 +2557,30 @@ export default function OutletDetailPage() {
         </div>
       )}
 
+      {/* ================================================================ */}
+      {/* Upload Lease Modal — self-contained in-page dialog.             */}
+      {/* User picks file + doc type, clicks Upload. Backend uploads to   */}
+      {/* storage + starts async OCR. Modal polls the extraction job.     */}
+      {/* On completion, auto-activates the agreement against this        */}
+      {/* outlet (existing_outlet_id) then refreshes the page.            */}
+      {/* ================================================================ */}
+      {showUploadLease && (
+        <UploadLeaseModal
+          outletId={outlet.id}
+          onClose={() => setShowUploadLease(false)}
+          onComplete={async () => {
+            setShowUploadLease(false);
+            // Full refresh so the new agreement, events, payments, etc show up
+            try {
+              const refreshed = await getOutlet(outlet.id);
+              setData(refreshed);
+            } catch {
+              window.location.reload();
+            }
+          }}
+        />
+      )}
+
       {/* Create Event Dialog */}
       {showCreateEvent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -2778,6 +2799,272 @@ export default function OutletDetailPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+
+// -------------------------------------------------------------------
+// Upload Lease Modal — self-contained in-page dialog
+// -------------------------------------------------------------------
+// Replaces navigation to /agreements/upload. Stays on the outlet page
+// the whole time. Steps: pick file → pick doc type → upload → poll
+// extraction → auto-activate against this outlet → refresh.
+
+const DOC_TYPES = [
+  { value: "lease_agreement", label: "Lease Agreement" },
+  { value: "lease_loi", label: "Letter of Intent (LOI)" },
+  { value: "license_agreement", label: "License Agreement" },
+  { value: "sublease", label: "Sublease" },
+  { value: "amendment", label: "Amendment / Addendum" },
+  { value: "mou", label: "MOU" },
+  { value: "other", label: "Other" },
+];
+
+function UploadLeaseModal({
+  outletId,
+  onClose,
+  onComplete,
+}: {
+  outletId: string;
+  onClose: () => void;
+  onComplete: () => void;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  const [docType, setDocType] = useState("lease_agreement");
+  const [step, setStep] = useState<"pick" | "processing" | "done" | "error">("pick");
+  const [progress, setProgress] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  async function handleUpload() {
+    if (!file) return;
+    setStep("processing");
+    setProgress("Uploading document…");
+    setError(null);
+
+    try {
+      // 1. Upload + start async extraction
+      const job = await uploadAndExtractAsync(file);
+
+      if (job.status === "duplicate") {
+        // File was already uploaded — skip extraction, auto-activate
+        setProgress("Document already extracted. Activating…");
+        try {
+          await confirmAndActivate({
+            extraction: job.extraction || {},
+            document_type: docType,
+            risk_flags: job.risk_flags || [],
+            confidence: job.confidence || {},
+            filename: file.name,
+            existing_outlet_id: outletId,
+            document_url: job.document_url,
+            file_hash: job.file_hash,
+          });
+        } catch {
+          // Even if activation fails, the extraction is done
+        }
+        setStep("done");
+        return;
+      }
+
+      if (!job.job_id) {
+        throw new Error("Upload started but no job ID returned");
+      }
+
+      // 2. Poll until complete or failed
+      setProgress("Processing with GroSpace AI…");
+      const maxPollMs = 5 * 60 * 1000; // 5 min
+      const pollIntervalMs = 3000;
+      const start = Date.now();
+
+      while (Date.now() - start < maxPollMs) {
+        await new Promise((r) => setTimeout(r, pollIntervalMs));
+        const status = await getExtractionJob(job.job_id);
+        const elapsed = Math.round((Date.now() - start) / 1000);
+        setProgress(`Processing… ${elapsed}s elapsed`);
+
+        if (status.status === "completed" && status.result) {
+          // 3. Auto-activate against this outlet
+          setProgress("Extraction complete. Creating agreement…");
+          try {
+            await confirmAndActivate({
+              extraction: status.result.extraction || status.result,
+              document_type: docType,
+              risk_flags: status.result.risk_flags || [],
+              confidence: status.result.confidence || status.result.extraction_confidence || {},
+              filename: file.name,
+              existing_outlet_id: outletId,
+              document_url: status.result.document_url,
+              file_hash: status.result.file_hash,
+            });
+          } catch (activateErr) {
+            // Extraction succeeded but activation failed — still
+            // useful, the extraction can be reviewed from /processing
+            console.error("Auto-activate failed:", activateErr);
+          }
+          setStep("done");
+          return;
+        }
+
+        if (status.status === "failed" || status.status === "cancelled") {
+          throw new Error(status.error || "Extraction failed");
+        }
+      }
+
+      throw new Error("Processing timed out after 5 minutes. Check the Processing page.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed");
+      setStep("error");
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <div className="bg-white rounded-xl shadow-2xl max-w-md w-full">
+        {/* Header */}
+        <div className="px-6 py-4 border-b border-border flex items-center justify-between">
+          <div>
+            <h3 className="text-base font-semibold">Upload Lease Document</h3>
+            <p className="text-[11.5px] text-muted-foreground mt-0.5">
+              AI-powered extraction. Stays on this page.
+            </p>
+          </div>
+          {step === "pick" && (
+            <Button variant="ghost" size="sm" onClick={onClose} className="text-xs">
+              Cancel
+            </Button>
+          )}
+        </div>
+
+        {/* Body */}
+        <div className="px-6 py-5">
+          {step === "pick" && (
+            <div className="space-y-4">
+              {/* File picker */}
+              <div
+                className="border-2 border-dashed border-border rounded-lg p-6 text-center cursor-pointer hover:border-foreground/30 transition-colors"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.png,.jpg,.jpeg,.webp,.tiff,.tif"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) setFile(f);
+                  }}
+                />
+                {file ? (
+                  <div>
+                    <FileText className="h-8 w-8 text-foreground/60 mx-auto mb-2" />
+                    <p className="text-[13px] font-semibold truncate">{file.name}</p>
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      {(file.size / (1024 * 1024)).toFixed(2)} MB · Click to change
+                    </p>
+                  </div>
+                ) : (
+                  <div>
+                    <Upload className="h-8 w-8 text-muted-foreground/40 mx-auto mb-2" />
+                    <p className="text-[13px] font-medium text-muted-foreground">Click to select a PDF or image</p>
+                    <p className="text-[11px] text-muted-foreground/60 mt-1">Max 50MB</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Doc type */}
+              <div>
+                <label className="text-[11.5px] font-medium text-muted-foreground block mb-1.5">Document type</label>
+                <Select value={docType} onValueChange={setDocType}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DOC_TYPES.map((dt) => (
+                      <SelectItem key={dt.value} value={dt.value}>{dt.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <Button
+                className="w-full gap-2"
+                disabled={!file}
+                onClick={handleUpload}
+              >
+                <Upload className="h-3.5 w-3.5" />
+                Upload & Extract
+              </Button>
+            </div>
+          )}
+
+          {step === "processing" && (
+            <div className="py-8 text-center space-y-4">
+              <Loader2 className="h-8 w-8 animate-spin text-foreground/60 mx-auto" />
+              <div>
+                <p className="text-[13px] font-semibold text-foreground">{progress}</p>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  This typically takes 2–4 minutes for PDFs. You can close this
+                  dialog and check the Processing page — the extraction will
+                  continue in the background.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-xs"
+                onClick={() => {
+                  onClose();
+                  // Don't call onComplete — user chose to leave mid-processing.
+                  // The extraction will finish in the background and appear in
+                  // the Processing page. They can activate it from there.
+                }}
+              >
+                Close & continue in background
+              </Button>
+            </div>
+          )}
+
+          {step === "done" && (
+            <div className="py-8 text-center space-y-4">
+              <div className="h-12 w-12 rounded-full bg-emerald-100 flex items-center justify-center mx-auto">
+                <CheckCircle2 className="h-6 w-6 text-emerald-600" />
+              </div>
+              <div>
+                <p className="text-[15px] font-semibold text-foreground">Lease processed & activated</p>
+                <p className="text-[12px] text-muted-foreground mt-1">
+                  The agreement has been created, events auto-generated, and
+                  payments scheduled. Refreshing this page now…
+                </p>
+              </div>
+              <Button size="sm" onClick={onComplete}>
+                Done
+              </Button>
+            </div>
+          )}
+
+          {step === "error" && (
+            <div className="py-6 text-center space-y-4">
+              <div className="h-12 w-12 rounded-full bg-rose-100 flex items-center justify-center mx-auto">
+                <AlertTriangle className="h-6 w-6 text-rose-600" />
+              </div>
+              <div>
+                <p className="text-[13px] font-semibold text-foreground">Upload failed</p>
+                <p className="text-[12px] text-rose-600 mt-1">{error}</p>
+              </div>
+              <div className="flex items-center gap-2 justify-center">
+                <Button variant="outline" size="sm" onClick={onClose}>
+                  Close
+                </Button>
+                <Button size="sm" onClick={() => { setStep("pick"); setError(null); }}>
+                  Try again
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

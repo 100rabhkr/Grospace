@@ -592,12 +592,35 @@ function SettingsPageInner() {
     }
   }
 
+  // Invite result banner — shown after inviting a member so the inviter
+  // can see whether the email was delivered, and copy the temp password
+  // manually if Resend blocked the recipient (test-mode limitation).
+  const [inviteResult, setInviteResult] = useState<{
+    email: string;
+    tempPassword: string;
+    emailSent: boolean;
+    emailReason?: string | null;
+    emailError?: string | null;
+  } | null>(null);
+
   async function handleInvite() {
     if (!orgId || !inviteEmail) return;
     setInviting(true);
+    setInviteResult(null);
     try {
       const res = await inviteOrgMember(orgId, inviteEmail, inviteRole);
       setTeamMembers((prev) => [...prev, { ...res.member, status: "invited" }]);
+
+      // Surface the result to the UI so the inviter can copy credentials
+      // if the invitation email failed (common in Resend test mode).
+      setInviteResult({
+        email: res.member?.email || inviteEmail,
+        tempPassword: res.temp_password || "",
+        emailSent: !!res.email_sent,
+        emailReason: res.email_reason,
+        emailError: res.email_error,
+      });
+
       setInviteEmail("");
       setInviteRole("org_member");
       setShowInviteForm(false);
@@ -984,6 +1007,65 @@ function SettingsPageInner() {
               Invite Member
             </Button>
           </div>
+
+          {/* Invite result banner — show generated credentials + email status */}
+          {inviteResult && (
+            <div className={`rounded-lg border p-4 space-y-2 ${
+              inviteResult.emailSent
+                ? "border-emerald-200 bg-emerald-50/30"
+                : "border-amber-200 bg-amber-50/30"
+            }`}>
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className={`text-[13px] font-semibold ${inviteResult.emailSent ? "text-emerald-900" : "text-amber-900"}`}>
+                    {inviteResult.emailSent
+                      ? `Invitation email sent to ${inviteResult.email}`
+                      : `Email could not be sent to ${inviteResult.email}`}
+                  </p>
+                  {inviteResult.emailReason === "test_mode_recipient_blocked" && (
+                    <p className="text-[11.5px] text-amber-800 mt-1 leading-relaxed">
+                      Resend is in test mode and can only deliver to the account owner&apos;s email.
+                      Verify a custom domain at <a href="https://resend.com/domains" target="_blank" rel="noopener noreferrer" className="underline font-semibold">resend.com/domains</a> to unlock delivery to all recipients.
+                      For now, <strong>copy the credentials below</strong> and hand them off manually.
+                    </p>
+                  )}
+                  {inviteResult.emailError && inviteResult.emailReason !== "test_mode_recipient_blocked" && (
+                    <p className="text-[11.5px] text-amber-800 mt-1">{inviteResult.emailError}</p>
+                  )}
+                </div>
+                <Button size="sm" variant="ghost" onClick={() => setInviteResult(null)} className="text-[11px] shrink-0">
+                  Dismiss
+                </Button>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div className="rounded bg-white border border-border px-3 py-2">
+                  <p className="text-[9.5px] uppercase tracking-wider text-muted-foreground font-semibold">Login email</p>
+                  <p className="text-[12px] font-mono text-foreground mt-0.5 break-all">{inviteResult.email}</p>
+                </div>
+                <div className="rounded bg-white border border-border px-3 py-2">
+                  <p className="text-[9.5px] uppercase tracking-wider text-muted-foreground font-semibold">Temporary password</p>
+                  <p className="text-[12px] font-mono text-foreground mt-0.5 break-all">{inviteResult.tempPassword}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-[11px] gap-1"
+                  onClick={() => {
+                    const text = `Login: ${inviteResult.email}\nPassword: ${inviteResult.tempPassword}\nURL: ${window.location.origin}/auth/login`;
+                    navigator.clipboard.writeText(text);
+                    alert("Credentials copied to clipboard!");
+                  }}
+                >
+                  Copy credentials
+                </Button>
+                <p className="text-[10.5px] text-muted-foreground">
+                  Save this — the password won&apos;t be shown again.
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Role hierarchy explanation */}
           <div className="rounded-lg border border-blue-100 bg-blue-50/50 p-3 text-xs text-blue-700">
