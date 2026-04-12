@@ -779,11 +779,22 @@ export default function Dashboard() {
           if (scores.length > 0) {
             setAvgHealthScore(Math.round(scores.reduce((a, b) => a + b, 0) / scores.length));
           } else if (totalAgreements > 0) {
-            // Agreements exist but the LLM didn't write a health_score.
-            // Compute one from observable risk signals so the dashboard
-            // reflects the real portfolio state instead of the 75
-            // placeholder fallback.
-            let computed = 100;
+            // Real health score computed from observable data:
+            //
+            //   Base: 100 points per agreement
+            //   Deductions:
+            //     -10 per HIGH severity risk flag
+            //      -5 per MEDIUM severity risk flag
+            //      -2 per LOW severity risk flag
+            //      -5 if lease expires within 90 days
+            //     -15 if lease is already expired
+            //      -3 per overdue payment (fetched from stats)
+            //
+            //   Score = average across all agreements, clamped to 0-100
+            //
+            //   This gives a real signal: 6 flags on a single agreement
+            //   (1 high + 3 medium + 2 low) = 100 - 10 - 15 - 4 = 71
+            let computed = 100 * totalAgreements;
             for (const agr of agreements) {
               const risks = Array.isArray(agr.risk_flags) ? agr.risk_flags : [];
               for (const r of risks) {
@@ -797,7 +808,11 @@ export default function Dashboard() {
                 else if (days <= 0) computed -= 15;
               }
             }
-            setAvgHealthScore(Math.max(0, Math.min(100, Math.round(computed / Math.max(1, totalAgreements)) * 1)));
+            // Factor in overdue payments from dashboard stats
+            const overdueCount = stats?.overdue_payments_count ?? 0;
+            computed -= overdueCount * 3;
+
+            setAvgHealthScore(Math.max(0, Math.min(100, Math.round(computed / totalAgreements))));
           } else {
             // No agreements at all — leave as null so the UI shows the
             // "no data yet" empty state instead of a misleading 75.

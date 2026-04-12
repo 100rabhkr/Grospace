@@ -654,15 +654,18 @@ export default function OrganizationDetailPage() {
               <CardContent>
                 <div className="divide-y divide-border -mx-1">
                   {data.outlets.slice(0, 8).map((o) => (
-                    <div key={o.id} className="flex items-center justify-between px-1 py-2.5">
+                    <Link key={o.id} href={`/outlets/${o.id}`} className="flex items-center justify-between px-1 py-2.5 hover:bg-muted/30 rounded transition-colors group">
                       <div className="min-w-0 flex-1">
-                        <p className="text-[13px] font-medium truncate">{o.name}</p>
+                        <p className="text-[13px] font-medium truncate group-hover:underline">{o.name}</p>
                         <p className="text-[11px] text-muted-foreground truncate">
                           {o.city || "—"}{o.brand_name ? ` · ${o.brand_name}` : ""}
                         </p>
                       </div>
-                      <Badge variant="secondary" className="text-[10px]">{o.status || "—"}</Badge>
-                    </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <Badge variant="secondary" className="text-[10px]">{o.status || "—"}</Badge>
+                        <ChevronRight className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </div>
+                    </Link>
                   ))}
                 </div>
               </CardContent>
